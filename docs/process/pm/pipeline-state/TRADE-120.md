@@ -1,0 +1,15 @@
+# Pipeline State: TRADE-120
+- Pipeline: design-audit
+- Mode: full
+- Current Stage: qa-regression-and-wrap-up
+- Completed Stages: intake, ticketing-and-bootstrap, baseline-audit, deep-audit-evidence, deep-audit-report, design-solution-architecture, implementation-ui-hardening, docs-handoff-package
+- Next Stage: sprint-closure
+- Current Owner: Сокіл-Координатор (PM Orchestrator)
+- Next Owner: Ловець Багів (TDD QA)
+- Ticket: TRADE-120
+- Last Updated: 2026-03-20T16:52:00+01:00
+- Blocking Gates: none
+- Evidence Links: TRADE-120-cockpit-design-audit-brief.md, TRADE-120-cockpit-baseline-uiux-findings.md, TRADE-120-cockpit-deep-uiux-audit.md, TRADE-125-canonical-cockpit-ui-spec.md, TRADE-126-playwright-visual-baseline-regression.md, TRADE-127-frontend-eslint-flat-config.md, TRADE-128-playwright-mcp-context-lock.md
+- Active Branch: codex/TRADE-120-cockpit-design-audit
+- Worktree Path: /Users/myasnikoviv/development/trade_bot-worktrees/TRADE-120
+- Preflight Token: /Users/myasnikoviv/development/trade_bot-worktrees/TRADE-120/docs/process/git/preflights/TRADE-120.env

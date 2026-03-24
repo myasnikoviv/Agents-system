@@ -1,0 +1,28 @@
+import fs from 'fs/promises';
+import os from 'os';
+import path from 'path';
+import { defaultChainsState, loadChainsState, persistChainsState } from '../CockpitChainsState';
+
+describe('CockpitChainsState', () => {
+  it('falls back to defaults when file is missing', async () => {
+    const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'cockpit-chains-'));
+    const missing = path.join(tmp, 'missing.json');
+    const fallback = defaultChainsState();
+    const loaded = loadChainsState(missing, fallback);
+    expect(Object.keys(loaded.threadsByProject)).toContain('trade_bot');
+  });
+
+  it('persists and reloads state', async () => {
+    const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'cockpit-chains-'));
+    const file = path.join(tmp, 'state.json');
+    const state = {
+      threadsByProject: {
+        trade_bot: [{ id: 't1', label: 'Thread 1', updatedAt: '2026-03-22T00:00:00Z' }],
+      },
+    };
+    persistChainsState(file, state);
+    const loaded = loadChainsState(file, defaultChainsState());
+    expect(loaded.threadsByProject.trade_bot[0].id).toBe('t1');
+  });
+});
+
