@@ -1,0 +1,18 @@
+# Pipeline State: AGSYS-212
+- Pipeline: feature-change
+- Mode: full
+- Current Stage: implementation
+- Completed Stages: intake, planning
+- Next Stage: verification
+- Current Owner: Developer
+- Next Owner: QA
+- Ticket: AGSYS-212
+- Thread: cockpit-executor-backplane
+- Last Updated: 2026-03-22T20:27:00Z
+- Blocking Gates: none
+- Evidence Links: docs/process/tickets/AGSYS-212-executor-backplane.md
+- Plane Status: In Progress
+- Branch: codex/AGSYS-212-executor-cli
+- Worktree: /Users/myasnikoviv/development/trade_bot-worktrees/AGSYS-212
+- Preflight Token: docs/process/git/preflights/AGSYS-212.env
+- Acceptance Lock: YES
