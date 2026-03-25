@@ -71,7 +71,7 @@ describe('RoleToolLoop guards', () => {
     const result = validatePlannedToolActions(
       env,
       [{ tool: 'filesystem', purpose: 'implement feature' }],
-      { branch: 'codex/TRADE-80', worktreePath: '/tmp/wt-80' },
+      { branch: 'codex/AGSYS-80', worktreePath: '/tmp/wt-80' },
       { preflightDir: tmpDir },
     );
 
@@ -92,7 +92,7 @@ describe('RoleToolLoop guards', () => {
     fs.writeFileSync(
       tokenPath,
       [
-        'BRANCH=codex/TRADE-80',
+        'BRANCH=codex/AGSYS-80',
         'WORKTREE=/tmp/wt-80',
         'STATUS=APPROVED',
         'EXECUTION_APPROVED=YES',
@@ -105,7 +105,7 @@ describe('RoleToolLoop guards', () => {
     const result = validatePlannedToolActions(
       env,
       [{ tool: 'filesystem', purpose: 'implement feature' }],
-      { branch: 'codex/TRADE-80', worktreePath: '/tmp/wt-80' },
+      { branch: 'codex/AGSYS-80', worktreePath: '/tmp/wt-80' },
       { preflightDir: tmpDir },
     );
 

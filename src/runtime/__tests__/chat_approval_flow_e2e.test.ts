@@ -21,8 +21,6 @@ beforeAll(async () => {
   process.env.OPENAI_API_KEY = 'test-key';
   process.env.PILOT_DELEGATED_ROLES = 'research';
   process.env.PILOT_APPROVAL_POLICY_MODE = 'git-only';
-  process.env.TRADE_BOT_SHARED_DATA_DIR = `${process.env.HOME}/development/.trade_bot_data`;
-  process.env.STRATEGY_DB_PATH = `${process.env.HOME}/development/.trade_bot_data/db/strategies.db`;
   const mod = await import('../../server');
   app = mod.default;
 
@@ -99,10 +97,10 @@ describe('Chat approve flow e2e', () => {
       threadId: startData.threadId,
       blockingGates: 'approval_required',
       evidenceLinks: startData.runId,
-      activeBranch: 'codex/TRADE-78-main-recovery',
-      worktreePath: '/Users/myasnikoviv/development/trade_bot-worktrees/TRADE-78',
+      activeBranch: 'codex/AGSYS-78-main-recovery',
+      worktreePath: '/Users/myasnikoviv/development/agent-system-worktrees/AGSYS-78',
       preflightToken:
-        '/Users/myasnikoviv/development/trade_bot-worktrees/TRADE-78/docs/process/git/preflights/TRADE-78.env',
+        '/Users/myasnikoviv/development/agent-system-worktrees/AGSYS-78/docs/process/git/preflights/AGSYS-78.env',
     });
 
     const approve = await fetch(`${baseUrl}/api/chat/approve`, {

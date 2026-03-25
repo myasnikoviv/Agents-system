@@ -7,7 +7,7 @@ export type CockpitChainsState = { threadsByProject: Record<string, CockpitThrea
 export function defaultChainsState(): CockpitChainsState {
   return {
     threadsByProject: {
-      trade_bot: [
+      agent_system: [
         { id: 'current-session', label: 'Current Session', updatedAt: new Date().toISOString() },
         { id: 'ux-sprint-6', label: 'UX Sprint 6 Wave', updatedAt: new Date().toISOString() },
         { id: 'qa-gate', label: 'Final QA Gate', updatedAt: new Date().toISOString() },
@@ -36,4 +36,3 @@ export function persistChainsState(filePath: string, state: CockpitChainsState):
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   fs.writeFileSync(filePath, JSON.stringify(state, null, 2), 'utf-8');
 }
-

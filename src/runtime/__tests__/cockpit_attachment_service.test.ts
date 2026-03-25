@@ -15,7 +15,7 @@ describe('CockpitAttachmentService', () => {
       originalName: 'sample.txt',
       mimeType: 'text/plain',
       size: 16,
-      projectId: 'trade_bot',
+      projectId: 'agent_system',
       threadId: `thread-${Date.now()}`,
     });
 

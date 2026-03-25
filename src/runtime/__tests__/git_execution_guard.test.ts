@@ -13,7 +13,7 @@ describe('GitExecutionGuard', () => {
 
   it('allows non-main mutating action', () => {
     const result = validateMainBranchMutationPolicy({
-      context: { branch: 'codex/TRADE-79', worktreePath: '/tmp/wt' },
+      context: { branch: 'codex/AGSYS-79', worktreePath: '/tmp/wt' },
       hasMutatingAction: true,
     });
     expect(result.ok).toBe(true);

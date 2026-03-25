@@ -22,14 +22,14 @@ describe('PipelineStateService git context continuity', () => {
       threadId,
       blockingGates: 'approval_required',
       evidenceLinks: 'run-1',
-      activeBranch: 'codex/TRADE-83',
+      activeBranch: 'codex/AGSYS-83',
       worktreePath: '/tmp/wt-83',
       preflightToken: '/tmp/preflights/TRADE-83.env',
     });
 
     const card = await readPipelineStateCard(ticket, threadId);
     expect(card).not.toBeNull();
-    expect(card?.activeBranch).toBe('codex/TRADE-83');
+    expect(card?.activeBranch).toBe('codex/AGSYS-83');
     expect(card?.worktreePath).toBe('/tmp/wt-83');
     expect(card?.preflightToken).toBe('/tmp/preflights/TRADE-83.env');
   });
@@ -50,7 +50,7 @@ describe('PipelineStateService git context continuity', () => {
       threadId,
       blockingGates: 'approval_required',
       evidenceLinks: 'run-2',
-      activeBranch: 'codex/TRADE-83',
+      activeBranch: 'codex/AGSYS-83',
       worktreePath: '/tmp/wt-83',
       preflightToken: '/tmp/preflights/TRADE-83.env',
     });
@@ -85,7 +85,7 @@ describe('PipelineStateService git context continuity', () => {
       threadId,
       blockingGates: 'approval_required',
       evidenceLinks: 'run-3',
-      activeBranch: 'codex/TRADE-83',
+      activeBranch: 'codex/AGSYS-83',
       worktreePath: '/tmp/wt-83',
       preflightToken: '/tmp/preflights/TRADE-83.env',
       editorSource: 'codex',
