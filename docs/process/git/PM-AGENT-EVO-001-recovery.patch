@@ -1,0 +1,732 @@
+diff --git a/AGENTS.md b/AGENTS.md
+index 10365fb..ff646d3 100644
+--- a/AGENTS.md
++++ b/AGENTS.md
+@@ -1,60 +1,91 @@
+-# Multi-Agent Operating Model
++# Multi-Agent Operating Model v2 (Cognitive)
+ 
+ This repository uses a role-based agent system for product work, strategy logic updates, testing, and release.
+ 
+ ## Agent Registry
+ 
+-1. PM Orchestrator
++1. PM Orchestrator / Supervisor
+    - Callsign: `Сокіл-Координатор (PM Orchestrator)`
+    - File: `docs/agents/pm-orchestrator.md`
+    - Skill: `docs/skills/pm-orchestrator-skill.md`
+-2. Trader Analyst
++2. Research Agent
++   - Callsign: `Дослідник Шляху (Research Agent)`
++   - File: `docs/agents/research-agent.md`
++   - Skill: `docs/skills/research-agent-skill.md`
++3. Trader Analyst
+    - Callsign: `Ринковий Вовк (Trader Analyst)`
+    - File: `docs/agents/trader-analyst.md`
+    - Skill: `docs/skills/trader-analyst-skill.md`
+-3. Solution Architect
++4. Solution Architect
+    - Callsign: `Майстер Креслень (Solution Architect)`
+    - File: `docs/agents/solution-architect.md`
+    - Skill: `docs/skills/solution-architect-skill.md`
+-4. TDD QA
++5. TDD QA
+    - Callsign: `Ловець Багів (TDD QA)`
+    - File: `docs/agents/tdd-qa.md`
+    - Skill: `docs/skills/tdd-qa-skill.md`
+-5. Developer
++6. Developer
+    - Callsign: `Кодоковаль (Developer)`
+    - File: `docs/agents/developer.md`
+    - Skill: `docs/skills/developer-skill.md`
+-6. Code Reviewer
++7. Code Reviewer
+    - Callsign: `Вартовий Якості (Code Reviewer)`
+    - File: `docs/agents/code-reviewer.md`
+    - Skill: `docs/skills/code-reviewer-skill.md`
+-7. Runner Backtest
++8. Runner Backtest
+    - Callsign: `Бойовий Прогін (Runner Backtest)`
+    - File: `docs/agents/runner-backtest.md`
+    - Skill: `docs/skills/runner-backtest-skill.md`
+-8. Git Flow Manager
++9. Knowledge Curator / Learning Agent
++   - Callsign: `Хранитель Знань (Knowledge Curator)`
++   - File: `docs/agents/knowledge-curator.md`
++   - Skill: `docs/skills/knowledge-curator-skill.md`
++10. Domain Validator (optional, mandatory for domain-heavy tasks)
++   - Callsign: `Вартовий Домену (Domain Validator)`
++   - File: `docs/agents/domain-validator.md`
++   - Skill: `docs/skills/domain-validator-skill.md`
++11. Git Flow Manager
+    - Callsign: `Пан Гілка (Git Flow Manager)`
+    - File: `docs/agents/git-flow-manager.md`
+    - Skill: `docs/skills/git-flow-manager-skill.md`
+-9. Documentation Owner
++12. Documentation Owner
+    - Callsign: `Хранитель Писань (Documentation Owner)`
+    - File: `docs/agents/documentation-owner.md`
+    - Skill: `docs/skills/documentation-owner-skill.md`
+-10. DevOps Engineer
++13. DevOps Engineer
+    - Callsign: `Техно-Рятівник (DevOps Engineer)`
+    - File: `docs/agents/devops-engineer.md`
+    - Skill: `docs/skills/devops-engineer-skill.md`
+ 
++## Cognitive Loop Contract
++
++For medium/high complexity work, key agents run this loop:
++
++`perceive -> think -> plan -> act -> reflect -> update_memory -> improve_instructions`
++
+ ## Pipelines
+ 
+-1. New Feature: `docs/pipelines/new-feature.md`
+-2. Feature Change: `docs/pipelines/feature-change.md`
+-3. Bug Fix: `docs/pipelines/bug-fix.md`
+-4. Hotfix: `docs/pipelines/hotfix.md`
+-5. Refactor: `docs/pipelines/refactor.md`
+-6. Strategy Tuning / Research Loop: `docs/pipelines/strategy-tuning.md`
+-7. Release: `docs/pipelines/release.md`
+-8. Rollback / Incident: `docs/pipelines/rollback-incident.md`
++1. Unified Task Intake: `docs/pipelines/unified-task-intake.md`
++2. New Feature: `docs/pipelines/new-feature.md`
++3. Feature Change: `docs/pipelines/feature-change.md`
++4. Bug Fix: `docs/pipelines/bug-fix.md`
++5. Hotfix: `docs/pipelines/hotfix.md`
++6. Refactor: `docs/pipelines/refactor.md`
++7. Strategy Tuning / Research Loop: `docs/pipelines/strategy-tuning.md`
++8. Retrospective & Learning: `docs/pipelines/retrospective-learning.md`
++9. Git Conflict / Wrong-Branch Recovery: `docs/pipelines/git-conflict-recovery.md`
++10. Release: `docs/pipelines/release.md`
++11. Rollback / Incident: `docs/pipelines/rollback-incident.md`
++
++## Knowledge Layer
++
++- Knowledge root: `docs/knowledge/`
++- Schema: `docs/knowledge/schema.md`
++- Lessons learned registry: `docs/knowledge/lessons-learned/`
++- Decision log: `docs/knowledge/decisions/`
++- Architecture rules registry: `docs/knowledge/architecture-rules/`
++- Domain validation notes: `docs/knowledge/domain-notes/`
++- Skills registry and lifecycle: `docs/skills/skill-schema-v2.md`
+ 
+ ## Global Rules
+ 
+@@ -66,7 +97,10 @@ This repository uses a role-based agent system for product work, strategy logic
+ - Any agent planning to add/modify/delete files must request Git permission from `Пан Гілка (Git Flow Manager)` first.
+ - No mutating work starts until Git preflight confirms branch/worktree/scope plan.
+ - Direct pushes to `main` are forbidden for role agents; merge/push flow is coordinated by `Пан Гілка (Git Flow Manager)` via approved branch/worktree path.
+-- Git Flow Manager must run periodic drift audit (`scripts/git/worktree_audit.sh`) and PM must reconcile audit result before sprint closure.
++- PM must run or request periodic drift audit (`scripts/git/worktree_audit.sh`) and reconcile audit output before sprint closure.
++- Complex tasks may not jump directly to implementation; they must pass intake, clarification, and (if needed) research/challenge stages.
++- Any instruction/skill/policy self-improvement must be traceable and reviewed before approval.
++- Critical self-improvement changes require explicit human override capability (`approve/reject`).
+ 
+ ## Standard Artifacts
+ 
+@@ -76,10 +110,13 @@ This repository uses a role-based agent system for product work, strategy logic
+ - Run report: `docs/process/runs/<id>.md`
+ - Review report: `docs/process/reviews/<id>.md`
+ - Release note: `docs/process/releases/<id>.md`
++- Retrospective report: `docs/process/retrospectives/<id>.md`
++- Skill proposal: `docs/process/skills/<id>.md`
++- Instruction evolution proposal: `docs/process/instructions/<id>.md`
+ 
+-## Suggested Runtime Order
++## Suggested Runtime Order (Full Path)
+ 
+-PM -> Trader + Architect -> TDD QA -> Developer -> Reviewer -> Runner -> Trader -> PM decision -> Git -> Docs
++PM intake -> Clarification -> Research -> Challenge -> Architect -> QA planning -> Dev/DevOps/Runner -> Reviewer -> Domain validation -> PM decision -> Retro/Learning -> Git -> Docs
+ 
+ ## Communication Persona Protocol
+ 
+@@ -88,12 +125,15 @@ PM -> Trader + Architect -> TDD QA -> Developer -> Reviewer -> Runner -> Trader
+ - Every assistant reply must start with `Active role: <Callsign (Role)>`.
+ - On each explicit switch, response starts with a short marker:
+   - `Active role: PM`
++  - `Active role: Research`
+   - `Active role: Developer`
+   - `Active role: Architect`
+   - `Active role: Trader`
+   - `Active role: QA`
+   - `Active role: Reviewer`
+   - `Active role: Runner`
++  - `Active role: Learning`
++  - `Active role: Domain`
+   - `Active role: Git`
+   - `Active role: DevOps`
+   - `Active role: Docs`
+diff --git a/docs/agents/code-reviewer.md b/docs/agents/code-reviewer.md
+index 0cb2a3e..a3757b4 100644
+--- a/docs/agents/code-reviewer.md
++++ b/docs/agents/code-reviewer.md
+@@ -20,3 +20,9 @@ Reject risky or incorrect changes and enforce quality standards.
+ ## Guardrails
+ - Findings first, summary second.
+ - Block merge if high-risk issue is unresolved.
++
++## Mandatory Git Coordination
++- Before any mutating work (add/modify/delete files), the agent must get explicit preflight approval from `Пан Гілка (Git Flow Manager)`.
++- The agent must confirm and state the exact assigned `worktree` and `branch` before starting changes.
++- Work is allowed only inside the assigned worktree/branch and approved scope; otherwise the agent must stop and escalate.
++- Any mutation without Git preflight approval is a process violation.
+diff --git a/docs/agents/developer.md b/docs/agents/developer.md
+index eb58c0d..fb80ded 100644
+--- a/docs/agents/developer.md
++++ b/docs/agents/developer.md
+@@ -22,3 +22,9 @@ Implement minimal correct change that turns tests green.
+ - Do not solve by UI masking backend inconsistencies.
+ - Before any file mutation, request Git permission/preflight from Git Flow Manager.
+ - Work only inside assigned branch/worktree.
++
++## Mandatory Git Coordination
++- Before any mutating work (add/modify/delete files), the agent must get explicit preflight approval from `Пан Гілка (Git Flow Manager)`.
++- The agent must confirm and state the exact assigned `worktree` and `branch` before starting changes.
++- Work is allowed only inside the assigned worktree/branch and approved scope; otherwise the agent must stop and escalate.
++- Any mutation without Git preflight approval is a process violation.
+diff --git a/docs/agents/devops-engineer.md b/docs/agents/devops-engineer.md
+index bbb72d7..5267245 100644
+--- a/docs/agents/devops-engineer.md
++++ b/docs/agents/devops-engineer.md
+@@ -25,3 +25,9 @@ Keep local and runtime infrastructure stable, reproducible, and observable for t
+ - No hidden manual steps: every fix must be scriptable/reproducible.
+ - No UI-only workaround for infrastructure faults.
+ - Keep secrets out of repo; document only required keys and sources.
++
++## Mandatory Git Coordination
++- Before any mutating work (add/modify/delete files), the agent must get explicit preflight approval from `Пан Гілка (Git Flow Manager)`.
++- The agent must confirm and state the exact assigned `worktree` and `branch` before starting changes.
++- Work is allowed only inside the assigned worktree/branch and approved scope; otherwise the agent must stop and escalate.
++- Any mutation without Git preflight approval is a process violation.
+diff --git a/docs/agents/documentation-owner.md b/docs/agents/documentation-owner.md
+index 066c320..1ac6de1 100644
+--- a/docs/agents/documentation-owner.md
++++ b/docs/agents/documentation-owner.md
+@@ -19,3 +19,9 @@ Keep docs synchronized with accepted behavior and architecture.
+ ## Guardrails
+ - Update docs after acceptance gate only.
+ - No undocumented behavior change.
++
++## Mandatory Git Coordination
++- Before any mutating work (add/modify/delete files), the agent must get explicit preflight approval from `Пан Гілка (Git Flow Manager)`.
++- The agent must confirm and state the exact assigned `worktree` and `branch` before starting changes.
++- Work is allowed only inside the assigned worktree/branch and approved scope; otherwise the agent must stop and escalate.
++- Any mutation without Git preflight approval is a process violation.
+diff --git a/docs/agents/git-flow-manager.md b/docs/agents/git-flow-manager.md
+index da94d11..2d6b730 100644
+--- a/docs/agents/git-flow-manager.md
++++ b/docs/agents/git-flow-manager.md
+@@ -9,6 +9,7 @@ Keep repository history safe, auditable, and clean.
+ - Merge strategy
+ - Pre-change git planning (before implementation starts)
+ - Worktree topology and assignment registry
++- Wrong-branch/conflict recovery execution (`docs/pipelines/git-conflict-recovery.md`)
+ 
+ ## Inputs
+ - Approved change package
+@@ -53,3 +54,10 @@ Keep repository history safe, auditable, and clean.
+ 4. Release assignment after merge/close and prune stale worktrees.
+ 5. Run `scripts/git/worktree_audit.sh` at least once daily and before sprint closure.
+ 6. Post audit summary to PM (pass/fail + concrete mismatches).
++
++## Mandatory Git Coordination
++- Any mutating work (add/modify/delete files) may start only after Git Flow Manager publishes explicit preflight approval.
++- Preflight approval must include assigned `branch`, assigned `worktree`, allowed `scope`, and rollback note.
++- If assignee workspace/branch does not match the approved assignment, work is blocked until reassignment is recorded.
++- Any unapproved mutation is a process violation and must be escalated to PM immediately.
++- For branch/scope conflict incidents, Git Flow Manager must run recovery pipeline before any merge/commit continuation.
+diff --git a/docs/agents/pm-orchestrator.md b/docs/agents/pm-orchestrator.md
+index d42898c..db21e0a 100644
+--- a/docs/agents/pm-orchestrator.md
++++ b/docs/agents/pm-orchestrator.md
+@@ -1,16 +1,20 @@
+-# PM Orchestrator
++# PM Orchestrator / Supervisor
+ 
+ ## Mission
+-Convert business intent into executable technical work and control delivery flow.
++Convert business intent into executable technical work and supervise the full cognitive delivery loop.
+ 
+ ## Owns
+ - Scope definition
+ - Priority and acceptance criteria
+ - Final go/no-go decision
+ - Team delivery effectiveness and process discipline
++- Pipeline mode decision: `full` vs `lightweight`
++- Retrospective trigger and knowledge update trigger
++- Skill/instruction evolution escalation
+ 
+ ## Inputs
+ - User business request
++- Research brief (when full path is required)
+ - Trader assessment
+ - Architecture constraints
+ - Test and run reports
+@@ -24,6 +28,9 @@ Convert business intent into executable technical work and control delivery flow
+ - Team issue register (`docs/process/pm/team-issue-register.md`)
+ - Daily audit reports (`docs/process/pm/audits/YYYY-MM-DD.md`)
+ - Preventive task brief notes with role-specific checklists
++- Intake mode declaration with rationale
++- Retrospective request (`docs/process/retrospectives/<id>.md`)
++- Proposal requests for skill/instruction updates (`docs/process/skills`, `docs/process/instructions`)
+ 
+ ## Guardrails
+ - No vague tasks; each task must be measurable.
+@@ -33,6 +40,8 @@ Convert business intent into executable technical work and control delivery flow
+ - PM tracks blockers, rework loops, and ownership drift every sprint and adjusts workflow.
+ - Creating title-only tickets is forbidden.
+ - No ticket may enter `In Progress` without full technical brief.
++- Medium/high complexity tasks cannot skip clarification and challenge stages.
++- Domain-heavy tasks require research and domain validation before implementation.
+ 
+ ## PM Operating Rules
+ 1. Before moving any issue to `In Progress`, PM checks known failure patterns in `team-issue-register.md`.
+@@ -66,6 +75,10 @@ Convert business intent into executable technical work and control delivery flow
+ 17. PM keeps warning findings under active monitoring until resolved.
+ 18. PM must request Git Flow Manager drift audit (`scripts/git/worktree_audit.sh`) before sprint close and after major ticket waves.
+ 19. PM must reconcile Plane status vs active worktree registry; no sprint close while orphan branches/worktrees remain.
++20. PM classifies each task as `lightweight` or `full` intake path and records rationale in the ticket.
++21. PM must run challenge stage before implementation for tasks with non-trivial assumptions.
++22. PM must trigger retrospective-learning pipeline after completion.
++23. PM must route recurring failures to Knowledge Curator for reusable updates.
+ 
+ ## Definition of Effective Pipeline
+ - Fewer back-and-forth loops on the same defect class.
+@@ -73,3 +86,9 @@ Convert business intent into executable technical work and control delivery flow
+ - Reduced cycle time from ticket start to accepted result.
+ - Lower ratio of "rework due to missed guardrails".
+ - Clean ownership chain with evidence-backed handoffs between roles.
++
++## Mandatory Git Coordination
++- Before any mutating work (add/modify/delete files), the agent must get explicit preflight approval from `Пан Гілка (Git Flow Manager)`.
++- The agent must confirm and state the exact assigned `worktree` and `branch` before starting changes.
++- Work is allowed only inside the assigned worktree/branch and approved scope; otherwise the agent must stop and escalate.
++- Any mutation without Git preflight approval is a process violation.
+diff --git a/docs/agents/runner-backtest.md b/docs/agents/runner-backtest.md
+index 7bcdae2..edee13a 100644
+--- a/docs/agents/runner-backtest.md
++++ b/docs/agents/runner-backtest.md
+@@ -19,3 +19,9 @@ Run reproducible experiments and provide objective performance evidence.
+ ## Guardrails
+ - Same dataset/timezone/config for fair comparison.
+ - Always provide command set and seed/config snapshot.
++
++## Mandatory Git Coordination
++- Before any mutating work (add/modify/delete files), the agent must get explicit preflight approval from `Пан Гілка (Git Flow Manager)`.
++- The agent must confirm and state the exact assigned `worktree` and `branch` before starting changes.
++- Work is allowed only inside the assigned worktree/branch and approved scope; otherwise the agent must stop and escalate.
++- Any mutation without Git preflight approval is a process violation.
+diff --git a/docs/agents/solution-architect.md b/docs/agents/solution-architect.md
+index dcfe973..fc49807 100644
+--- a/docs/agents/solution-architect.md
++++ b/docs/agents/solution-architect.md
+@@ -19,3 +19,9 @@ Define safe implementation path and protect architecture consistency.
+ ## Guardrails
+ - Enforce SRP and clear ownership of logic.
+ - Prevent cross-layer coupling and hidden side effects.
++
++## Mandatory Git Coordination
++- Before any mutating work (add/modify/delete files), the agent must get explicit preflight approval from `Пан Гілка (Git Flow Manager)`.
++- The agent must confirm and state the exact assigned `worktree` and `branch` before starting changes.
++- Work is allowed only inside the assigned worktree/branch and approved scope; otherwise the agent must stop and escalate.
++- Any mutation without Git preflight approval is a process violation.
+diff --git a/docs/agents/tdd-qa.md b/docs/agents/tdd-qa.md
+index 54d5789..d4dd46f 100644
+--- a/docs/agents/tdd-qa.md
++++ b/docs/agents/tdd-qa.md
+@@ -19,3 +19,9 @@ Write failing tests first and define correctness contracts before implementation
+ ## Guardrails
+ - No implementation before red tests exist.
+ - Cover happy path, edge cases, and regressions.
++
++## Mandatory Git Coordination
++- Before any mutating work (add/modify/delete files), the agent must get explicit preflight approval from `Пан Гілка (Git Flow Manager)`.
++- The agent must confirm and state the exact assigned `worktree` and `branch` before starting changes.
++- Work is allowed only inside the assigned worktree/branch and approved scope; otherwise the agent must stop and escalate.
++- Any mutation without Git preflight approval is a process violation.
+diff --git a/docs/agents/trader-analyst.md b/docs/agents/trader-analyst.md
+index a9194b0..63666e9 100644
+--- a/docs/agents/trader-analyst.md
++++ b/docs/agents/trader-analyst.md
+@@ -21,3 +21,9 @@ Keep strategy behavior aligned with trading logic and expected market interpreta
+ ## Guardrails
+ - Distinguish model bug vs parameter side effect.
+ - Every claim must map to concrete timestamps and examples.
++
++## Mandatory Git Coordination
++- Before any mutating work (add/modify/delete files), the agent must get explicit preflight approval from `Пан Гілка (Git Flow Manager)`.
++- The agent must confirm and state the exact assigned `worktree` and `branch` before starting changes.
++- Work is allowed only inside the assigned worktree/branch and approved scope; otherwise the agent must stop and escalate.
++- Any mutation without Git preflight approval is a process violation.
+diff --git a/docs/pipelines/bug-fix.md b/docs/pipelines/bug-fix.md
+index c926f2a..93096ad 100644
+--- a/docs/pipelines/bug-fix.md
++++ b/docs/pipelines/bug-fix.md
+@@ -5,14 +5,17 @@ Fix a confirmed defect and prevent recurrence.
+ 
+ ## Steps
+ 1. PM: create bug ticket with reproducible scenario.
+-2. Git Flow Manager: run git preflight (hotfix/bugfix branch, commit scope, rollback).
+-3. Architect: localize root cause area.
+-4. TDD QA: write failing test reproducing bug.
+-5. Developer: implement fix until test is green.
+-6. Reviewer: verify root-cause fix (not symptom patch).
+-7. Runner: validate no KPI collapse.
+-8. PM: approve.
+-9. Git + Docs: merge and add bugfix note.
++2. PM + Architect: classify whether bug requires lightweight or full intake path.
++3. Research Agent (only for complex/systemic bug): identify known failure patterns and safer fix strategies.
++4. Git Flow Manager: run git preflight (hotfix/bugfix branch, commit scope, rollback).
++5. Architect: localize root cause area.
++6. TDD QA: write failing test reproducing bug.
++7. Developer: implement fix until test is green.
++8. Reviewer: verify root-cause fix (not symptom patch).
++9. Runner: validate no KPI collapse.
++10. PM: approve.
++11. Knowledge Curator: classify failure and update reusable lesson.
++12. Git + Docs: merge and add bugfix note.
+ 
+ ## Exit Criteria
+ - Repro test exists and passes
+diff --git a/docs/pipelines/feature-change.md b/docs/pipelines/feature-change.md
+index dd240ed..9315b6f 100644
+--- a/docs/pipelines/feature-change.md
++++ b/docs/pipelines/feature-change.md
+@@ -4,15 +4,18 @@
+ Modify existing behavior without unintended regressions.
+ 
+ ## Steps
+-1. PM: define exact delta from current behavior.
+-2. Git Flow Manager: run git preflight (branch/scope/commit/rollback plan).
+-3. Architect: scope impacted contracts/modules.
+-4. TDD QA: add regression tests for current and new expected behavior.
+-5. Developer: implement minimal diff.
+-6. Reviewer: focus on regressions and hidden side effects.
+-7. Runner + Trader: compare old vs new KPIs and event timeline.
+-8. PM: accept/rework.
+-9. Git + Docs: merge and document delta.
++1. PM: run unified intake and classify complexity/risk.
++2. Research Agent (if full path): evaluate alternatives and implementation risks.
++3. PM + Architect: challenge assumptions and finalize exact behavior delta.
++4. Git Flow Manager: run git preflight (branch/scope/commit/rollback plan).
++5. Architect: scope impacted contracts/modules.
++6. TDD QA: add regression tests for current and new expected behavior.
++7. Developer: implement minimal diff.
++8. Reviewer: focus on regressions and hidden side effects.
++9. Runner + Trader: compare old vs new KPIs and event timeline.
++10. PM: accept/rework.
++11. Knowledge Curator: run retrospective-learning handoff.
++12. Git + Docs: merge and document delta.
+ 
+ ## Exit Criteria
+ - Regression matrix green
+diff --git a/docs/pipelines/hotfix.md b/docs/pipelines/hotfix.md
+index 00e4e26..bc9b4b1 100644
+--- a/docs/pipelines/hotfix.md
++++ b/docs/pipelines/hotfix.md
+@@ -5,14 +5,16 @@ Emergency production-safe correction with minimal blast radius.
+ 
+ ## Steps
+ 1. PM + Architect: define smallest safe patch.
+-2. Git Flow Manager: run git preflight for emergency path (branch/scope/rollback).
+-3. TDD QA: write targeted failing test.
+-4. Developer: implement minimal hotfix.
+-5. Reviewer: strict correctness review.
+-6. Runner: short critical smoke run.
+-7. PM: immediate go/no-go.
+-8. Git: hotfix branch merge and tag.
+-9. Docs: incident and hotfix record.
++2. PM: record intake mode as `lightweight-emergency` or escalate to full path if ambiguity is high.
++3. Git Flow Manager: run git preflight for emergency path (branch/scope/rollback).
++4. TDD QA: write targeted failing test.
++5. Developer: implement minimal hotfix.
++6. Reviewer: strict correctness review.
++7. Runner: short critical smoke run.
++8. PM: immediate go/no-go.
++9. Knowledge Curator: append incident lesson and prevention note.
++10. Git: hotfix branch merge and tag.
++11. Docs: incident and hotfix record.
+ 
+ ## Exit Criteria
+ - Critical issue removed
+diff --git a/docs/pipelines/new-feature.md b/docs/pipelines/new-feature.md
+index 03475d5..990944c 100644
+--- a/docs/pipelines/new-feature.md
++++ b/docs/pipelines/new-feature.md
+@@ -4,17 +4,20 @@
+ Deliver new capability with controlled risk and full traceability.
+ 
+ ## Steps
+-1. PM: create ticket with measurable acceptance criteria.
+-2. Git Flow Manager: run git preflight (branch/scope/commit/rollback plan).
+-3. Trader + Architect: agree business logic and technical design.
+-4. TDD QA: write failing tests.
+-5. Developer: implement to green.
+-6. Reviewer: approve or return with findings.
+-7. Runner: execute baseline vs candidate runs.
+-8. Trader: validate strategy behavior and metrics.
+-9. PM: final accept/rework decision.
+-10. Git: merge and tag.
+-11. Docs: update documentation/changelog.
++1. PM: run unified intake (`docs/pipelines/unified-task-intake.md`) and choose `full` or `lightweight`.
++2. Research Agent (if full path): produce research brief with alternatives/trade-offs.
++3. PM + Architect (+ Domain Validator if needed): challenge assumptions and approve solution path.
++4. Git Flow Manager: run git preflight (branch/scope/commit/rollback plan).
++5. Trader + Architect: agree business logic and technical design.
++6. TDD QA: write failing tests.
++7. Developer: implement to green.
++8. Reviewer: approve or return with findings.
++9. Runner: execute baseline vs candidate runs.
++10. Trader: validate strategy behavior and metrics.
++11. PM: final accept/rework decision.
++12. PM + Knowledge Curator: run retrospective-learning pipeline.
++13. Git: merge and tag.
++14. Docs: update documentation/changelog.
+ 
+ ## Exit Criteria
+ - Acceptance criteria passed
+diff --git a/docs/pipelines/refactor.md b/docs/pipelines/refactor.md
+index 36e1dc1..e3b8f65 100644
+--- a/docs/pipelines/refactor.md
++++ b/docs/pipelines/refactor.md
+@@ -5,13 +5,16 @@ Improve structure/maintainability without behavior change.
+ 
+ ## Steps
+ 1. PM + Architect: define non-functional target and guardrails.
+-2. Git Flow Manager: run git preflight (scope split + commit plan mandatory).
+-3. TDD QA: freeze behavior with characterization tests.
+-4. Developer: refactor in small safe commits.
+-5. Reviewer: enforce no behavior drift.
+-6. Runner: compare baseline and refactor outputs.
+-7. PM: accept only if parity confirmed.
+-8. Git + Docs: merge with architecture note.
++2. PM: decide intake mode (full path required if architecture surface is broad).
++3. Research Agent (if full path): evaluate refactor patterns and migration risk.
++4. Git Flow Manager: run git preflight (scope split + commit plan mandatory).
++5. TDD QA: freeze behavior with characterization tests.
++6. Developer: refactor in small safe commits.
++7. Reviewer: enforce no behavior drift.
++8. Runner: compare baseline and refactor outputs.
++9. PM: accept only if parity confirmed.
++10. Knowledge Curator: store lessons and anti-pattern notes.
++11. Git + Docs: merge with architecture note.
+ 
+ ## Exit Criteria
+ - Behavior parity proven
+diff --git a/docs/pipelines/strategy-tuning.md b/docs/pipelines/strategy-tuning.md
+index aa17632..ee64b47 100644
+--- a/docs/pipelines/strategy-tuning.md
++++ b/docs/pipelines/strategy-tuning.md
+@@ -5,15 +5,18 @@ Tune logic/inputs iteratively with quantified trade-off control.
+ 
+ ## Steps
+ 1. PM: state optimization objective (example: better precision, fewer false sessions).
+-2. Git Flow Manager: run git preflight for tuning iteration scope.
+-3. Trader: define market/logic hypothesis.
+-4. Architect: define safe tunable surface.
+-5. Runner: execute parameter sweep plan.
+-6. Trader: analyze runs and pick candidates.
+-7. TDD QA + Developer: codify selected logic changes with tests.
+-8. Reviewer: validate risks.
+-9. PM: decide next iteration or accept.
+-10. Git + Docs: record chosen configuration and rationale.
++2. PM: force full intake path for domain-heavy tuning.
++3. Research Agent: compare alternative methods and known patterns.
++4. Domain Validator + Trader: produce ambiguity report and validation plan.
++5. Architect: define safe tunable surface.
++6. Git Flow Manager: run git preflight for tuning iteration scope.
++7. Runner: execute parameter sweep plan.
++8. Trader: analyze runs and pick candidates.
++9. TDD QA + Developer: codify selected logic changes with tests.
++10. Reviewer: validate risks.
++11. PM: decide next iteration or accept.
++12. Knowledge Curator: capture lessons, missing skills, and instruction proposals if needed.
++13. Git + Docs: record chosen configuration and rationale.
+ 
+ ## Exit Criteria
+ - Objective metrics improved or explicitly rejected with reasons
+diff --git a/docs/process/INDEX.md b/docs/process/INDEX.md
+index f0eba0d..84522d2 100644
+--- a/docs/process/INDEX.md
++++ b/docs/process/INDEX.md
+@@ -10,6 +10,9 @@ Single entry point for process artifacts used by PM and all role-agents.
+ - Test plans and evidence: `/Users/myasnikoviv/development/trade_bot/docs/process/tests`
+ - Runs and manifests: `/Users/myasnikoviv/development/trade_bot/docs/process/runs`
+ - Review checklists: `/Users/myasnikoviv/development/trade_bot/docs/process/reviews`
++- Retrospectives: `/Users/myasnikoviv/development/trade_bot/docs/process/retrospectives`
++- Skill proposals: `/Users/myasnikoviv/development/trade_bot/docs/process/skills`
++- Instruction proposals: `/Users/myasnikoviv/development/trade_bot/docs/process/instructions`
+ - Git policy and worktree ops: `/Users/myasnikoviv/development/trade_bot/docs/process/git`
+ - Ops baseline and incident playbooks: `/Users/myasnikoviv/development/trade_bot/docs/process/ops`
+ - PM controls and audits: `/Users/myasnikoviv/development/trade_bot/docs/process/pm`
+@@ -17,15 +20,19 @@ Single entry point for process artifacts used by PM and all role-agents.
+ - Docs lifecycle policy: `/Users/myasnikoviv/development/trade_bot/docs/process/docs-lifecycle-labels.md`
+ 
+ ## Mandatory Operational Docs
++- Unified intake pipeline: `/Users/myasnikoviv/development/trade_bot/docs/pipelines/unified-task-intake.md`
++- Retrospective pipeline: `/Users/myasnikoviv/development/trade_bot/docs/pipelines/retrospective-learning.md`
++- Git conflict recovery pipeline: `/Users/myasnikoviv/development/trade_bot/docs/pipelines/git-conflict-recovery.md`
+ - Ticket brief template: `/Users/myasnikoviv/development/trade_bot/docs/process/tickets/TICKET-BRIEF-TEMPLATE.md`
+ - PM handoff protocol: `/Users/myasnikoviv/development/trade_bot/docs/process/pm/handoff-protocol.md`
+ - PM ticket quality checklist: `/Users/myasnikoviv/development/trade_bot/docs/process/pm/ticket-quality-checklist.md`
+ - Git worktree policy: `/Users/myasnikoviv/development/trade_bot/docs/process/git/worktree-policy.md`
++- Git conflict recovery template: `/Users/myasnikoviv/development/trade_bot/docs/process/git/GIT-CONFLICT-RECOVERY-TEMPLATE.md`
+ - PM daily audit script: `/Users/myasnikoviv/development/trade_bot/scripts/plane/pm_daily_audit.sh`
+ - Dependency drift check: `/Users/myasnikoviv/development/trade_bot/scripts/ops/check_dependency_drift.sh`
+ - QA-201 regression matrix: `/Users/myasnikoviv/development/trade_bot/docs/process/tests/QA-201-regression-matrix-v1.md`
+ 
+-## Current Sprint References
+-- Sprint orchestration: `/Users/myasnikoviv/development/trade_bot/docs/process/tickets/PM-802-readiness-sprint-orchestration.md`
+-- Team issues register: `/Users/myasnikoviv/development/trade_bot/docs/process/pm/team-issue-register.md`
+-- Daily audit: `/Users/myasnikoviv/development/trade_bot/docs/process/pm/audits/2026-03-13.md`
++## Cognitive Layer
++- KB root: `/Users/myasnikoviv/development/trade_bot/docs/knowledge`
++- KB schema: `/Users/myasnikoviv/development/trade_bot/docs/knowledge/schema.md`
++- Skill schema: `/Users/myasnikoviv/development/trade_bot/docs/skills/skill-schema-v2.md`
+diff --git a/docs/process/README.md b/docs/process/README.md
+index 349e976..9353355 100644
+--- a/docs/process/README.md
++++ b/docs/process/README.md
+@@ -10,6 +10,10 @@ Canonical entrypoint: `/Users/myasnikoviv/development/trade_bot/docs/process/IND
+ - `runs/` backtest and experiment reports
+ - `reviews/` code review findings
+ - `releases/` release and incident notes
++- `retrospectives/` post-task reflection reports
++- `skills/` skill create/update proposals
++- `instructions/` instruction evolution proposals
+ - `ops/` infrastructure inventory, drift, and incident playbooks
+ - `pm/` sprint efficiency and team execution registers
+ - `git/` worktree policy and assignment registry
++- `git/` also stores wrong-branch/conflict recovery artifacts and templates
+diff --git a/docs/process/git/worktree-policy.md b/docs/process/git/worktree-policy.md
+index e796b17..2cea3ab 100644
+--- a/docs/process/git/worktree-policy.md
++++ b/docs/process/git/worktree-policy.md
+@@ -24,6 +24,7 @@ Enable safe parallel branch execution on one host without cross-branch collision
+ ## Exceptions
+ - Pure read-only analysis may run from root workspace.
+ - Any file modification still requires preflight + assigned worktree.
++- If wrong-branch or mixed-scope mutation is detected, execute `docs/pipelines/git-conflict-recovery.md`.
+ 
+ ## Audit Routine
+ 1. Git Flow Manager runs `scripts/git/worktree_audit.sh` daily.
+diff --git a/docs/process/pm/git-preflight-log.md b/docs/process/pm/git-preflight-log.md
+index 343ced1..e78ac70 100644
+--- a/docs/process/pm/git-preflight-log.md
++++ b/docs/process/pm/git-preflight-log.md
+@@ -76,3 +76,44 @@ Record every approved git preflight decision before implementation starts.
+   - Revert per commit group.
+ - Notes/Risks:
+   - Existing large mixed working tree should be split under GIT-604 before backlog acceleration.
++
++### 2026-03-16 / Cognitive Multi-Agent Platform v2 Foundation
++- Ticket: PM-AGENT-EVO-001
++- Requested by: PM
++- Git owner: Git Flow Manager
++- Branch decision:
++  - New branch: `codex/agent-evo-v2-foundation`
++  - Reuse existing branch: NO
++- Scope split decision:
++  - Split required: YES
++  - Split strategy:
++    1. Agent registry and role docs.
++    2. Pipeline upgrades (intake + retrospective).
++    3. Knowledge/skill schemas and proposal templates.
++- Commit plan:
++  - Keep foundation artifacts grouped by scope (registry/pipeline/knowledge).
++- Rollback plan:
++  - Revert by scope group if process regression is detected.
++- Notes/Risks:
++  - Retroactive log entry: implementation edits were created before this preflight note.
++
++### 2026-03-16 / Recovery Preflight (Wrong Branch Incident)
++- Ticket: PM-AGENT-EVO-001
++- Requested by: PM
++- Git owner: Git Flow Manager
++- Branch decision:
++  - New branch: `codex/agent-evo-v2-foundation` (pending approval)
++  - Reuse existing branch: NO
++- Scope split decision:
++  - Split required: YES
++  - Split strategy:
++    1. Agent and pipeline governance docs.
++    2. Knowledge/skills subsystem docs.
++    3. Recovery/Git process artifacts.
++- Commit plan:
++  - Atomic commits per concern to avoid mixed-scope history.
++- Rollback plan:
++  - Revert by commit bucket; keep patch snapshot backup.
++- Notes/Risks:
++  - Recovery initiated due to out-of-scope edits in `codex/pm-ticket-hygiene-and-gitflow-guard`.
++  - Execution blocked until Git Flow Manager confirms worktree assignment.
+diff --git a/docs/skills/pm-orchestrator-skill.md b/docs/skills/pm-orchestrator-skill.md
+index bde3a62..471f9fb 100644
+--- a/docs/skills/pm-orchestrator-skill.md
++++ b/docs/skills/pm-orchestrator-skill.md
+@@ -1,16 +1,53 @@
+-# Skill: PM Orchestrator
++# Skill: PM Orchestrator (Supervisor v2)
++
++## Skill Name
++Task Supervision and Intake Control
+ 
+ ## Purpose
+-Translate business request into executable and testable work package.
++Translate business request into executable and testable work package with planning, challenge, reflection, and learning gates.
++
++## When To Use
++- All incoming tasks
++- Mandatory full path for medium/high complexity and domain-heavy work
++
++## Inputs
++- User request
++- Relevant knowledge entries and prior lessons
++- Architecture and domain constraints
++
++## Outputs
++- Intake mode decision (`full` or `lightweight`)
++- Refined problem statement
++- Assumptions list
++- Acceptance criteria
++- Handoff plan
++- Retrospective trigger
++
++## Constraints
++- No direct implementation start for complex tasks without research/challenge stages
++- No merge without evidence and acceptance traceability
+ 
+ ## Workflow
+-1. Capture problem, goal, constraints.
+-2. Define measurable acceptance criteria.
+-3. Split into deliverable slices.
+-4. Assign handoff order across agents.
+-
+-## Required Output
+-- Ticket id
+-- Scope in/out
+-- Acceptance checklist
+-- Priority and risk note
++1. Classify task complexity/risk and pick intake mode.
++2. Refine problem and assumptions.
++3. Trigger research/challenge when required.
++4. Approve implementation plan and handoff order.
++5. Trigger retrospective and knowledge updates after completion.
++
++## Validation Checklist
++- Intake mode justified
++- Assumptions explicit
++- Risks/unknowns listed
++- Acceptance criteria measurable
++- Retro trigger completed
++
++## Common Mistakes
++- Treating user-proposed solution as implementation truth
++- Skipping challenge stage for high-assumption tasks
++
++## Examples
++- Full path for strategy tuning request with unclear domain assumptions.
++
++## Related Skills
++- `docs/skills/research-agent-skill.md`
++- `docs/skills/knowledge-curator-skill.md`

@@ -1,0 +1,43 @@
+ M AGENTS.md
+ M docs/agents/code-reviewer.md
+ M docs/agents/developer.md
+ M docs/agents/devops-engineer.md
+ M docs/agents/documentation-owner.md
+ M docs/agents/git-flow-manager.md
+ M docs/agents/pm-orchestrator.md
+ M docs/agents/runner-backtest.md
+ M docs/agents/solution-architect.md
+ M docs/agents/tdd-qa.md
+ M docs/agents/trader-analyst.md
+ M docs/pipelines/bug-fix.md
+ M docs/pipelines/feature-change.md
+ M docs/pipelines/hotfix.md
+ M docs/pipelines/new-feature.md
+ M docs/pipelines/refactor.md
+ M docs/pipelines/strategy-tuning.md
+ M docs/process/INDEX.md
+ M docs/process/README.md
+ M docs/process/git/worktree-policy.md
+ M docs/process/pm/git-preflight-log.md
+ M docs/skills/pm-orchestrator-skill.md
+?? docs/agents/domain-validator.md
+?? docs/agents/knowledge-curator.md
+?? docs/agents/research-agent.md
+?? docs/knowledge/
+?? docs/pipelines/git-conflict-recovery.md
+?? docs/pipelines/retrospective-learning.md
+?? docs/pipelines/unified-task-intake.md
+?? docs/process/designs/COGNITIVE-PLATFORM-ROADMAP-v1.md
+?? docs/process/git/GIT-CONFLICT-RECOVERY-TEMPLATE.md
+?? docs/process/git/PM-AGENT-EVO-001-recovery-map.md
+?? docs/process/git/PM-AGENT-EVO-001-recovery-report.md
+?? docs/process/git/PM-AGENT-EVO-001-recovery.patch
+?? docs/process/git/PM-AGENT-EVO-001-status.txt
+?? docs/process/git/PM-AGENT-EVO-001-untracked.txt
+?? docs/process/instructions/
+?? docs/process/retrospectives/
+?? docs/process/skills/
+?? docs/skills/domain-validator-skill.md
+?? docs/skills/knowledge-curator-skill.md
+?? docs/skills/research-agent-skill.md
+?? docs/skills/skill-schema-v2.md

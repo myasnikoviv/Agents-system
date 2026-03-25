@@ -1,0 +1,23 @@
+ M docs/skills/skill-schema-v2.md
+ M package.json
+ M scripts/ci_check.sh
+ M src/runtime/AgentExecutor.ts
+ M src/runtime/SkillProvider.ts
+ M src/runtime/__tests__/agent_infra.test.ts
+ M src/runtime/__tests__/chat_approval_flow_e2e.test.ts
+ M src/runtime/graphs/PilotQuasiLinearGraph.ts
+ M src/server.ts
+?? docs/process/git/GIT-608-recovery-status.txt
+?? docs/process/git/preflights/GIT-608.env
+?? docs/process/skills/AGENT-SKILL-MATRIX.md
+?? docs/process/skills/AGENT-SKILL-RULES.md
+?? docs/process/skills/INTERNAL-SKILL-SCHEMA.md
+?? docs/process/skills/OPEN-SOURCE-SHORTLIST.md
+?? docs/process/skills/PIPELINE-SKILL-MATRIX.md
+?? docs/process/skills/SKILL-SYSTEM-BACKLOG.md
+?? docs/process/skills/SKILL-VALIDATION-PLAN.md
+?? skills/
+?? src/runtime/PipelineSelector.ts
+?? src/runtime/SkillCatalog.ts
+?? src/runtime/__tests__/pipeline_selector.test.ts
+?? src/tools/lintSkillsSchema.ts

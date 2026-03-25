@@ -1,6 +1,14 @@
 node_modules
+dist
 .env
-package-lock.json
+.DS_Store
+
+# Runtime Environments
+.venv_openhands
+.playwright-mcp
+.plane-runtime
+.langgraph_api
+-lock.json
 .plane-runtime/
 dist
 *.log

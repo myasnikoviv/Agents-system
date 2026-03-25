@@ -1,0 +1,9 @@
+docs/skills/skill-schema-v2.md
+package.json
+scripts/ci_check.sh
+src/runtime/AgentExecutor.ts
+src/runtime/SkillProvider.ts
+src/runtime/__tests__/agent_infra.test.ts
+src/runtime/__tests__/chat_approval_flow_e2e.test.ts
+src/runtime/graphs/PilotQuasiLinearGraph.ts
+src/server.ts

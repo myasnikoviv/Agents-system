@@ -1,0 +1,17 @@
+# Test Plan & Report: TKT-61 Runtime Contract
+
+## Cases & Results
+| Case | Result | Evidence |
+|---|---|---|
+| Linear mode keeps role execution inline | PASS | `execution_mode_contract.test.ts` |
+| Multiple_agents defaults to delegated `research` | PASS | `execution_mode_contract.test.ts` |
+| Delegation disabled roles run inline with reason | PASS | `execution_mode_contract.test.ts` |
+| Missing queue mapping forces inline fallback | PASS | `execution_mode_contract.test.ts` |
+| Existing approve quota fallback regression remains green | PASS | `pilot_approve_quota_fallback.test.ts` |
+
+## Commands
+- `npx jest src/runtime/__tests__/execution_mode_contract.test.ts --runInBand`
+- `npx jest src/runtime/__tests__/pilot_approve_quota_fallback.test.ts --runInBand`
+
+## Status
+PASS

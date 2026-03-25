@@ -1,0 +1,35 @@
+{
+  "schema_version": "v1",
+  "run_id": "",
+  "timestamp_utc": "",
+  "git": {
+    "branch": "",
+    "commit": "",
+    "worktree": ""
+  },
+  "strategy": {
+    "id": "",
+    "input_profile": "",
+    "config_hash": ""
+  },
+  "dataset": {
+    "symbol": "",
+    "timeframe": "",
+    "window_start": "",
+    "window_end": ""
+  },
+  "funnel": {},
+  "trades": {
+    "count": 0,
+    "winrate_pct": 0,
+    "pnl": 0,
+    "duplicates_detected": 0
+  },
+  "anomalies": [],
+  "evidence": {
+    "manifest": "",
+    "logs": [],
+    "screenshots": [],
+    "bundle": ""
+  }
+}
