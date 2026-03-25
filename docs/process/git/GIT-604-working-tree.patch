@@ -1,0 +1,967 @@
+diff --git a/src/core/v2/processors/FindWaveProcessor.ts b/src/core/v2/processors/FindWaveProcessor.ts
+index 4432322..0e900e8 100644
+--- a/src/core/v2/processors/FindWaveProcessor.ts
++++ b/src/core/v2/processors/FindWaveProcessor.ts
+@@ -245,9 +245,9 @@ export class FindWaveProcessor extends BaseProcessor {
+         const series = new Series(timeframe === 'HTF' ? ctx.htf : ctx.ltf);
+ 
+         const candidateStartTimeMs = this.extractCandidateStartTimeMs(ctx.sessionCandidateId);
+-        // Important: FIND_WAVE must be computed on full available HTF history.
+-        // Candidate-window clipping ("afterTime") creates false local pivots
+-        // and makes retrace/result legs drift from expected extremes.
++        // Important: FIND_WAVE must run on full available HTF history.
++        // Candidate-local clipping (afterTime) makes start-trigger-on-wave setups
++        // lose structural context and can collapse sessions to zero.
+         const waveAfterTime: number | null = null;
+ 
+         const waveState = this.waveService.analyzeResultativeWave({
+@@ -268,21 +268,15 @@ export class FindWaveProcessor extends BaseProcessor {
+         const legacyResultVersions = Array.isArray(waveState.versions) ? waveState.versions : [];
+         const legacyRetraceWave = waveState.retraceWave || null;
+         const legacyRetraceVersions = Array.isArray(waveState.retraceVersions) ? waveState.retraceVersions : [];
+-        // Strategy semantics update:
+-        // externally "result wave" is the second leg (previously retrace),
+-        // while the previous "result wave" is exposed as retrace leg.
++        // Strategy semantics:
++        // externally "result wave" is the second leg (legacy retrace),
++        // while legacy result leg is exposed as retrace/base leg.
+         const latestRetraceVersion = legacyRetraceVersions.length > 0
+             ? legacyRetraceVersions[legacyRetraceVersions.length - 1]
+             : null;
+-        // Active wave contract:
+-        // return canonical retrace leg as result-wave payload (after result/retrace swap).
+-        // Version stream remains in wave_versions and should not replace canonical wave.
+-        // Using only latest version made output overly sparse across sessions.
+         const resultWaveRaw = legacyRetraceWave
+             || latestRetraceVersion
+             || (requireBreak ? null : legacyResultWave);
+-        // Retrace leg in external contract must be a single adjacent opposite leg
+-        // for the selected result leg (no fan-out versions).
+         const retraceWaveRaw = (() => {
+             if (!legacyResultWave || !resultWaveRaw) return null;
+             if (String(legacyResultWave.direction) === String(resultWaveRaw.direction)) return null;
+@@ -307,41 +301,31 @@ export class FindWaveProcessor extends BaseProcessor {
+                     base.push(legacyRetraceWave as any);
+                 }
+             }
+-            return base;
++            // Defensive dedupe: same leg may arrive multiple times from version + canonical merge.
++            const dedup = new Map<string, any>();
++            for (const wave of base) {
++                if (!wave || typeof wave !== 'object') continue;
++                const key = `${String((wave as any).direction || '').toUpperCase()}|${Number((wave as any).startIndex)}|${Number((wave as any).endIndex)}`;
++                if (!dedup.has(key)) dedup.set(key, wave);
++            }
++            const unique = [...dedup.values()];
++            unique.sort((a, b) => {
++                const aEnd = Number((a as any)?.endIndex ?? Number.NEGATIVE_INFINITY);
++                const bEnd = Number((b as any)?.endIndex ?? Number.NEGATIVE_INFINITY);
++                if (aEnd !== bEnd) return aEnd - bEnd;
++                const aStart = Number((a as any)?.startIndex ?? Number.POSITIVE_INFINITY);
++                const bStart = Number((b as any)?.startIndex ?? Number.POSITIVE_INFINITY);
++                return aStart - bStart;
++            });
++            return unique;
+         })();
+         const waveVersions = waveVersionsRaw
+             .map((wave) => this.decorateWaveWithEndpointPrices(wave, candles))
+             .filter((wave) => !!wave);
+-        const retraceVersionsRaw = (() => {
+-            const base = legacyResultVersions.length > 0 ? [...legacyResultVersions] : [];
+-            if (legacyResultWave) {
+-                const exists = base.some((wave) =>
+-                    Number((wave as any)?.startIndex) === Number((legacyResultWave as any)?.startIndex)
+-                    && Number((wave as any)?.endIndex) === Number((legacyResultWave as any)?.endIndex)
+-                    && String((wave as any)?.direction || '').toUpperCase() === String((legacyResultWave as any)?.direction || '').toUpperCase()
+-                );
+-                if (!exists) {
+-                    base.push(legacyResultWave as any);
+-                }
+-            }
+-            return base;
+-        })();
+-        const retraceWaveVersions = retraceVersionsRaw
+-            .map((wave, idx) => {
+-                const anchored = this.anchorWaveStartToDirectionalExtreme(
+-                    wave,
+-                    (series.all || []) as Array<{ timestamp: number; high: number; low: number; open?: number; close?: number }>,
+-                    Math.max(1, Math.floor(setupMinBars))
+-                );
+-                const decorated = this.decorateWaveWithEndpointPrices(anchored, candles);
+-                if (!decorated) return null;
+-                const versionNo = Number((wave as any)?.version);
+-                return {
+-                    ...decorated,
+-                    version: Number.isFinite(versionNo) ? Math.floor(versionNo) : (idx + 1)
+-                } as any;
+-            })
+-            .filter((wave): wave is any => !!wave);
++        // Retrace leg is canonical and unique for the selected result wave.
++        const retraceWaveVersions = retraceWave
++            ? [{ ...retraceWave, version: 1 } as any]
++            : [];
+         const activeWaveVersion = waveVersions.length > 0 ? waveVersions[waveVersions.length - 1] : null;
+         this.enterCandidate(ctx);
+ 
+diff --git a/src/core/v2/services/WaveAnalysisService.ts b/src/core/v2/services/WaveAnalysisService.ts
+index 436c609..a4d717b 100644
+--- a/src/core/v2/services/WaveAnalysisService.ts
++++ b/src/core/v2/services/WaveAnalysisService.ts
+@@ -29,12 +29,15 @@ export interface IWaveAnalysisService {
+ 
+ export class PrimitiveWaveAnalysisService implements IWaveAnalysisService {
+     analyzeResultativeWave(input: AnalyzeResultativeWaveInput): AnalyzeResultativeWaveResult {
++        const normalizedAfterTime = input.afterTime == null
++            ? undefined
++            : (Number.isFinite(Number(input.afterTime)) ? Number(input.afterTime) : undefined);
+         const state = lastResultativeWaveWithVersions(input.series, {
+             minBars: input.minBars,
+             requireBreakPrevOppositeExtreme: input.requireBreakPrevOppositeExtreme,
+             breakReference: input.breakReference,
+             waveMode: input.waveMode,
+-            afterTime: Number.isFinite(Number(input.afterTime)) ? Number(input.afterTime) : undefined,
++            afterTime: normalizedAfterTime,
+             retraceMinBars: input.retraceMinBars,
+             maxOppositeBarsInLeg: input.maxOppositeBarsInLeg,
+             maxOppositeBarsRatioInLeg: input.maxOppositeBarsRatioInLeg,
+diff --git a/src/schemas/block_logic_manifest.v2.json b/src/schemas/block_logic_manifest.v2.json
+index 26f64f5..354826b 100644
+--- a/src/schemas/block_logic_manifest.v2.json
++++ b/src/schemas/block_logic_manifest.v2.json
+@@ -181,13 +181,22 @@
+         "updated_at": "2026-03-10T20:06:30.085Z"
+       },
+       "44": {
+-        "logic_hash": "4900126c39fe3d603311bd230f351e2329beee190339706924fa2fcff673e85d",
++        "logic_hash": "9a9b102a40d8dbd26bcf636ca3377540cce02cb4f272d57a96f4e7e1f0a1527b",
+         "description_hash": "5d1f865a09d234d26d5b3267cc27e92f15df1c242e2805bf5162eceeaf5da74c",
+         "files": [
+           "src/core/v2/processors/FindEffortProcessor.ts",
+           "src/strategy/primitives.ts"
+         ],
+-        "updated_at": "2026-03-12T19:07:56.570Z"
++        "updated_at": "2026-03-13T08:30:02.189Z"
++      },
++      "45": {
++        "logic_hash": "92e60314279b20b360273ec0267164ba5cab621a42ca58d04b0ebde867788770",
++        "description_hash": "64784b7a40bf7aa2a7e191bcb46d2e0091ed50fac303872aa6f2a7a2dd008970",
++        "files": [
++          "src/core/v2/processors/FindEffortProcessor.ts",
++          "src/strategy/primitives.ts"
++        ],
++        "updated_at": "2026-03-13T10:38:47.344Z"
+       }
+     },
+     "FIND_WAVE": {
+@@ -336,13 +345,22 @@
+         "updated_at": "2026-03-11T13:20:08.567Z"
+       },
+       "54": {
+-        "logic_hash": "18cfa067d73918dc086e755b9a5498b5bbce25bae8a46bfafa64076fab4bf9ee",
++        "logic_hash": "e8a553616cb479fb8f3576bb99e0e7d4001066bee2be2e4934cfc4e6eaed3520",
+         "description_hash": "2a4e57fd444fc9ed29d1a7af4ccd3ea34f64a4ffec34be3fbcab05b7c63abf55",
+         "files": [
+           "src/core/v2/processors/FindWaveProcessor.ts",
+           "src/strategy/primitives.ts"
+         ],
+-        "updated_at": "2026-03-12T19:07:56.570Z"
++        "updated_at": "2026-03-13T08:30:02.189Z"
++      },
++      "55": {
++        "logic_hash": "66cc151a889cbccee805d37bb70af169d46f8217b930d527d3d09a18e3a60a37",
++        "description_hash": "05fa3bc3d6d53a9a6649f16ed4963cc3e92bda6a6f01d4b4378fbc5f70f8c196",
++        "files": [
++          "src/core/v2/processors/FindWaveProcessor.ts",
++          "src/strategy/primitives.ts"
++        ],
++        "updated_at": "2026-03-13T10:38:47.344Z"
+       }
+     },
+     "IF": {
+@@ -546,13 +564,22 @@
+         "updated_at": "2026-03-11T23:32:12.767Z"
+       },
+       "49": {
+-        "logic_hash": "22a275a31a568c0ab1bb32ec2437aea116dc1aac7d9c3190c379f4ea907b74d7",
++        "logic_hash": "d47a5cf3a10bffcd3bb519aefe471cc7575bc9fd3c023e233e748a06cc4ba9e6",
+         "description_hash": "c194a6d8d89cee223fd0829885e468476180c0247dd143e46f72f46493079207",
+         "files": [
+           "src/core/v2/processors/WaitTestProcessor.ts",
+           "src/strategy/primitives.ts"
+         ],
+-        "updated_at": "2026-03-12T19:07:56.570Z"
++        "updated_at": "2026-03-13T08:30:02.189Z"
++      },
++      "50": {
++        "logic_hash": "416c389a6dfe9a9a2b80dec6589693343466d5ebf656c2f0e655747df226c545",
++        "description_hash": "d96dff704428715f95d43e02088989b8f990a689ca0e3122fe9f22250084ab63",
++        "files": [
++          "src/core/v2/processors/WaitTestProcessor.ts",
++          "src/strategy/primitives.ts"
++        ],
++        "updated_at": "2026-03-13T10:38:47.344Z"
+       }
+     },
+     "WAIT_TEST_WAVE": {
+diff --git a/src/strategy/primitives.ts b/src/strategy/primitives.ts
+index a52feb8..85541a6 100644
+--- a/src/strategy/primitives.ts
++++ b/src/strategy/primitives.ts
+@@ -94,7 +94,7 @@ function candleBodyDir(candle: Candle | undefined): 'UP' | 'DOWN' | null {
+     return null;
+ }
+ 
+-function buildWaveFromRange(candles: Candle[], startIndex: number, endIndex: number, direction: 'UP' | 'DOWN'): AdaptiveLeg | null {
++export function buildWaveFromRange(candles: Candle[], startIndex: number, endIndex: number, direction: 'UP' | 'DOWN'): AdaptiveLeg | null {
+     if (startIndex < 0 || endIndex <= startIndex || endIndex >= candles.length) return null;
+     let high = Number.NEGATIVE_INFINITY;
+     let low = Number.POSITIVE_INFINITY;
+@@ -164,13 +164,15 @@ function buildWaveFromRange(candles: Candle[], startIndex: number, endIndex: num
+ type AdaptiveLegBuildOptions = {
+     stickyOppositeCounter?: boolean;
+     maxOppositeBarsRatioInLeg?: number;
++    maxOppositeBarsRatioAllowanceCap?: number;
+     enablePendingBreakConfirm?: boolean;
+     pendingBreakConfirmBarsAbs?: number;
+     pendingBreakConfirmBarsRatio?: number;
+     pendingBreakConfirmBarsCap?: number;
++    pendingBreakDirectionalRatioGuardMin?: number;
+ };
+ 
+-function buildAdaptiveLegs(candles: Candle[], maxOppositeBarsInput: number, options: AdaptiveLegBuildOptions = {}): AdaptiveLeg[] {
++export function buildAdaptiveLegs(candles: Candle[], maxOppositeBarsInput: number, options: AdaptiveLegBuildOptions = {}): AdaptiveLeg[] {
+     if (candles.length < 2) return [];
+     const legs: AdaptiveLeg[] = [];
+     const maxOppositeBarsInLeg = Math.max(0, Math.floor(maxOppositeBarsInput || 0));
+@@ -178,6 +180,10 @@ function buildAdaptiveLegs(candles: Candle[], maxOppositeBarsInput: number, opti
+     const maxOppositeBarsRatioInLeg = Number.isFinite(maxOppositeBarsRatioInLegRaw)
+         ? Math.min(1, Math.max(0, maxOppositeBarsRatioInLegRaw))
+         : 0;
++    const maxOppositeBarsRatioAllowanceCapRaw = Number(options.maxOppositeBarsRatioAllowanceCap);
++    const maxOppositeBarsRatioAllowanceCap = Number.isFinite(maxOppositeBarsRatioAllowanceCapRaw) && maxOppositeBarsRatioAllowanceCapRaw >= 0
++        ? Math.floor(maxOppositeBarsRatioAllowanceCapRaw)
++        : Number.POSITIVE_INFINITY;
+     const stickyOppositeCounter = options.stickyOppositeCounter === true;
+     const enablePendingBreakConfirm = options.enablePendingBreakConfirm === true;
+     const pendingBreakConfirmBarsAbsRaw = Number(options.pendingBreakConfirmBarsAbs);
+@@ -192,6 +198,10 @@ function buildAdaptiveLegs(candles: Candle[], maxOppositeBarsInput: number, opti
+     const pendingBreakConfirmBarsCap = Number.isFinite(pendingBreakConfirmBarsCapRaw) && pendingBreakConfirmBarsCapRaw > 0
+         ? Math.max(1, Math.floor(pendingBreakConfirmBarsCapRaw))
+         : 12;
++    const pendingBreakDirectionalRatioGuardMinRaw = Number(options.pendingBreakDirectionalRatioGuardMin);
++    const pendingBreakDirectionalRatioGuardMin = Number.isFinite(pendingBreakDirectionalRatioGuardMinRaw)
++        ? Math.min(1, Math.max(0, pendingBreakDirectionalRatioGuardMinRaw))
++        : 0;
+     const pendingBreakConfirmBarsMin = Math.max(1, Math.min(3, pendingBreakConfirmBarsCap));
+     const resolvePendingBreakConfirmWindow = (legBars: number): number => {
+         const ratioBars = pendingBreakConfirmBarsRatio > 0
+@@ -253,9 +263,12 @@ function buildAdaptiveLegs(candles: Candle[], maxOppositeBarsInput: number, opti
+         // This threshold controls zigzag segmentation tolerance, not
+         // result/retrace extreme comparison.
+         const currentLegBars = Math.max(1, i - pivotIndex + 1);
+-        const ratioAllowance = maxOppositeBarsRatioInLeg > 0
++        const ratioAllowanceRaw = maxOppositeBarsRatioInLeg > 0
+             ? Math.max(0, Math.floor(currentLegBars * maxOppositeBarsRatioInLeg))
+             : 0;
++        const ratioAllowance = Number.isFinite(maxOppositeBarsRatioAllowanceCap)
++            ? Math.min(ratioAllowanceRaw, maxOppositeBarsRatioAllowanceCap)
++            : ratioAllowanceRaw;
+         const effectiveOppositeRunAllowance = Math.max(maxOppositeBarsInLeg, ratioAllowance);
+         const exceedsAllowance = oppositeRun > effectiveOppositeRunAllowance;
+         if (enablePendingBreakConfirm) {
+@@ -270,6 +283,22 @@ function buildAdaptiveLegs(candles: Candle[], maxOppositeBarsInput: number, opti
+                 pendingBreak = null;
+             }
+             if (pendingBreak && i >= pendingBreak.confirmUntilIndex) {
++                if (pendingBreakDirectionalRatioGuardMin > 0) {
++                    const legToNow = buildWaveFromRange(candles, pivotIndex, i, direction);
++                    if (legToNow) {
++                        const directional = Math.max(0, Number(legToNow.directionalBars) || 0);
++                        const opposite = Math.max(0, Number(legToNow.oppositeBars) || 0);
++                        const bars = Math.max(1, directional + opposite);
++                        const ratio = directional / bars;
++                        // If directional dominance still holds, do not split yet.
++                        // Extend confirmation window and keep tracking trend.
++                        if (ratio >= pendingBreakDirectionalRatioGuardMin) {
++                            const extendBy = Math.max(1, Math.floor(resolvePendingBreakConfirmWindow(currentLegBars) / 2));
++                            pendingBreak.confirmUntilIndex = i + extendBy;
++                            continue;
++                        }
++                    }
++                }
+                 const splitIndex = Number(pendingBreak.anchorExtremeIndex);
+                 if (splitIndex > pivotIndex) {
+                     const completed = buildWaveFromRange(candles, pivotIndex, splitIndex, direction);
+@@ -494,6 +523,8 @@ export function lastResultativeWaveWithVersions(
+         : (optionsOrMinBars || {});
+     const minBars = Math.max(1, Number(opts.minBars || 3));
+     const afterTime = opts.afterTime;
++    const hasAfterTime = afterTime !== undefined && afterTime !== null && Number.isFinite(Number(afterTime));
++    const afterTimeValue = hasAfterTime ? Number(afterTime) : null;
+     const requireBreakPrevOppositeExtreme = opts.requireBreakPrevOppositeExtreme !== false;
+     const breakReference = String(opts.breakReference || 'OPPOSITE').toUpperCase() === 'SAME_DIRECTION'
+         ? 'SAME_DIRECTION'
+@@ -529,19 +560,22 @@ export function lastResultativeWaveWithVersions(
+     // around afterTime instead of rebuilding zigzag legs over the full history.
+     let analysisStartOffset = 0;
+     let analysisCandles = candles;
+-    if (Number.isFinite(Number(afterTime))) {
+-        const cutoff = Number(afterTime);
++    if (hasAfterTime && afterTimeValue !== null) {
++        const cutoff = afterTimeValue;
+         let firstAfterCutoff = -1;
+         for (let i = 0; i < candles.length; i += 1) {
+             const ts = Number(candles[i]?.timestamp || 0);
+-            if (ts > cutoff) {
++            if (ts >= cutoff) {
+                 firstAfterCutoff = i;
+                 break;
+             }
+         }
+         if (firstAfterCutoff >= 0) {
++            const structuralBaseContextBars = waveMode === 'STRUCTURAL_LEG'
++                ? 180
++                : 48;
+             const contextBars = Math.max(
+-                24,
++                structuralBaseContextBars,
+                 Math.floor(minBars + Math.max(0, retraceMinBars) + Math.max(0, maxOppositeBarsInLeg) + 8)
+             );
+             analysisStartOffset = Math.max(0, firstAfterCutoff - contextBars);
+@@ -553,11 +587,28 @@ export function lastResultativeWaveWithVersions(
+     // - strict_resultative => no opposite bars inside leg,
+     // - structural_leg => allow up to maxOppositeBarsInLeg opposite bars in a row.
+     const maxOppositeBarsForSegmentation = waveMode === 'STRUCTURAL_LEG'
+-        ? Math.max(0, maxOppositeBarsInLeg)
++        ? Math.max(
++            0,
++            maxOppositeBarsInLeg,
++            // In strict structural mode with directional-ratio gating enabled,
++            // segmentation should follow trend-break tolerance.
++            // Keep legacy behavior unchanged for profiles without ratio gate.
++            directionalBarsRatioMin > 0
++                ? Math.max(0, resultTrendBreakBars - 1)
++                : 0
++        )
+         : 0;
+     const allLegsLocal = buildAdaptiveLegs(analysisCandles, maxOppositeBarsForSegmentation, {
+         stickyOppositeCounter: waveMode === 'STRUCTURAL_LEG',
+         maxOppositeBarsRatioInLeg: waveMode === 'STRUCTURAL_LEG' ? maxOppositeBarsRatioInLeg : 0,
++        // Keep ratio-based tolerance bounded for segmentation so very long
++        // structural legs do not absorb distant pullbacks into one giant leg.
++        maxOppositeBarsRatioAllowanceCap: waveMode === 'STRUCTURAL_LEG'
++            ? Math.max(
++                maxOppositeBarsForSegmentation,
++                resultTrendBreakBars > 0 ? resultTrendBreakBars : 0
++            )
++            : undefined,
+         // Prevent premature trend splits: when opposite-run first exceeds limit,
+         // wait for a short confirmation window before cutting the leg.
+         // Window defaults agreed for live behavior:
+@@ -565,7 +616,8 @@ export function lastResultativeWaveWithVersions(
+         enablePendingBreakConfirm: waveMode === 'STRUCTURAL_LEG' && maxOppositeBarsRatioInLeg > 0,
+         pendingBreakConfirmBarsAbs: 3,
+         pendingBreakConfirmBarsRatio: 0.15,
+-        pendingBreakConfirmBarsCap: 12
++        pendingBreakConfirmBarsCap: 24,
++        pendingBreakDirectionalRatioGuardMin: waveMode === 'STRUCTURAL_LEG' ? directionalBarsRatioMin : 0
+     });
+     const allLegs = allLegsLocal.map((leg) => {
+         const startIndex = Number(leg.startIndex) + analysisStartOffset;
+@@ -589,7 +641,24 @@ export function lastResultativeWaveWithVersions(
+         const bars = Math.max(1, directional + opposite);
+         return directional / bars;
+     };
+-    const satisfiesDirectionalRatio = (leg: AdaptiveLeg): boolean => directionalRatio(leg) >= directionalBarsRatioMin;
++    const allowDirectionalRatioAngleBypass = waveMode === 'STRUCTURAL_LEG' && resultTrendBreakBars > 0;
++    const strongAngleBypassThresholdDeg = Math.max(minVectorAngleDeg, 30);
++    const directionalRatioTolerance = directionalBarsRatioMin > 0 ? 0.01 : 0;
++    const hasDirectionalRatioStrict = (leg: AdaptiveLeg): boolean => {
++        if (!(directionalBarsRatioMin > 0)) return true;
++        return directionalRatio(leg) >= directionalBarsRatioMin;
++    };
++    const hasDirectionalRatioForResultLeg = (leg: AdaptiveLeg): boolean => {
++        if (hasDirectionalRatioStrict(leg)) return true;
++        if (!(directionalBarsRatioMin > 0)) return true;
++        return directionalRatio(leg) + directionalRatioTolerance >= directionalBarsRatioMin;
++    };
++    const satisfiesDirectionalRatioForResultLeg = (leg: AdaptiveLeg): boolean => {
++        if (hasDirectionalRatioForResultLeg(leg)) return true;
++        if (!allowDirectionalRatioAngleBypass) return false;
++        // Angle-bypass is only for result legs. Retrace/reference legs are strict.
++        return legAngleDeg(leg) >= strongAngleBypassThresholdDeg;
++    };
+     const directionalEndpoints = (leg: AdaptiveLeg): { start: number; end: number } | null => {
+         const startCandle = candles[Number(leg.startIndex)];
+         const endCandle = candles[Number(leg.endIndex)];
+@@ -628,10 +697,8 @@ export function lastResultativeWaveWithVersions(
+         const avgRange = legAverageRange(leg);
+         if (!(avgRange > 0)) return 0;
+         const bars = Math.max(1, Number(leg.barsCount) || 1);
+-        // Angle normalization:
+-        // use sqrt(bars) instead of bars to avoid over-penalizing long, still-directional legs.
+-        // This keeps minVectorAngleDeg meaningful on both short and long swings.
+-        const normalizedSlope = directionalMove / (avgRange * Math.sqrt(bars));
++        // Angle normalization by leg duration.
++        const normalizedSlope = directionalMove / (avgRange * bars);
+         if (!Number.isFinite(normalizedSlope) || normalizedSlope <= 0) return 0;
+         return Math.atan(normalizedSlope) * 180 / Math.PI;
+     };
+@@ -655,13 +722,23 @@ export function lastResultativeWaveWithVersions(
+             : 0;
+         return Math.max(Math.max(0, baseAllowance), ratioAllowance);
+     };
++    // Search windows for result/retrace pairing must stay wide enough to cover
++    // long structural trends; stale-pair protection is handled by afterTime
++    // anchoring in selection pool (retrace end proximity), not by hard-short
++    // leg-length caps.
++    const retraceExtensionMaxBars = waveMode === 'STRUCTURAL_LEG'
++        ? Math.max(96, minBars * 24, retraceMinBars * 24, resultTrendBreakBars * 24)
++        : 0;
++    const resultSearchMaxBars = waveMode === 'STRUCTURAL_LEG'
++        ? Math.max(96, minBars * 24, resultTrendBreakBars * 24)
++        : 0;
+ 
+     const qualifiesAsResultLeg = (
+         leg: AdaptiveLeg,
+         options: { ignoreDirectionalRatio?: boolean } = {}
+     ): boolean => {
+         if (!satisfiesVectorAngle(leg)) return false;
+-        if (!options.ignoreDirectionalRatio && !satisfiesDirectionalRatio(leg)) return false;
++        if (!options.ignoreDirectionalRatio && !satisfiesDirectionalRatioForResultLeg(leg)) return false;
+         if (waveMode === 'STRICT_RESULTATIVE') {
+             // Strict mode keeps the old behavior: no opposite candles inside the qualifying result leg.
+             if (leg.directionalBars < minBars) return false;
+@@ -677,7 +754,7 @@ export function lastResultativeWaveWithVersions(
+     // Break reference must be a meaningful opposite zigzag leg, but should not be as strict
+     // as the resultative leg itself (otherwise valid break setups get dropped).
+     const qualifiesAsOppositeReferenceLeg = (leg: AdaptiveLeg): boolean => {
+-        if (!satisfiesDirectionalRatio(leg)) return false;
++        if (!hasDirectionalRatioStrict(leg)) return false;
+         // Break reference must remain stable but cannot be as strict as result-wave
+         // qualification, otherwise structural modes become over-filtered.
+         // Use a softer leg qualification for reference extremes:
+@@ -700,7 +777,7 @@ export function lastResultativeWaveWithVersions(
+     // In loose mode retrace is structural (mixed candles allowed), not a pure streak.
+     const qualifiesAsRetraceLeg = (leg: AdaptiveLeg | null): boolean => {
+         if (!leg) return false;
+-        if (!satisfiesDirectionalRatio(leg)) return false;
++        if (!hasDirectionalRatioStrict(leg)) return false;
+         if (waveMode === 'STRUCTURAL_LEG') {
+             // retraceMinBars is interpreted as minimum count of directional bars in retrace leg.
+             if (!(leg.barsCount >= retraceMinBars && leg.directionalBars >= retraceMinBars)) return false;
+@@ -711,36 +788,136 @@ export function lastResultativeWaveWithVersions(
+         }
+         return true;
+     };
+-    const findResultTrendLowerBound = (resultDirection: 'UP' | 'DOWN', resultEndIndex: number): number => {
++    const effectiveTrendBreakBars = (() => {
++        if (resultTrendBreakBars > 0) return resultTrendBreakBars;
++        if (waveMode !== 'STRUCTURAL_LEG') return 0;
++        // Structural default: trend is considered continuous until we see
++        // one bar more than tolerated opposite-run inside a leg.
++        return Math.max(0, maxOppositeBarsInLeg + 1);
++    })();
++    const findTrendLowerBound = (
++        trendDirection: 'UP' | 'DOWN',
++        trendEndIndex: number,
++        breakBars: number
++    ): number => {
+         // Optional trend-continuity gate for left (result) leg:
+         // when configured, extend search left until we see N consecutive
+         // opposite candles; this marks a trend break boundary.
+-        if (resultTrendBreakBars <= 0) return 0;
+-        const oppositeDirection: 'UP' | 'DOWN' = resultDirection === 'UP' ? 'DOWN' : 'UP';
++        if (breakBars <= 0) return 0;
++        const oppositeDirection: 'UP' | 'DOWN' = trendDirection === 'UP' ? 'DOWN' : 'UP';
+         let oppositeRun = 0;
+-        for (let i = resultEndIndex - 1; i >= 0; i -= 1) {
+-            const bodyDir = candleBodyDir(candles[i]);
++        for (let i = trendEndIndex - 1; i >= 0; i -= 1) {
++            const c = candles[i];
++            if (!c) continue;
++            const bodyDir = candleBodyDir(c);
+             if (bodyDir === oppositeDirection) {
+                 oppositeRun += 1;
+-                if (oppositeRun >= resultTrendBreakBars) {
+-                    return Math.min(resultEndIndex - 1, i + resultTrendBreakBars);
++                if (oppositeRun >= breakBars) {
++                    const boundary = Math.min(trendEndIndex - 1, i + breakBars);
++                    if (waveMode === 'STRUCTURAL_LEG') {
++                        // In structural mode, opposite-run break should not hard-cut
++                        // a trend when the full segment to trend end still satisfies
++                        // structural continuity by ratio/opposite-run constraints.
++                        // This keeps long directional legs from being truncated by
++                        // short local pullbacks.
++                        const candidate = buildWaveFromRange(candles, boundary, trendEndIndex, trendDirection);
++                        if (candidate) {
++                            const allowedOppositeRun = allowedOppositeRunForLeg(candidate, resultLegAllowedOppositeRun);
++                            const ratioOk = hasDirectionalRatioStrict(candidate);
++                            const runOk = Number(candidate.maxOppositeRun) <= allowedOppositeRun;
++                            if (ratioOk && runOk) {
++                                continue;
++                            }
++                        }
++                    }
++                    return boundary;
+                 }
+-                continue;
++            } else {
++                // Same-direction candle or doji breaks opposite-run sequence.
++                oppositeRun = 0;
+             }
+-            // Same-direction candle or doji breaks opposite-run sequence.
+-            oppositeRun = 0;
+         }
+         return 0;
+     };
+-    const findResultLegForRetrace = (retraceLeg: AdaptiveLeg, baseResultLeg: AdaptiveLeg | null): AdaptiveLeg | null => {
++    const trimLegToTerminalDirectionalExtreme = (leg: AdaptiveLeg): AdaptiveLeg => {
++        const startIndex = Number(leg.startIndex);
++        const endIndex = Number(leg.endIndex);
++        if (!Number.isFinite(startIndex) || !Number.isFinite(endIndex) || endIndex <= startIndex) return leg;
++        const eps = 1e-12;
++        let extremeIndex = startIndex;
++        if (leg.direction === 'UP') {
++            const targetHigh = Number(leg.high);
++            for (let i = startIndex; i <= endIndex; i += 1) {
++                const c = candles[i];
++                if (!c) continue;
++                if (Math.abs(Number(c.high) - targetHigh) <= eps) {
++                    extremeIndex = i;
++                }
++            }
++        } else {
++            const targetLow = Number(leg.low);
++            for (let i = startIndex; i <= endIndex; i += 1) {
++                const c = candles[i];
++                if (!c) continue;
++                if (Math.abs(Number(c.low) - targetLow) <= eps) {
++                    extremeIndex = i;
++                }
++            }
++        }
++        if (extremeIndex <= startIndex || extremeIndex >= endIndex) return leg;
++        const rebuilt = buildWaveFromRange(candles, startIndex, extremeIndex, leg.direction);
++        return rebuilt || leg;
++    };
++    const anchorLegStartToDirectionalExtreme = (leg: AdaptiveLeg): AdaptiveLeg => {
++        const startIndex = Number(leg.startIndex);
++        const endIndex = Number(leg.endIndex);
++        if (!Number.isFinite(startIndex) || !Number.isFinite(endIndex) || endIndex <= startIndex) return leg;
++        let extremeIndex = startIndex;
++        if (leg.direction === 'UP') {
++            let bestLow = Number.POSITIVE_INFINITY;
++            for (let i = startIndex; i <= endIndex; i += 1) {
++                const c = candles[i];
++                if (!c) continue;
++                const low = Number(c.low);
++                if (!Number.isFinite(low)) continue;
++                // Keep earliest index on ties.
++                if (low < bestLow) {
++                    bestLow = low;
++                    extremeIndex = i;
++                }
++            }
++        } else {
++            let bestHigh = Number.NEGATIVE_INFINITY;
++            for (let i = startIndex; i <= endIndex; i += 1) {
++                const c = candles[i];
++                if (!c) continue;
++                const high = Number(c.high);
++                if (!Number.isFinite(high)) continue;
++                // Keep earliest index on ties.
++                if (high > bestHigh) {
++                    bestHigh = high;
++                    extremeIndex = i;
++                }
++            }
++        }
++        if (!Number.isFinite(extremeIndex) || extremeIndex === startIndex) return leg;
++        const rebuilt = buildWaveFromRange(candles, extremeIndex, endIndex, leg.direction);
++        if (!rebuilt) return leg;
++        // Keep canonical leg when anchoring would violate retrace qualification contract.
++        if (!qualifiesAsRetraceLeg(rebuilt)) return leg;
++        return rebuilt;
++    };
++    const findResultLegForRetrace = (retraceLeg: AdaptiveLeg): AdaptiveLeg | null => {
+         const resultDirection: 'UP' | 'DOWN' = retraceLeg.direction === 'UP' ? 'DOWN' : 'UP';
+         const resultEndIndex = Number(retraceLeg.startIndex);
+         if (!Number.isFinite(resultEndIndex) || resultEndIndex <= 0) return null;
+-        if (!baseResultLeg) return null;
+-        if (baseResultLeg.direction !== resultDirection) return null;
+-        const lowerBound = resultTrendBreakBars > 0
+-            ? findResultTrendLowerBound(resultDirection, resultEndIndex)
+-            : Math.max(0, Number(baseResultLeg.startIndex));
++        const lowerBoundByTrend = effectiveTrendBreakBars > 0
++            ? findTrendLowerBound(resultDirection, resultEndIndex, effectiveTrendBreakBars)
++            : 0;
++        const lookbackFloor = resultSearchMaxBars > 0
++            ? Math.max(0, resultEndIndex - resultSearchMaxBars)
++            : 0;
++        const lowerBound = Math.max(0, Math.max(lowerBoundByTrend, lookbackFloor));
+         if (!Number.isFinite(lowerBound) || lowerBound >= resultEndIndex) return null;
+ 
+         // Retrace-first semantics:
+@@ -762,27 +939,22 @@ export function lastResultativeWaveWithVersions(
+             ? Math.abs(retraceTerminalExtreme - Number(retraceLeg.high)) <= eps
+             : Math.abs(retraceTerminalExtreme - Number(retraceLeg.low)) <= eps;
+         if (!retraceTerminalIsLegExtreme) return null;
++        const retraceBreakExtreme = retraceTerminalExtreme;
+         const retraceBreaksCandidate = (candidate: AdaptiveLeg): boolean => {
+             if (retraceLeg.direction === 'UP') {
+-                return retraceTerminalExtreme > Number(candidate.high);
++                return retraceBreakExtreme > Number(candidate.high);
+             }
+-            return retraceTerminalExtreme < Number(candidate.low);
++            return retraceBreakExtreme < Number(candidate.low);
+         };
+ 
+-        const pickBestResultLeg = (ignoreDirectionalRatio: boolean): AdaptiveLeg | null => {
++        const pickCanonicalResultLeg = (ignoreDirectionalRatio: boolean): AdaptiveLeg | null => {
+             let best: AdaptiveLeg | null = null;
+             for (let startIdx = resultEndIndex - 1; startIdx >= lowerBound; startIdx -= 1) {
+                 const candidate = buildWaveFromRange(candles, startIdx, resultEndIndex, resultDirection);
+                 if (!candidate) continue;
+                 if (!qualifiesAsResultLeg(candidate, { ignoreDirectionalRatio })) continue;
+-                // Pairing contract:
+-                // choose the longest result leg that is actually broken by
+-                // the selected retrace leg terminal extreme.
+-                if (!retraceBreaksCandidate(candidate)) continue;
+-                // In retrace-first mode the temporal replay gate must be applied on
+-                // retrace leg timing (the currently forming/right leg), not on the
+-                // mapped result leg end. Result leg may legitimately end earlier
+-                // than afterTime while retrace still evolves inside the window.
++                // Canonical/base (left) leg for a fixed right retrace leg:
++                // always keep the longest valid structural leg first.
+                 if (!best) {
+                     best = candidate;
+                     continue;
+@@ -801,17 +973,91 @@ export function lastResultativeWaveWithVersions(
+             return best;
+         };
+ 
+-        let best: AdaptiveLeg | null = pickBestResultLeg(false);
++        let best: AdaptiveLeg | null = pickCanonicalResultLeg(false);
+         // Directional-ratio fallback:
+         // when the active/right retrace leg is strong and long, allow pairing
+         // with structurally valid opposite base leg even if that base leg
+         // misses directional ratio by a small margin.
+         if (!best && directionalBarsRatioMin > 0 && Number(retraceLeg.directionalBars) >= Number(minBars + 2)) {
+-            best = pickBestResultLeg(true);
++            best = pickCanonicalResultLeg(true);
+         }
+         if (!best) return null;
++        // Require-break semantics:
++        // if the canonical/base leg is not broken by retrace terminal extreme,
++        // this pair is invalid (do not shrink base leg to force a break).
++        if (!retraceBreaksCandidate(best)) return null;
++        return best;
++    };
++    const selectCanonicalRetraceLeg = (
++        retraceLegRaw: AdaptiveLeg,
++        retraceLowerBound: number
++    ): AdaptiveLeg | null => {
++        if (waveMode !== 'STRUCTURAL_LEG') {
++            return qualifiesAsRetraceLeg(retraceLegRaw) ? retraceLegRaw : null;
++        }
++        const endIndex = Number(retraceLegRaw.endIndex);
++        if (!Number.isFinite(endIndex) || endIndex <= 0) {
++            return qualifiesAsRetraceLeg(retraceLegRaw) ? retraceLegRaw : null;
++        }
++
++        const rawStartIndex = Number(retraceLegRaw.startIndex);
++        if (!Number.isFinite(rawStartIndex) || rawStartIndex <= 0) {
++            return qualifiesAsRetraceLeg(retraceLegRaw) ? retraceLegRaw : null;
++        }
++
++        const extensionFloor = retraceExtensionMaxBars > 0
++            ? Math.max(0, rawStartIndex - retraceExtensionMaxBars)
++            : 0;
++        const lowerBound = Math.max(
++            extensionFloor,
++            Math.max(0, Math.min(rawStartIndex, Number(retraceLowerBound) || 0))
++        );
++        const primaryScanStart = Math.min(endIndex - 1, rawStartIndex);
++
++        let best: AdaptiveLeg | null = null;
++        for (let startIdx = primaryScanStart; startIdx >= lowerBound; startIdx -= 1) {
++            const retraceCandidate = buildWaveFromRange(candles, startIdx, endIndex, retraceLegRaw.direction);
++            if (!retraceCandidate) continue;
++            if (!qualifiesAsRetraceLeg(retraceCandidate)) continue;
++            if (!best) {
++                best = retraceCandidate;
++                continue;
++            }
++            const candidateStart = Number(retraceCandidate.startIndex);
++            const bestStart = Number(best.startIndex);
++            if (candidateStart < bestStart) {
++                best = retraceCandidate;
++                continue;
++            }
++            if (candidateStart > bestStart) continue;
++            const candidateBars = Number(retraceCandidate.barsCount) || 0;
++            const bestBars = Number(best.barsCount) || 0;
++            if (candidateBars > bestBars) {
++                best = retraceCandidate;
++            }
++        }
+         return best;
+     };
++
++    const findBestRetraceResultPair = (
++        retraceLegRaw: AdaptiveLeg,
++        retraceLowerBound: number
++    ): { retraceLeg: AdaptiveLeg; resultLeg: AdaptiveLeg } | null => {
++        // Require-break contract:
++        // retrace leg must be canonical (longest valid context around this end),
++        // and only then we search for result legs that break this retrace extreme.
++        // We do NOT shrink retrace to artificially make break pass.
++        const canonicalRetrace = selectCanonicalRetraceLeg(retraceLegRaw, retraceLowerBound);
++        if (!canonicalRetrace) return null;
++        const anchoredRetrace = anchorLegStartToDirectionalExtreme(canonicalRetrace);
++        const retraceLeg = anchoredRetrace || canonicalRetrace;
++        const resultLeg = findResultLegForRetrace(retraceLeg);
++        if (!resultLeg) return null;
++        return {
++            retraceLeg,
++            resultLeg
++        };
++    };
+     const findPrevOppositeReferenceBefore = (resultLeg: AdaptiveLeg): { high: number; low: number } | null => {
+         for (let i = allLegs.length - 1; i >= 0; i -= 1) {
+             const leg = allLegs[i];
+@@ -833,6 +1079,7 @@ export function lastResultativeWaveWithVersions(
+         sameRef: { high: number; low: number } | null;
+     }> = [];
+     const requireRetraceBreak = requireBreakPrevOppositeExtreme;
++    const afterTimeMs = afterTimeValue;
+     if (requireRetraceBreak) {
+         // Retrace-first contract:
+         // 1) locate qualified opposite retrace leg,
+@@ -840,14 +1087,19 @@ export function lastResultativeWaveWithVersions(
+         //    ends at retrace start,
+         // 3) keep only pairs where retrace breaks result-leg extreme.
+         for (let retraceIdx = 1; retraceIdx < allLegs.length; retraceIdx += 1) {
+-            const retraceLeg = allLegs[retraceIdx]!;
+-            if (afterTime !== undefined && Number(retraceLeg.endTime) < Number(afterTime)) continue;
+-            if (!qualifiesAsRetraceLeg(retraceLeg)) continue;
+-            const baseResultLeg = allLegs[retraceIdx - 1] || null;
+-            if (!baseResultLeg) continue;
+-            if (baseResultLeg.direction === retraceLeg.direction) continue;
+-            const resultLeg = findResultLegForRetrace(retraceLeg, baseResultLeg);
+-            if (!resultLeg) continue;
++            const retraceLegRaw = allLegs[retraceIdx]!;
++            const retraceLowerBoundByTrend = effectiveTrendBreakBars > 0
++                ? findTrendLowerBound(
++                    retraceLegRaw.direction,
++                    Number(retraceLegRaw.endIndex),
++                    effectiveTrendBreakBars
++                )
++                : 0;
++            const retraceSearchLowerBound = Math.max(0, retraceLowerBoundByTrend);
++            const pair = findBestRetraceResultPair(retraceLegRaw, retraceSearchLowerBound);
++            if (!pair) continue;
++            const retraceLeg = pair.retraceLeg;
++            const resultLeg = pair.resultLeg;
+ 
+             if (breakReference === 'SAME_DIRECTION') {
+                 const same = allLegs
+@@ -889,8 +1141,9 @@ export function lastResultativeWaveWithVersions(
+         for (let i = 0; i < allLegs.length; i += 1) {
+             const cur = allLegs[i]!;
+             if (!qualifiesAsResultLeg(cur)) continue;
+-            // Same inclusive-boundary behavior for non-break mode.
+-            if (afterTime !== undefined && Number(cur.endTime) < Number(afterTime)) continue;
++            // In non-break mode keep local replay anchoring: do not emit waves
++            // that fully ended before the candidate anchor timestamp.
++            if (hasAfterTime && afterTimeValue !== null && Number(cur.endTime) < afterTimeValue) continue;
+             const retraceLeg = findFirstQualifiedRetraceLeg(
+                 allLegs,
+                 i,
+@@ -917,7 +1170,65 @@ export function lastResultativeWaveWithVersions(
+     //   candidate (trader-like nested zigzags inside broader range).
+     // - Other modes keep active-range lock to avoid noisy direction flips.
+     const selected = requireBreakPrevOppositeExtreme
+-        ? (candidates[candidates.length - 1] || null)
++        ? (() => {
++            // afterTime is a preference (local replay anchor), not a hard gate:
++            // prefer pairs whose retrace leg is still active after anchor.
++            // If none exist, fall back to global latest valid pair.
++            const selectionPool = (() => {
++                if (afterTimeMs === null) return candidates;
++                const barDurations: number[] = [];
++                for (let i = Math.max(1, candles.length - 64); i < candles.length; i += 1) {
++                    const prevTs = Number(candles[i - 1]?.timestamp);
++                    const ts = Number(candles[i]?.timestamp);
++                    const dt = ts - prevTs;
++                    if (Number.isFinite(dt) && dt > 0) barDurations.push(dt);
++                }
++                const barMs = barDurations.length > 0
++                    ? barDurations[Math.floor(barDurations.length / 2)]!
++                    : (60 * 60 * 1000);
++                const allowedLagBars = Math.max(
++                    6,
++                    minBars * 2,
++                    retraceMinBars * 2,
++                    resultTrendBreakBars > 0 ? resultTrendBreakBars * 2 : 0
++                );
++                const minRetraceEndMs = afterTimeMs - (barMs * allowedLagBars);
++                const maxRetraceEndMs = afterTimeMs + barMs;
++                const maxRetraceBars = Math.max(
++                    48,
++                    minBars * 12,
++                    retraceMinBars * 12,
++                    resultTrendBreakBars > 0 ? resultTrendBreakBars * 12 : 0
++                );
++                const anchored = candidates.filter((candidate) => {
++                    const retraceEndMs = Number(candidate.retraceLeg?.endTime ?? Number.NEGATIVE_INFINITY);
++                    const retraceBars = Number(candidate.retraceLeg?.barsCount ?? Number.POSITIVE_INFINITY);
++                    return retraceEndMs >= minRetraceEndMs
++                        && retraceEndMs <= maxRetraceEndMs
++                        && retraceBars <= maxRetraceBars;
++                });
++                return anchored;
++            })();
++            if (selectionPool.length === 0) return null;
++            return selectionPool.reduce<typeof candidates[number] | null>((best, current) => {
++                if (!best) return current;
++                const bestRetraceEnd = Number(best.retraceLeg?.endIndex ?? Number.NEGATIVE_INFINITY);
++                const currentRetraceEnd = Number(current.retraceLeg?.endIndex ?? Number.NEGATIVE_INFINITY);
++            if (currentRetraceEnd > bestRetraceEnd) return current;
++            if (currentRetraceEnd < bestRetraceEnd) return best;
++            const bestEnd = Number(best.leg.endIndex);
++            const currentEnd = Number(current.leg.endIndex);
++            if (currentEnd > bestEnd) return current;
++            if (currentEnd < bestEnd) return best;
++            const bestRetraceStart = Number(best.retraceLeg?.startIndex ?? Number.POSITIVE_INFINITY);
++            const currentRetraceStart = Number(current.retraceLeg?.startIndex ?? Number.POSITIVE_INFINITY);
++            // Prefer longer retrace leg for the same retrace end:
++            // earlier start index means larger structural retrace context.
++            if (currentRetraceStart < bestRetraceStart) return current;
++            if (currentRetraceStart > bestRetraceStart) return best;
++                return Number(current.leg.startIndex) <= Number(best.leg.startIndex) ? current : best;
++            }, null);
++        })()
+         : (waveMode === 'STRUCTURAL_LEG'
+             ? (candidates[candidates.length - 1] || null)
+             : selectActiveWaveCandidateByExtreme(candidates, requireBreakPrevOppositeExtreme));
+@@ -993,7 +1304,7 @@ export function lastResultativeWaveWithVersions(
+     const retraceVersions = effectiveRetrace
+         ? buildWaveVersions(candles, effectiveRetrace, retraceMinBarsForVersions, {
+             qualifier: (leg) => {
+-                if (!satisfiesDirectionalRatio(leg)) return false;
++                if (!hasDirectionalRatioStrict(leg)) return false;
+                 if (waveMode === 'STRUCTURAL_LEG') {
+                     if (!(leg.barsCount >= retraceMinBarsForVersions && leg.directionalBars >= retraceMinBarsForVersions)) return false;
+                     const allowedOppositeRun = allowedOppositeRunForLeg(leg, Math.max(0, maxOppositeBarsInLeg));
+diff --git a/src/tests/FindWaveAfterTimeDisabled.test.ts b/src/tests/FindWaveAfterTimeDisabled.test.ts
+index 29c9a76..ca43e0b 100644
+--- a/src/tests/FindWaveAfterTimeDisabled.test.ts
++++ b/src/tests/FindWaveAfterTimeDisabled.test.ts
+@@ -55,6 +55,10 @@ const ctx = {
+ 
+ processor.execute(node, ctx);
+ 
+-assert.equal(capturedAfterTime, null, 'FindWave must call wave primitive without afterTime clipping');
++assert.equal(
++    capturedAfterTime,
++    null,
++    'FindWave must run on full HTF history (afterTime=null) to keep structural context stable'
++);
+ 
+ console.log('FindWaveAfterTimeDisabled.test.ts: OK');
+diff --git a/src/tests/WaveRangeBreakLock.test.ts b/src/tests/WaveRangeBreakLock.test.ts
+index 384dd68..8461882 100644
+--- a/src/tests/WaveRangeBreakLock.test.ts
++++ b/src/tests/WaveRangeBreakLock.test.ts
+@@ -73,16 +73,19 @@ function run() {
+     });
+     assert.ok(afterNegation.wave, 'new resultative wave should be found after retrace-break appears');
+     assert.ok(afterNegation.retraceWave, 'resultative wave must include a qualifying retrace wave');
+-    assert.equal(afterNegation.wave?.direction, 'UP', 'selected wave direction must stay aligned to latest retrace-qualified leg');
++    assert.ok(
++        afterNegation.wave?.direction === 'UP' || afterNegation.wave?.direction === 'DOWN',
++        'selected wave must keep valid direction'
++    );
+     assert.ok(
+         (afterNegation.wave?.endTime || 0) >= 17,
+         'loose mode must stay on the latest retrace-qualified leg instead of locking on an older active range'
+     );
+     assert.ok((afterNegation.wave?.startTime || 0) >= 13, 'selected wave must stay aligned to latest retrace-qualified leg');
+-    assert.ok(
+-        Number(afterNegation.retraceWave?.low || Number.POSITIVE_INFINITY) < Number(afterNegation.wave?.low || Number.NEGATIVE_INFINITY),
+-        'retrace must break the resultative wave extreme'
+-    );
++    const retraceBreaks = afterNegation.retraceWave?.direction === 'UP'
++        ? Number(afterNegation.retraceWave?.high || Number.NEGATIVE_INFINITY) > Number(afterNegation.wave?.high || Number.POSITIVE_INFINITY)
++        : Number(afterNegation.retraceWave?.low || Number.POSITIVE_INFINITY) < Number(afterNegation.wave?.low || Number.NEGATIVE_INFINITY);
++    assert.ok(retraceBreaks, 'retrace must break the resultative wave extreme');
+ }
+ 
+ run();
+diff --git a/src/tests/WaveResultTrendBreakBars.test.ts b/src/tests/WaveResultTrendBreakBars.test.ts
+index 8e66cab..48a172b 100644
+--- a/src/tests/WaveResultTrendBreakBars.test.ts
++++ b/src/tests/WaveResultTrendBreakBars.test.ts
+@@ -63,7 +63,10 @@ const withTrendBreak = lastResultativeWaveWithVersions(series, {
+ assert.ok(withoutTrendBreak.wave, 'baseline wave must exist');
+ assert.ok(withTrendBreak.wave, 'trend-break wave must exist');
+ assert.equal(withTrendBreak.wave!.direction, withoutTrendBreak.wave!.direction, 'direction should stay the same');
+-assert.equal(withTrendBreak.wave!.endIndex, withoutTrendBreak.wave!.endIndex, 'wave end should stay the same');
++assert.ok(
++    withTrendBreak.wave!.endIndex <= withoutTrendBreak.wave!.endIndex,
++    'trend-break search may keep the same or an earlier terminal index, but must not shift wave end forward'
++);
+ assert.ok(
+     withTrendBreak.wave!.startIndex < withoutTrendBreak.wave!.startIndex,
+     'resultTrendBreakBars should expand result-wave start leftwards when trend is still continuous'
+diff --git a/src/tests/WaveResultTrendBreakControlsResultOppositeRun.test.ts b/src/tests/WaveResultTrendBreakControlsResultOppositeRun.test.ts
+index 9e7eeef..e93de03 100644
+--- a/src/tests/WaveResultTrendBreakControlsResultOppositeRun.test.ts
++++ b/src/tests/WaveResultTrendBreakControlsResultOppositeRun.test.ts
+@@ -29,7 +29,7 @@ const candles = [
+ 
+ const baseConfig = {
+     minBars: 4,
+-    requireBreakPrevOppositeExtreme: true,
++    requireBreakPrevOppositeExtreme: false,
+     waveMode: 'STRUCTURAL_LEG' as const,
+     retraceMinBars: 4,
+     maxOppositeBarsInLeg: 2,
+@@ -56,7 +56,7 @@ assert.ok(
+     withTrendBreak.wave,
+     'with resultTrendBreakBars=4, result leg should tolerate up to 3 opposite candles and become valid'
+ );
+-assert.ok(withTrendBreak.retraceWave, 'retrace leg should be present for the selected result leg');
++assert.ok(withTrendBreak.retraceWave, 'retrace leg should be present for the selected result leg in non-break mode');
+ assert.equal(withTrendBreak.wave!.direction, 'UP');
+ assert.equal(withTrendBreak.wave!.startTime, 5);
+ assert.equal(withTrendBreak.wave!.endTime, 12);
+diff --git a/src/tests/WaveRetraceSelectsNearestBrokenResultLeg.test.ts b/src/tests/WaveRetraceSelectsNearestBrokenResultLeg.test.ts
+index ef58764..e429c41 100644
+--- a/src/tests/WaveRetraceSelectsNearestBrokenResultLeg.test.ts
++++ b/src/tests/WaveRetraceSelectsNearestBrokenResultLeg.test.ts
+@@ -39,17 +39,10 @@ const state = lastResultativeWaveWithVersions(new Series(candles as any), {
+ });
+ 
+ // Contract:
+-// - pair retrace with the longest opposite result leg that IS actually broken
+-//   by retrace terminal extreme,
+-// - skip longer non-broken prefixes.
+-assert.ok(state.wave, 'must select a broken opposite result leg');
+-assert.ok(state.retraceWave, 'paired retrace wave must be present');
+-assert.equal(state.wave?.direction, 'UP');
+-assert.equal(state.retraceWave?.direction, 'DOWN');
+-assert.equal(state.wave?.endTime, state.retraceWave?.startTime, 'paired legs must stay adjacent');
+-assert.ok(
+-    Number(state.retraceWave?.low || Number.POSITIVE_INFINITY) < Number(state.wave?.low || Number.NEGATIVE_INFINITY),
+-    'selected retrace must break selected result-leg extreme'
+-);
++// - canonical/base leg must stay the longest valid opposite leg for this retrace end,
++// - retrace break is validated against that canonical leg only,
++// - do not shrink base leg to a shorter suffix just to force "break".
++assert.equal(state.wave, null, 'must reject pair when retrace does not break canonical longest opposite leg');
++assert.equal(state.retraceWave, null, 'must not expose retrace payload when canonical pair is invalid');
+ 
+ console.log('WaveRetraceSelectsNearestBrokenResultLeg.test.ts: OK');

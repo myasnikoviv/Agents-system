@@ -1,8 +1,8 @@
-# Agents System Runtime Swarm (Cognitive)
+# Multi-Agent Operating Model v2 (Cognitive)
 
 Ticket: AGSYS-231
 
-This repository contains the core autonomous agentic runtime and infrastructure.
+This repository uses a role-based agent system for product work, strategy logic updates, testing, and release.
 
 ## Agent Registry
 
@@ -179,10 +179,10 @@ PM intake -> Clarification -> Research -> Challenge -> Architect -> Design Lead 
   - `Active role: Docs`
 - If request spans multiple roles, PM stays active and orchestrates role handoffs explicitly in the same reply.
 - Every assistant reply must include pipeline context line after active role:
-  - `Pipeline: <pipeline-id>`
-  - `Stage: <current-stage>`
-  - `Next: <next-role-or-gate>`
-  - `Task: <active-ticket-id> (<status>)` (alias `Ticket:` allowed for backward compatibility)
+  - Pipeline: <pipeline-id>
+  - Stage: <current-stage>
+  - Next: <next-role-or-gate>
+  - Ticket: <active-ticket-id>
 - Preflight ticket guard is mandatory before any execution step:
   - verify active task exists, is not `cancelled`, has valid acceptance criteria, and matches current pipeline scope.
   - if task is missing/invalid, PM must `find or create` task first, then continue.

@@ -1,0 +1,280 @@
+src/core/v2/BlockTypeRegistry.ts:19:    public async load(db: any): Promise<void> {
+src/core/v2/EngineV2.ts:114:            const forced = outgoingEdges.find((e: any) =>
+src/core/v2/EngineV2.ts:117:                || String((e as any).ui_label || '') === mockCfg.route_to
+src/core/v2/EngineV2.ts:20:        const outputTs = Number((result?.outputs as any)?.event_timestamp_ms ?? (result?.outputs as any)?.event_timestamp);
+src/core/v2/GraphFunnelCollector.ts:424:            String((event as any)?.type || ''),
+src/core/v2/GraphFunnelCollector.ts:425:            String((event as any)?.sessionId || ''),
+src/core/v2/GraphFunnelCollector.ts:426:            String((event as any)?.nodeId || ''),
+src/core/v2/GraphFunnelCollector.ts:427:            String((event as any)?.edgeId || ''),
+src/core/v2/GraphFunnelCollector.ts:428:            String((event as any)?.barIndex ?? ''),
+src/core/v2/GraphFunnelCollector.ts:429:            String((event as any)?.barTimestamp ?? ''),
+src/core/v2/GraphFunnelCollector.ts:430:            String((event as any)?.status || ''),
+src/core/v2/GraphFunnelCollector.ts:431:            String((event as any)?.reason || ''),
+src/core/v2/GraphFunnelCollector.ts:432:            String((event as any)?.terminalState || '')
+src/core/v2/processors/BuildStopLimitTradeProcessor.ts:10:        return value && typeof value === 'object' ? value as Record<string, any> : null;
+src/core/v2/processors/BuildStopLimitTradeProcessor.ts:19:        const wave = this.asObject((config as any).wave)
+src/core/v2/processors/BuildStopLimitTradeProcessor.ts:20:            || this.asObject((config as any).result_wave)
+src/core/v2/processors/BuildStopLimitTradeProcessor.ts:21:            || this.asObject((config as any).prev_wave);
+src/core/v2/processors/BuildStopLimitTradeProcessor.ts:22:        const effort = this.asObject((config as any).effort)
+src/core/v2/processors/BuildStopLimitTradeProcessor.ts:23:            || this.asObject((config as any).effort_bar)
+src/core/v2/processors/BuildStopLimitTradeProcessor.ts:24:            || this.asObject((config as any).volume_bar);
+src/core/v2/processors/BuildStopLimitTradeProcessor.ts:25:        const test = this.asObject((config as any).testResult)
+src/core/v2/processors/BuildStopLimitTradeProcessor.ts:26:            || this.asObject((config as any).test_result)
+src/core/v2/processors/BuildStopLimitTradeProcessor.ts:27:            || this.asObject((config as any).test_candle);
+src/core/v2/processors/BuildStopLimitTradeProcessor.ts:29:        const waveStart = this.readTimestamp((wave as any)?.startTime ?? (wave as any)?.startTs);
+src/core/v2/processors/BuildStopLimitTradeProcessor.ts:30:        const waveEnd = this.readTimestamp((wave as any)?.endTime ?? (wave as any)?.endTs);
+src/core/v2/processors/BuildStopLimitTradeProcessor.ts:31:        const effortTs = this.readTimestamp((effort as any)?.candle?.timestamp ?? (effort as any)?.timestamp);
+src/core/v2/processors/BuildStopLimitTradeProcessor.ts:33:            (test as any)?.testCandle?.timestamp
+src/core/v2/processors/BuildStopLimitTradeProcessor.ts:34:            ?? (test as any)?.test_candle?.timestamp
+src/core/v2/processors/BuildStopLimitTradeProcessor.ts:35:            ?? (test as any)?.timestamp
+src/core/v2/processors/BuildStopLimitTradeProcessor.ts:45:        const signalBar = (config as any).signalBar || ctx.candle;
+src/core/v2/processors/BuildStopLimitTradeProcessor.ts:46:        let trend = (config as any).trend;
+src/core/v2/processors/BuildStopLimitTradeProcessor.ts:50:        const slBufferBps = Number((config as any).sl_buffer_bps);
+src/core/v2/processors/BuildStopLimitTradeProcessor.ts:51:        const minRR = Number((config as any).min_rr);
+src/core/v2/processors/BuildStopLimitTradeProcessor.ts:52:        const minStopBpsRaw = Number((config as any).min_stop_bps ?? (config as any).minStopBps ?? 12);
+src/core/v2/processors/BuildStopLimitTradeProcessor.ts:53:        const minTargetBpsRaw = Number((config as any).min_target_bps ?? (config as any).minTargetBps ?? 36);
+src/core/v2/processors/BuildStopLimitTradeProcessor.ts:54:        const entryMode = String((config as any).entry_mode ?? (config as any).entryMode ?? 'BAR_EXTREME');
+src/core/v2/processors/BuildStopLimitTradeProcessor.ts:57:        const tradeEnabledRaw = (config as any).trade_enabled ?? (config as any).trade_enabled_input;
+src/core/v2/processors/BuildStopLimitTradeProcessor.ts:59:        const positionNotionalUsdRaw = Number((config as any).position_notional_usd ?? (config as any).positionNotionalUsd ?? ctx.getInternalVar('__position_notional_usd') ?? 1000);
+src/core/v2/processors/BuildStopLimitTradeProcessor.ts:9:    private asObject(value: unknown): Record<string, any> | null {
+src/core/v2/processors/ClassifyVolumeEntryVariantProcessor.ts:14:        const volumeBar = (config as any).volume_bar;
+src/core/v2/processors/ClassifyVolumeEntryVariantProcessor.ts:16:        if (!volumeBar || !(volumeBar as any).candle) return this.fail();
+src/core/v2/processors/ClassifyVolumeEntryVariantProcessor.ts:17:        const vCandle = (volumeBar as any).candle as Candle;
+src/core/v2/processors/ClassifyVolumeEntryVariantProcessor.ts:19:        const atrPeriod = Number((config as any).atr_period || 14);
+src/core/v2/processors/ClassifyVolumeEntryVariantProcessor.ts:23:        const dumpMin = Number((config as any).dump_spread_atr_min);
+src/core/v2/processors/ClassifyVolumeEntryVariantProcessor.ts:24:        const dumpMax = Number((config as any).dump_spread_atr_max);
+src/core/v2/processors/ClassifyVolumeEntryVariantProcessor.ts:37:            const wave = (config as any).wave;
+src/core/v2/processors/ClassifyVolumeEntryVariantProcessor.ts:38:            const direction = (config as any).direction || (wave?.direction === 'UP' ? 'LONG' : wave?.direction === 'DOWN' ? 'SHORT' : undefined);
+src/core/v2/processors/ClassifyVolumeEntryVariantProcessor.ts:39:            const minBreakBars = Number((config as any).min_break_wave_bars);
+src/core/v2/processors/ClassifyVolumeEntryVariantProcessor.ts:40:            const breakWave = detectBreakoutWavePierceVolBar(series, volumeBar as any, {
+src/core/v2/processors/ConfirmBreakProcessor.ts:15:        const effort = (config as any).effort;
+src/core/v2/processors/ConfirmBreakProcessor.ts:17:            if (this.debug) ctx.log(this.type, `[DEBUG] No effort found in (config as any).`);
+src/core/v2/processors/ConfirmBreakProcessor.ts:21:        const minBreakBars = Number((config as any).minBreakBars ?? (config as any).min_break_bars_input ?? (config as any).min_break_bars);
+src/core/v2/processors/ConfirmBreakProcessor.ts:22:        const breakSource = String((config as any).break_source_input ?? (config as any).break_source ?? 'close');
+src/core/v2/processors/DetectDumpSetupProcessor.ts:14:        const volumeBar = (config as any).volume_bar;
+src/core/v2/processors/DetectDumpSetupProcessor.ts:16:        if (!volumeBar || !(volumeBar as any).candle) return this.fail();
+src/core/v2/processors/DetectDumpSetupProcessor.ts:17:        const vCandle = (volumeBar as any).candle as Candle;
+src/core/v2/processors/DetectDumpSetupProcessor.ts:19:        const atrPeriod = Number((config as any).atr_period || 14);
+src/core/v2/processors/DetectDumpSetupProcessor.ts:21:        const volumeBarIndex = Number((volumeBar as any).index);
+src/core/v2/processors/DetectDumpSetupProcessor.ts:30:        const spreadMin = Number((config as any).spread_atr_min);
+src/core/v2/processors/DetectDumpSetupProcessor.ts:31:        const spreadMax = Number((config as any).spread_atr_max);
+src/core/v2/processors/DetectDumpSetupProcessor.ts:49:        const wave = (config as any).wave;
+src/core/v2/processors/DetectDumpSetupProcessor.ts:50:        const inputDir = (config as any).direction;
+src/core/v2/processors/DetectEffortAtLevelProcessor.ts:111:            const atrPeriod = Number((config as any).atr_period || 14);
+src/core/v2/processors/DetectEffortAtLevelProcessor.ts:114:            const wideMin = Number((config as any).wide_spread_min_atr ?? 2.0);
+src/core/v2/processors/DetectEffortAtLevelProcessor.ts:115:            const wideMax = Number((config as any).wide_spread_max_atr ?? 3.0);
+src/core/v2/processors/DetectEffortAtLevelProcessor.ts:44:            normalize((config as any).direction) ||
+src/core/v2/processors/DetectEffortAtLevelProcessor.ts:45:            fromCandle((config as any).direction) ||
+src/core/v2/processors/DetectEffortAtLevelProcessor.ts:46:            normalize((config as any).wave) ||
+src/core/v2/processors/DetectEffortAtLevelProcessor.ts:47:            fromCandle((config as any).wave) ||
+src/core/v2/processors/DetectEffortAtLevelProcessor.ts:60:        const maxWaitBarsRaw = Number((config as any).max_wait_bars_input ?? (config as any).max_wait_bars ?? 60);
+src/core/v2/processors/DetectEffortAtLevelProcessor.ts:65:        const level = Number((config as any).level_ref);
+src/core/v2/processors/DetectEffortAtLevelProcessor.ts:72:        const directionSource = String((config as any).direction_source_input ?? (config as any).direction_source ?? 'WAVE').toUpperCase();
+src/core/v2/processors/DetectEffortAtLevelProcessor.ts:74:            (config as any).require_opposite_color_input ?? (config as any).require_opposite_color,
+src/core/v2/processors/DetectEffortAtLevelProcessor.ts:77:        const wave = (config as any).wave || ctx.getOutput('b20_wave', 'wave');
+src/core/v2/processors/DetectVolumeBarAtLevelProcessor.ts:12:        const toleranceFactorRaw = Number((config as any).level_tolerance_factor ?? 2);
+src/core/v2/processors/DetectVolumeBarAtLevelProcessor.ts:15:        const maxWaitBarsRaw = Number((config as any).max_wait_bars_input ?? (config as any).max_wait_bars ?? 60);
+src/core/v2/processors/DetectWavePierceSetupProcessor.ts:14:        const volumeBar = (config as any).volume_bar;
+src/core/v2/processors/DetectWavePierceSetupProcessor.ts:16:        if (!volumeBar || !(volumeBar as any).candle) return this.fail();
+src/core/v2/processors/DetectWavePierceSetupProcessor.ts:18:        const wave = (config as any).wave;
+src/core/v2/processors/DetectWavePierceSetupProcessor.ts:19:        const inputDir = (config as any).direction;
+src/core/v2/processors/DetectWavePierceSetupProcessor.ts:21:        const minBreakBars = Number((config as any).min_break_wave_bars);
+src/core/v2/processors/DetectWavePierceSetupProcessor.ts:22:        const recentBarsRaw = Number((config as any).recent_bars ?? (config as any).recentBars ?? 3);
+src/core/v2/processors/DetectWavePierceSetupProcessor.ts:24:        const tolBpsRaw = Number((config as any).pierce_tolerance_bps ?? (config as any).pierceToleranceBps ?? 5);
+src/core/v2/processors/DetectWavePierceSetupProcessor.ts:71:        volumeBar: any,
+src/core/v2/processors/FindEffortProcessor.ts:100:            pressure_body_min_ratio: (config as any).pressure_body_min_ratio_input ?? (config as any).pressure_body_min_ratio,
+src/core/v2/processors/FindEffortProcessor.ts:101:            pressure_opp_tail_max_ratio: (config as any).pressure_opp_tail_max_ratio_input ?? (config as any).pressure_opp_tail_max_ratio,
+src/core/v2/processors/FindEffortProcessor.ts:111:        const effortDebug = (argsObj as any).__effort_debug;
+src/core/v2/processors/FindEffortProcessor.ts:112:        const effortCandidates = Array.isArray((argsObj as any).__effort_candidates)
+src/core/v2/processors/FindEffortProcessor.ts:113:            ? (argsObj as any).__effort_candidates
+src/core/v2/processors/FindEffortProcessor.ts:118:            .map((candidate: any) => {
+src/core/v2/processors/FindEffortProcessor.ts:131:            .filter((v: any) => Boolean(v));
+src/core/v2/processors/FindEffortProcessor.ts:17:    private buildExplanationRu(debug: any, selectedIdx: number | null): string {
+src/core/v2/processors/FindEffortProcessor.ts:184:                effortCandle as any,
+src/core/v2/processors/FindEffortProcessor.ts:185:                prevEffortBar as any,
+src/core/v2/processors/FindEffortProcessor.ts:186:                nextEffortBar as any
+src/core/v2/processors/FindEffortProcessor.ts:21:        const selected = debug.candidates.find((c: any) => Number(c.index) === Number(selectedIdx));
+src/core/v2/processors/FindEffortProcessor.ts:224:        const threshold = Number((config as any).volume_mult_input);
+src/core/v2/processors/FindEffortProcessor.ts:38:            .filter((c: any) => c.status === 'rejected')
+src/core/v2/processors/FindEffortProcessor.ts:40:            .map((c: any) => {
+src/core/v2/processors/FindEffortProcessor.ts:59:        const wave = (config as any).wave;
+src/core/v2/processors/FindEffortProcessor.ts:62:            const waveConfig = (node.config as any).wave as { bind?: { value?: unknown } } | undefined;
+src/core/v2/processors/FindEffortProcessor.ts:64:            console.error(`[EffortError] Missing Wave binding in ${node.id}. RawConfig=${rawBind || (node.config as any).wave}`);
+src/core/v2/processors/FindEffortProcessor.ts:70:        const requireWaveNotNegatedRaw = (config as any).require_wave_not_negated_input
+src/core/v2/processors/FindEffortProcessor.ts:71:            ?? (config as any).require_wave_not_negated;
+src/core/v2/processors/FindEffortProcessor.ts:83:        const volumeMode = String((config as any).volume_mode);
+src/core/v2/processors/FindEffortProcessor.ts:86:        const tailMaxRatio = Number((config as any).tail_max_ratio_input);
+src/core/v2/processors/FindEffortProcessor.ts:87:        const volumeMultVal = Number((config as any).volume_mult_input);
+src/core/v2/processors/FindEffortProcessor.ts:96:            effortWavePositionRange: (config as any).effort_wave_position_range_input
+src/core/v2/processors/FindEffortProcessor.ts:97:                ?? (config as any).effort_wave_position_range,
+src/core/v2/processors/FindEffortProcessor.ts:98:            extremeOffsetRatio: (config as any).extreme_offset_ratio_input ?? (config as any).extreme_offset_ratio,
+src/core/v2/processors/FindEffortProcessor.ts:99:            allowAbsorptionPush: (config as any).allow_absorption_push_input ?? (config as any).allow_absorption_push,
+src/core/v2/processors/FindWaveProcessor.ts:101:                const open = Number((c as any).open);
+src/core/v2/processors/FindWaveProcessor.ts:102:                const close = Number((c as any).close);
+src/core/v2/processors/FindWaveProcessor.ts:163:        const minBarsRaw = (config as any).minBars ?? (config as any).min_bars ?? (config as any).wave_min_bars;
+src/core/v2/processors/FindWaveProcessor.ts:165:            (config as any).setup_min_bars_input
+src/core/v2/processors/FindWaveProcessor.ts:166:            ?? (config as any).setup_min_bars
+src/core/v2/processors/FindWaveProcessor.ts:167:            ?? (config as any).result_wave_min_bars_input
+src/core/v2/processors/FindWaveProcessor.ts:168:            ?? (config as any).result_wave_min_bars
+src/core/v2/processors/FindWaveProcessor.ts:170:        const waveModeRaw = (config as any).wave_mode_input
+src/core/v2/processors/FindWaveProcessor.ts:171:            ?? (config as any).wave_mode
+src/core/v2/processors/FindWaveProcessor.ts:173:        const requireBreakRaw = (config as any).requireBreak ?? (config as any).require_break;
+src/core/v2/processors/FindWaveProcessor.ts:174:        const breakReferenceRaw = (config as any).break_reference_input
+src/core/v2/processors/FindWaveProcessor.ts:175:            ?? (config as any).break_reference
+src/core/v2/processors/FindWaveProcessor.ts:176:            ?? (config as any).result_wave_break_reference_input
+src/core/v2/processors/FindWaveProcessor.ts:177:            ?? (config as any).result_wave_break_reference;
+src/core/v2/processors/FindWaveProcessor.ts:185:        const retraceMinBarsRaw = (config as any).retrace_min_bars ?? (config as any).retraceMinBars ?? (config as any).retrace_min_bars_input;
+src/core/v2/processors/FindWaveProcessor.ts:186:        const maxOppositeBarsInLegRaw = (config as any).max_opposite_bars_in_leg
+src/core/v2/processors/FindWaveProcessor.ts:187:            ?? (config as any).maxOppositeBarsInLeg
+src/core/v2/processors/FindWaveProcessor.ts:188:            ?? (config as any).max_opposite_bars_input;
+src/core/v2/processors/FindWaveProcessor.ts:189:        const maxOppositeBarsRatioInLegRaw = (config as any).max_opposite_bars_ratio_in_leg
+src/core/v2/processors/FindWaveProcessor.ts:190:            ?? (config as any).maxOppositeBarsRatioInLeg
+src/core/v2/processors/FindWaveProcessor.ts:191:            ?? (config as any).max_opposite_bars_ratio_input
+src/core/v2/processors/FindWaveProcessor.ts:192:            ?? (config as any).wave_max_opposite_bars_ratio_input;
+src/core/v2/processors/FindWaveProcessor.ts:193:        const resultTrendBreakBarsRaw = (config as any).result_trend_break_bars_input
+src/core/v2/processors/FindWaveProcessor.ts:194:            ?? (config as any).resultTrendBreakBars
+src/core/v2/processors/FindWaveProcessor.ts:195:            ?? (config as any).result_trend_break_bars
+src/core/v2/processors/FindWaveProcessor.ts:196:            ?? (config as any).trend_break_bars_input;
+src/core/v2/processors/FindWaveProcessor.ts:197:        const directionalBarsRatioMinRaw = (config as any).directional_bars_ratio_min_input
+src/core/v2/processors/FindWaveProcessor.ts:198:            ?? (config as any).directionalBarsRatioMin
+src/core/v2/processors/FindWaveProcessor.ts:199:            ?? (config as any).directional_bars_ratio_min
+src/core/v2/processors/FindWaveProcessor.ts:200:            ?? (config as any).wave_directional_bars_ratio_min_input;
+src/core/v2/processors/FindWaveProcessor.ts:201:        const minVectorAngleDegRaw = (config as any).min_vector_angle_deg_input
+src/core/v2/processors/FindWaveProcessor.ts:202:            ?? (config as any).minVectorAngleDeg
+src/core/v2/processors/FindWaveProcessor.ts:203:            ?? (config as any).min_vector_angle_deg
+src/core/v2/processors/FindWaveProcessor.ts:204:            ?? (config as any).wave_min_vector_angle_deg_input;
+src/core/v2/processors/FindWaveProcessor.ts:296:                    Number((wave as any)?.startIndex) === Number((legacyRetraceWave as any)?.startIndex)
+src/core/v2/processors/FindWaveProcessor.ts:297:                    && Number((wave as any)?.endIndex) === Number((legacyRetraceWave as any)?.endIndex)
+src/core/v2/processors/FindWaveProcessor.ts:298:                    && String((wave as any)?.direction || '').toUpperCase() === String((legacyRetraceWave as any)?.direction || '').toUpperCase()
+src/core/v2/processors/FindWaveProcessor.ts:301:                    base.push(legacyRetraceWave as any);
+src/core/v2/processors/FindWaveProcessor.ts:308:                const key = `${String((wave as any).direction || '').toUpperCase()}|${Number((wave as any).startIndex)}|${Number((wave as any).endIndex)}`;
+src/core/v2/processors/FindWaveProcessor.ts:313:                const aEnd = Number((a as any)?.endIndex ?? Number.NEGATIVE_INFINITY);
+src/core/v2/processors/FindWaveProcessor.ts:314:                const bEnd = Number((b as any)?.endIndex ?? Number.NEGATIVE_INFINITY);
+src/core/v2/processors/FindWaveProcessor.ts:316:                const aStart = Number((a as any)?.startIndex ?? Number.POSITIVE_INFINITY);
+src/core/v2/processors/FindWaveProcessor.ts:317:                const bStart = Number((b as any)?.startIndex ?? Number.POSITIVE_INFINITY);
+src/core/v2/processors/FindWaveProcessor.ts:327:            ? [{ ...retraceWave, version: 1 } as any]
+src/core/v2/processors/FindWaveProcessor.ts:32:        wave: any,
+src/core/v2/processors/FindWaveProcessor.ts:34:    ): any {
+src/core/v2/processors/FindWaveProcessor.ts:56:        wave: any,
+src/core/v2/processors/FindWaveProcessor.ts:59:    ): any {
+src/core/v2/processors/LiquidityFilterProcessor.ts:15:        const minTurnover = Number((config as any).min_turnover);
+src/core/v2/processors/LiquidityFilterProcessor.ts:54:        const threshold = Number((config as any).min_turnover);
+src/core/v2/processors/SetManipLevelProcessor.ts:38:        const source = String((config as any).source || '').toUpperCase();
+src/core/v2/processors/SetManipLevelProcessor.ts:39:        const mode = String((config as any).mode || '').toUpperCase();
+src/core/v2/processors/SetManipLevelProcessor.ts:41:        const levelSource = String((config as any).level_source_input ?? (config as any).level_source ?? 'EXTREME').toUpperCase();
+src/core/v2/processors/SetManipLevelProcessor.ts:59:            const testResult = (config as any).testResult;
+src/core/v2/processors/SetManipLevelProcessor.ts:60:            const wave = (config as any).wave;
+src/core/v2/processors/SetManipLevelProcessor.ts:62:                (testResult as any)?.testCandle?.timestamp,
+src/core/v2/processors/SetManipLevelProcessor.ts:63:                (testResult as any)?.test_candle?.timestamp,
+src/core/v2/processors/SetManipLevelProcessor.ts:64:                (testResult as any)?.timestamp
+src/core/v2/processors/SetManipLevelProcessor.ts:72:                if (!testResult || typeof testResult !== 'object' || !(testResult as any).testCandle) {
+src/core/v2/processors/SetManipLevelProcessor.ts:75:                level = this.pickLevel((testResult as any).testCandle, direction, levelSource);
+src/core/v2/processors/SetManipLevelProcessor.ts:78:            const ltfTest = (config as any).ltfTest;
+src/core/v2/processors/SetManipLevelProcessor.ts:79:            if (!ltfTest || typeof ltfTest !== 'object' || !(ltfTest as any).testCandle) {
+src/core/v2/processors/SetManipLevelProcessor.ts:83:                (ltfTest as any)?.testCandle?.timestamp,
+src/core/v2/processors/SetManipLevelProcessor.ts:84:                (ltfTest as any)?.test_candle?.timestamp,
+src/core/v2/processors/SetManipLevelProcessor.ts:85:                (ltfTest as any)?.timestamp
+src/core/v2/processors/SetManipLevelProcessor.ts:87:            level = this.pickLevel((ltfTest as any).testCandle, direction, levelSource);
+src/core/v2/processors/SetManipLevelProcessor.ts:89:            const effort = (config as any).effort;
+src/core/v2/processors/SetManipLevelProcessor.ts:90:            if (!effort || typeof effort !== 'object' || !(effort as any).candle) {
+src/core/v2/processors/SetManipLevelProcessor.ts:93:            sourceTimestampMs = maybeTs((effort as any)?.candle?.timestamp, (effort as any)?.timestamp);
+src/core/v2/processors/SetManipLevelProcessor.ts:94:            level = this.pickLevel((effort as any).candle, direction, levelSource);
+src/core/v2/processors/SetManipLevelProcessor.ts:97:        const passTimestampMs = maybeTs((ctx.candle as any)?.timestamp);
+src/core/v2/processors/SetManipLevelProcessor.ts:9:        const raw = (config as any).direction ?? (config as any).wave;
+src/core/v2/processors/TimeOfDayProcessor.ts:11:        const startTime = String((config as any).startTime || '00:00');
+src/core/v2/processors/TimeOfDayProcessor.ts:12:        const endTime = String((config as any).endTime || '23:59');
+src/core/v2/processors/VolatilityDampingProcessor.ts:100:        const currentTs = Number((ctx.candle as any)?.timestamp || 0);
+src/core/v2/processors/VolatilityDampingProcessor.ts:201:            (config as any).avg_range_sma_period_input
+src/core/v2/processors/VolatilityDampingProcessor.ts:202:            ?? (config as any).avg_range_sma_period
+src/core/v2/processors/VolatilityDampingProcessor.ts:205:            (config as any).max_pct_input
+src/core/v2/processors/VolatilityDampingProcessor.ts:206:            ?? (config as any).max_pct
+src/core/v2/processors/VolatilityDampingProcessor.ts:209:            (config as any).window_bars_input
+src/core/v2/processors/VolatilityDampingProcessor.ts:210:            ?? (config as any).damping_window_bars_input
+src/core/v2/processors/VolatilityDampingProcessor.ts:211:            ?? (config as any).window_bars
+src/core/v2/processors/VolatilityDampingProcessor.ts:212:            ?? (config as any).damping_window_bars
+src/core/v2/processors/VolatilityDampingProcessor.ts:216:            (config as any).required_pass_bars_input
+src/core/v2/processors/VolatilityDampingProcessor.ts:217:            ?? (config as any).damping_required_pass_bars_input
+src/core/v2/processors/VolatilityDampingProcessor.ts:218:            ?? (config as any).required_pass_bars
+src/core/v2/processors/VolatilityDampingProcessor.ts:219:            ?? (config as any).damping_required_pass_bars
+src/core/v2/processors/VolatilityDampingProcessor.ts:27:            normalize((config as any).direction) ||
+src/core/v2/processors/VolatilityDampingProcessor.ts:28:            normalize((config as any).wave) ||
+src/core/v2/processors/VolatilityDampingProcessor.ts:42:        const obj = raw as any;
+src/core/v2/processors/VolatilityDampingProcessor.ts:75:        const maxWaitBarsRaw = Number((config as any).max_wait_bars_input ?? (config as any).max_wait_bars ?? 40);
+src/core/v2/processors/VolatilityDampingProcessor.ts:83:            (config as any).require_htf_close_on_level_input
+src/core/v2/processors/VolatilityDampingProcessor.ts:84:            ?? (config as any).require_htf_close_on_level
+src/core/v2/processors/VolatilityDampingProcessor.ts:87:        const gatedLevelRaw = (config as any).htf_level_ref ?? (config as any).level_ref;
+src/core/v2/processors/VolatilityDampingProcessor.ts:89:            (config as any).htf_level_source_input
+src/core/v2/processors/VolatilityDampingProcessor.ts:90:            ?? (config as any).htf_level_source
+src/core/v2/processors/VolatilityDampingProcessor.ts:96:            (config as any).htf_close_tolerance_bps_input
+src/core/v2/processors/VolatilityDampingProcessor.ts:97:            ?? (config as any).htf_close_tolerance_bps
+src/core/v2/processors/WaitReturnToLevelProcessor.ts:21:            normalize((config as any).direction) ||
+src/core/v2/processors/WaitReturnToLevelProcessor.ts:22:            normalize((config as any).wave) ||
+src/core/v2/processors/WaitReturnToLevelProcessor.ts:33:        const maxWaitBarsRaw = Number((config as any).max_wait_bars_input ?? (config as any).max_wait_bars ?? 80);
+src/core/v2/processors/WaitReturnToLevelProcessor.ts:38:        const level = Number((config as any).level_ref);
+src/core/v2/processors/WaitReturnToLevelProcessor.ts:43:        const toleranceBps = Number((config as any).tolerance_bps);
+src/core/v2/processors/WaitReturnToLevelProcessor.ts:44:        const touchMode = String((config as any).touch_mode || 'PIERCE').toUpperCase();
+src/core/v2/processors/WaitTestProcessor.ts:100:            const minBars = Number((config as any).wave_min_bars);
+src/core/v2/processors/WaitTestProcessor.ts:109:                    explanation_ru: `Тест найден в режиме by_wave: волна ${String(testWave.direction || '?')} завершилась на ${this.formatTs((testWave as any).endTime)}.`
+src/core/v2/processors/WaitTestProcessor.ts:112:            const testCandle = detectTestCloseByWave(series, ((config as any).effort || pierce.volume_bar) as any, config);
+src/core/v2/processors/WaitTestProcessor.ts:120:                    explanation_ru: `Тест найден в режиме by_wave по закрытию свечи ${this.formatTs((testCandle as any).timestamp)}.`
+src/core/v2/processors/WaitTestProcessor.ts:131:            if (debugWait) ctx.log(node.id, `[DEBUG] No effort found in (config as any).`);
+src/core/v2/processors/WaitTestProcessor.ts:137:        const direction = ((config as any).direction ? String((config as any).direction) : (wave?.direction === 'UP' ? 'LONG' : 'SHORT')) as 'LONG' | 'SHORT' | 'UP' | 'DOWN';
+src/core/v2/processors/WaitTestProcessor.ts:138:        const requireWaveNotNegatedRaw = (config as any).require_wave_not_negated_input
+src/core/v2/processors/WaitTestProcessor.ts:139:            ?? (config as any).require_wave_not_negated
+src/core/v2/processors/WaitTestProcessor.ts:155:        let depthRatios = extractRatios((config as any).depth_ratios);
+src/core/v2/processors/WaitTestProcessor.ts:164:            ctx.log(node.id, `[DEBUG] Checking current candle against effort: ${JSON.stringify((config as any).effort?.candle || 'MISSING')}`);
+src/core/v2/processors/WaitTestProcessor.ts:168:        const testArgs = { ...(config as any), emit_debug_ru: this.verboseDiagnostics };
+src/core/v2/processors/WaitTestProcessor.ts:16:    private buildExplanationRu(testResult: any, effort: any, args: any): string {
+src/core/v2/processors/WaitTestProcessor.ts:170:            const tolRaw = (config as any).htf_close_tolerance_bps_input
+src/core/v2/processors/WaitTestProcessor.ts:171:                ?? (config as any).htf_close_tolerance_bps
+src/core/v2/processors/WaitTestProcessor.ts:172:                ?? (ctx.inputs as any)?.htf_close_tolerance_bps;
+src/core/v2/processors/WaitTestProcessor.ts:178:        const effortPrimary = (config as any).effort;
+src/core/v2/processors/WaitTestProcessor.ts:17:        const depthStats = (args as { __test_depth_stats?: unknown }).__test_depth_stats as Record<string, any> | undefined;
+src/core/v2/processors/WaitTestProcessor.ts:180:            const list: any[] = [];
+src/core/v2/processors/WaitTestProcessor.ts:182:                const nested = (effortPrimary as any).candidates;
+src/core/v2/processors/WaitTestProcessor.ts:185:                        if (cand && typeof cand === 'object' && Number.isFinite(Number((cand as any).index))) {
+src/core/v2/processors/WaitTestProcessor.ts:18:        const waitDebug = (args as { __wait_test_debug?: unknown }).__wait_test_debug as Record<string, any> | undefined;
+src/core/v2/processors/WaitTestProcessor.ts:194:                const idx = Number((cand as any).index);
+src/core/v2/processors/WaitTestProcessor.ts:19:        const depthSource = String((args as any).depth_source_input || (args as any).depth_source || 'close');
+src/core/v2/processors/WaitTestProcessor.ts:20:        const depthBasis = String((args as any).depth_basis_input || (args as any).depth_basis || 'range');
+src/core/v2/processors/WaitTestProcessor.ts:218:        type CandidateTest = { effort: any; result: any; args: any };
+src/core/v2/processors/WaitTestProcessor.ts:220:        let selectedEffortForTest: any = candidatePool[0] || effortPrimary;
+src/core/v2/processors/WaitTestProcessor.ts:221:        let selectedArgs: any = { ...testArgs };
+src/core/v2/processors/WaitTestProcessor.ts:240:        const waitDebug = (selectedArgs as any).__wait_test_debug;
+src/core/v2/processors/WaitTestProcessor.ts:242:            for (const bar of waitDebug.bars as Array<Record<string, any>>) {
+src/core/v2/processors/WaitTestProcessor.ts:273:        const depthSource = String((config as any).depth_source_input || '');
+src/core/v2/processors/WaitTestProcessor.ts:285:            depth_basis: String((config as any).depth_basis_input || (config as any).depth_basis || 'range'),
+src/core/v2/processors/WaitTestProcessor.ts:286:            max_wait_bars: Number((config as any).max_wait_bars_input ?? (config as any).max_wait_bars ?? 0) || null,
+src/core/v2/processors/WaitTestProcessor.ts:287:            bars_waited: series.length - Number((selectedEffortForTest as any)?.index || 0),
+src/core/v2/processors/WaitTestProcessor.ts:304:            const currentPassTimestampMs = Number((ctx.candle as any)?.timestamp || 0);
+src/core/v2/processors/WaitTestProcessor.ts:305:            const testCandleTimestampMs = Number((testResult as any)?.testCandle?.timestamp || 0);
+src/core/v2/processors/WaitTestProcessor.ts:329:            const waitTestCorridor = (depthStats as any)?.waitTestCorridor
+src/core/v2/processors/WaitTestProcessor.ts:330:                || (config as any)?.wait_test_corridor
+src/core/v2/processors/WaitTestProcessor.ts:340:                wait_test_debug: (selectedArgs as any).__wait_test_debug,
+src/core/v2/processors/WaitTestProcessor.ts:352:        const waitTestCorridor = (depthStats as any)?.waitTestCorridor
+src/core/v2/processors/WaitTestProcessor.ts:353:            || (config as any)?.wait_test_corridor
+src/core/v2/processors/WaitTestProcessor.ts:364:                wait_test_debug: (selectedArgs as any).__wait_test_debug
+src/core/v2/processors/WaitTestProcessor.ts:372:        const mode = (config as any).mode_input || (config as any).mode;
+src/core/v2/processors/WaitTestProcessor.ts:375:            const pierce = (config as any).pierce_setup;
+src/core/v2/processors/WaitTestProcessor.ts:47:            const bars = Array.isArray(waitDebug?.bars) ? waitDebug!.bars as Array<Record<string, any>> : [];
+src/core/v2/processors/WaitTestProcessor.ts:61:        const waited = Number(depthStats?.bars_waited ?? (args as any)?.bars_waited);
+src/core/v2/processors/WaitTestProcessor.ts:88:        const effort = (config as any).effort;
+src/core/v2/processors/WaitTestProcessor.ts:89:        const wave = (config as any).wave;
+src/core/v2/processors/WaitTestProcessor.ts:90:        const mode = String((config as any).mode);
+src/core/v2/processors/WaitTestProcessor.ts:93:            const pierce = (config as any).pierce_setup;
+src/core/v2/processors/WaitTestWaveProcessor.ts:13:        const pierceSetup = (config as any).pierce_setup;
+src/core/v2/processors/WaitTestWaveProcessor.ts:17:        const minTestBars = Number((config as any).min_test_wave_bars);
+src/core/v2/processors/WaitTouchExtremumProcessor.ts:14:        const dumpSetup = (config as any).dump_setup;
+src/core/v2/processors/WaitTouchExtremumProcessor.ts:17:        const extremum = Number((dumpSetup as any).extremum_price);
+src/core/v2/processors/WaitTouchExtremumProcessor.ts:20:        const direction = (dumpSetup as any).direction;
+src/core/v2/processors/WaitTouchExtremumProcessor.ts:21:        const toleranceBps = Number((config as any).tolerance_bps);
+src/core/v2/processors/WaitTouchExtremumProcessor.ts:22:        const toleranceFactorRaw = Number((config as any).extremum_tolerance_factor ?? 2);
+src/core/v2/processors/WeakResumptionProcessor.ts:167:            rules: (config as any).rules || {},
+src/core/v2/processors/WeakResumptionProcessor.ts:33:            normalize((config as any).direction) ||
+src/core/v2/processors/WeakResumptionProcessor.ts:34:            fromCandle((config as any).direction) ||
+src/core/v2/processors/WeakResumptionProcessor.ts:35:            normalize((config as any).wave) ||
+src/core/v2/processors/WeakResumptionProcessor.ts:36:            fromCandle((config as any).wave) ||
+src/core/v2/processors/WeakResumptionProcessor.ts:49:        const effort = (config as any).effort;
+src/core/v2/processors/WeakResumptionProcessor.ts:50:        const maxBars = Number((config as any).maxBars ?? (config as any).max_bars);
+src/core/v2/processors/WeakResumptionProcessor.ts:65:        const rules = ((config as any).rules || {}) as Record<string, unknown>;
+src/core/v2/processors/WeakResumptionProcessor.ts:83:            const breakSource = String((rules as any).no_break_effort_extreme_source ?? 'wick').toLowerCase();

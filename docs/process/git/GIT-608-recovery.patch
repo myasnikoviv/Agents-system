@@ -1,0 +1,515 @@
+diff --git a/docs/skills/skill-schema-v2.md b/docs/skills/skill-schema-v2.md
+index 538b550..95100a5 100644
+--- a/docs/skills/skill-schema-v2.md
++++ b/docs/skills/skill-schema-v2.md
+@@ -1,5 +1,8 @@
+ # Skill Schema v2
+ 
++Canonical runtime skill schema now lives in:
++- `docs/process/skills/INTERNAL-SKILL-SCHEMA.md`
++
+ ## Lifecycle States
+ - `draft`
+ - `review`
+@@ -7,30 +10,34 @@
+ - `deprecated`
+ 
+ ## Mandatory Sections
+-1. `Skill Name`
+-2. `Purpose`
+-3. `When To Use`
+-4. `Inputs`
+-5. `Outputs`
+-6. `Constraints`
+-7. `Workflow`
+-8. `Validation Checklist`
+-9. `Common Mistakes`
+-10. `Examples`
+-11. `Related Skills`
++1. `name`
++2. `description`
++3. `when_to_use`
++4. `when_not_to_use`
++5. `inputs`
++6. `outputs`
++7. `required_tools`
++8. `workflow`
++9. `validation_checklist`
++10. `common_failures`
++11. `examples`
++12. `related_skills`
++13. `project_specific_notes`
+ 
+-## Metadata Block (Recommended)
++## Metadata Block
+ ```yaml
+ id: SKILL-XXX
+-version: 2
+-owner_role: <role>
++version: 1
+ status: draft|review|approved|deprecated
++owner_roles: [Role1, Role2]
++category: engineering|runtime|trading
++adoption: adopt|adapt|custom
++source_references:
++  - <repo or internal source>
+ updated_at: YYYY-MM-DD
+-source_artifacts:
+-  - docs/process/retrospectives/<id>.md
+ ```
+ 
+ ## Governance Rules
+-- Any major change to an approved skill requires proposal artifact in `docs/process/skills/`.
+-- Deprecation requires replacement path or rationale.
++- Major updates require proposal artifact in `docs/process/skills/`.
++- Imported skills must be normalized before use.
+ - Skill quality is reviewed in retrospective-learning pipeline.
+diff --git a/package.json b/package.json
+index 6b21779..fabb006 100644
+--- a/package.json
++++ b/package.json
+@@ -10,6 +10,7 @@
+     "test": "bash scripts/ci_check.sh",
+     "dev": "tsx watch src/server.ts",
+     "server": "tsx src/server.ts",
++    "lint:skills": "tsx src/tools/lintSkillsSchema.ts",
+     "build:all": "cd frontend && npm install && npm run build",
+     "lint": "bash scripts/hardening_gates.sh",
+     "lint:block-logic-contract": "tsx src/tools/updateBlockLogicManifest.ts --check",
+diff --git a/scripts/ci_check.sh b/scripts/ci_check.sh
+index 646dbfc..07c02ae 100755
+--- a/scripts/ci_check.sh
++++ b/scripts/ci_check.sh
+@@ -3,12 +3,16 @@ set -e
+ 
+ echo "Starting CI Check..."
+ 
++# 0. Skill Schema Lint
++echo "[0/4] Running Skill Schema Lint..."
++npm run lint:skills
++
+ # 1. Lint
+-echo "[1/3] Running Hardening Gates..."
++echo "[1/4] Running Hardening Gates..."
+ npm run lint
+ 
+ # 2. Tests
+-echo "[2/3] Running Tests..."
++echo "[2/4] Running Tests..."
+ echo "--> Running Unit/Mock Tests..."
+ npx tsx test/funnel/strategy1.golden.test.ts
+ 
+@@ -102,7 +106,7 @@ if [ -f test/funnel/strategy_integration.test.ts ]; then
+     npx tsx test/funnel/strategy_integration.test.ts
+ fi
+ 
+-echo "[3/3] Running Golden Snapshot Comparison..."
++echo "[3/4] Running Golden Snapshot Comparison..."
+ npx tsx tests/backtest/golden/compare.ts
+ 
+ echo "[4/4] Running Optimizer Smoke Gate..."
+diff --git a/src/runtime/AgentExecutor.ts b/src/runtime/AgentExecutor.ts
+index e5ce63f..91d8801 100644
+--- a/src/runtime/AgentExecutor.ts
++++ b/src/runtime/AgentExecutor.ts
+@@ -1,67 +1,75 @@
+ import { ChatOpenAI } from '@langchain/openai';
+ import { ChatPromptTemplate, SystemMessagePromptTemplate, MessagesPlaceholder } from '@langchain/core/prompts';
+ import { AgentFactory, AgentDefinition } from './AgentFactory';
+-import { SkillProvider, SkillDefinition } from './SkillProvider';
++import { SkillProvider, RoleSkillSelection } from './SkillProvider';
+ 
+ export class AgentExecutor {
+-    private model: ChatOpenAI;
++  private model: ChatOpenAI;
+ 
+-    constructor(apiKey: string) {
+-        this.model = new ChatOpenAI({
+-            openAIApiKey: apiKey,
+-            modelName: 'gpt-4o', // Preferred modern model
+-            temperature: 0.2,
+-        });
+-    }
++  constructor(apiKey: string) {
++    this.model = new ChatOpenAI({
++      openAIApiKey: apiKey,
++      modelName: 'gpt-4o',
++      temperature: 0.2,
++    });
++  }
+ 
+-    /**
+-     * Executes a single turn for a given role.
+-     */
+-    async runRole(roleSlug: string, userMessage: string, history: any[] = []): Promise<string> {
+-        const agentDef = await AgentFactory.loadAgent(roleSlug);
+-        const skillDef = await SkillProvider.loadSkill(roleSlug);
+-        const prompt = this.buildPrompt(agentDef, skillDef);
++  async runRole(roleSlug: string, userMessage: string, history: any[] = []): Promise<string> {
++    const agentDef = await AgentFactory.loadAgent(roleSlug);
++    const roleSkills = await SkillProvider.loadSkillsForRole(roleSlug, userMessage);
++    const prompt = this.buildPrompt(agentDef, roleSkills);
+ 
+-        const chain = prompt.pipe(this.model);
+-        
+-        const response = await chain.invoke({
+-            input: userMessage,
+-            chat_history: history,
+-        });
++    const chain = prompt.pipe(this.model);
+ 
+-        return response.content as string;
+-    }
++    const response = await chain.invoke({
++      input: userMessage,
++      chat_history: history,
++    });
++
++    return response.content as string;
++  }
+ 
+-    private buildPrompt(def: AgentDefinition, skill?: SkillDefinition | null): ChatPromptTemplate {
+-        let systemTemplate = `
++  private buildPrompt(def: AgentDefinition, roleSkills: RoleSkillSelection): ChatPromptTemplate {
++    let systemTemplate = `
+ You are the ${def.callsign}.
+ Your Mission: ${def.mission}
+ 
+ What you own:
+-${def.owns.map(o => `- ${o}`).join('\n')}
++${def.owns.map((o) => `- ${o}`).join('\n')}
+ 
+ Guardrails you MUST follow:
+-${def.guardrails.map(g => `- ${g}`).join('\n')}
++${def.guardrails.map((g) => `- ${g}`).join('\n')}
+ `;
+ 
+-        if (skill) {
+-            systemTemplate += `
+-Your Primary Skill: ${skill.name}
+-Purpose: ${skill.purpose}
+-Workflow steps you should follow:
+-${skill.workflow.map(s => `- ${s}`).join('\n')}
++    if (roleSkills.selected.length > 0) {
++      systemTemplate += `
++Skill Selection Rules for this role (what to use and when):
++${roleSkills.allRules
++  .map(
++    (rule) =>
++      `- ${rule.skillId}: USE WHEN ${rule.useWhen} | DO NOT USE WHEN ${rule.avoidWhen}`,
++  )
++  .join('\n')}
++
++Selected skills for this request:
++${roleSkills.selected
++  .map(
++    (skill) =>
++      `- ${skill.name} (${skill.id})\n  Use when: ${skill.rule.useWhen}\n  Avoid when: ${skill.rule.avoidWhen}\n  Purpose: ${skill.description}\n  Workflow: ${skill.workflow.join(' -> ')}`,
++  )
++  .join('\n')}
+ `;
+-        }
++    }
+ 
+-        systemTemplate += `
++    systemTemplate += `
+ Response Format:
+ Always respond like a professional in your role. Be concise yet thorough.
+ `;
+ 
+-        return ChatPromptTemplate.fromMessages([
+-            SystemMessagePromptTemplate.fromTemplate(systemTemplate),
+-            new MessagesPlaceholder("chat_history"),
+-            ["human", "{input}"],
+-        ]);
+-    }
++    return ChatPromptTemplate.fromMessages([
++      SystemMessagePromptTemplate.fromTemplate(systemTemplate),
++      new MessagesPlaceholder('chat_history'),
++      ['human', '{input}'],
++    ]);
++  }
+ }
+diff --git a/src/runtime/SkillProvider.ts b/src/runtime/SkillProvider.ts
+index f3502c6..f89a003 100644
+--- a/src/runtime/SkillProvider.ts
++++ b/src/runtime/SkillProvider.ts
+@@ -1,52 +1,146 @@
+ import fs from 'fs/promises';
+ import path from 'path';
++import { ROLE_SKILL_RULES, SKILL_FILE_BY_ID, RoleSkillRule, SkillId } from './SkillCatalog';
+ 
+ export interface SkillDefinition {
+-    name: string;
+-    purpose: string;
+-    workflow: string[];
++  id: SkillId;
++  name: string;
++  description: string;
++  whenToUse: string;
++  whenNotToUse: string;
++  workflow: string[];
++  sourcePath: string;
++}
++
++export interface RoleSkillSelection {
++  selected: Array<SkillDefinition & { rule: RoleSkillRule }>;
++  allRules: RoleSkillRule[];
+ }
+ 
+ export class SkillProvider {
+-    private static SKILLS_DIR = path.resolve(process.cwd(), 'docs/skills');
+-
+-    /**
+-     * Load a skill definition from markdown.
+-     */
+-    static async loadSkill(roleSlug: string): Promise<SkillDefinition | null> {
+-        // Map role to skill (simplistic for MVP: pm-orchestrator -> pm-orchestrator-skill.md)
+-        let skillFile = `${roleSlug}-skill.md`;
+-        
+-        // Manual override for specific roles
+-        if (roleSlug === 'solution-architect') skillFile = 'solution-architect-skill.md';
+-
+-        const filePath = path.join(this.SKILLS_DIR, skillFile);
+-        
+-        try {
+-            const content = await fs.readFile(filePath, 'utf-8');
+-            return {
+-                name: this.extractSection(content, 'Skill Name') || roleSlug,
+-                purpose: this.extractSection(content, 'Purpose'),
+-                workflow: this.extractListSection(content, 'Workflow'),
+-            };
+-        } catch {
+-            return null;
+-        }
++  private static LEGACY_SKILLS_DIR = path.resolve(process.cwd(), 'docs/skills');
++
++  static async loadSkillsForRole(roleSlug: string, userMessage: string): Promise<RoleSkillSelection> {
++    const rules = ROLE_SKILL_RULES[roleSlug] || [];
++    if (rules.length === 0) {
++      return { selected: [], allRules: [] };
++    }
++
++    const loaded = await Promise.all(
++      rules.map(async (rule) => {
++        const skill = await this.loadSkillById(rule.skillId);
++        return skill ? { ...skill, rule } : null;
++      }),
++    );
++
++    const available = loaded.filter((v): v is SkillDefinition & { rule: RoleSkillRule } => v !== null);
++    if (available.length === 0) {
++      return { selected: [], allRules: rules };
++    }
++
++    const selected = this.selectSkillsForMessage(available, userMessage);
++    return { selected, allRules: rules };
++  }
++
++  static async loadSkill(roleSlug: string, userMessage = ''): Promise<SkillDefinition | null> {
++    const selection = await this.loadSkillsForRole(roleSlug, userMessage);
++    if (selection.selected.length > 0) {
++      return selection.selected[0] ?? null;
+     }
++    return this.loadLegacyRoleSkill(roleSlug);
++  }
+ 
+-    private static extractSection(content: string, sectionTitle: string): string {
+-        const regex = new RegExp(`## ${sectionTitle}\\n+([^#]+)`, 'i');
+-        const match = content.match(regex);
+-        if (!match || !match[1]) return '';
+-        return match[1].trim();
++  private static selectSkillsForMessage(
++    skills: Array<SkillDefinition & { rule: RoleSkillRule }>,
++    userMessage: string,
++  ): Array<SkillDefinition & { rule: RoleSkillRule }> {
++    const lowered = userMessage.toLowerCase();
++    const scored = skills.map((skill) => {
++      const score = skill.rule.keywords.reduce((acc, keyword) => {
++        return acc + (lowered.includes(keyword.toLowerCase()) ? 1 : 0);
++      }, 0);
++      return { skill, score };
++    });
++
++    const maxScore = Math.max(...scored.map((x) => x.score));
++    if (maxScore <= 0) {
++      return skills.slice(0, Math.min(3, skills.length));
++    }
++
++    return scored
++      .filter((x) => x.score > 0)
++      .sort((a, b) => b.score - a.score)
++      .slice(0, 3)
++      .map((x) => x.skill);
++  }
++
++  private static async loadSkillById(skillId: SkillId): Promise<SkillDefinition | null> {
++    const relPath = SKILL_FILE_BY_ID[skillId];
++    const fullPath = path.resolve(process.cwd(), relPath);
++
++    try {
++      const content = await fs.readFile(fullPath, 'utf-8');
++      return {
++        id: skillId,
++        name: this.extractSection(content, 'name') || skillId,
++        description: this.extractSection(content, 'description'),
++        whenToUse: this.extractSection(content, 'when_to_use'),
++        whenNotToUse: this.extractSection(content, 'when_not_to_use'),
++        workflow: this.extractWorkflow(content),
++        sourcePath: relPath,
++      };
++    } catch {
++      return null;
+     }
++  }
+ 
+-    private static extractListSection(content: string, sectionTitle: string): string[] {
+-        const section = this.extractSection(content, sectionTitle);
+-        if (!section) return [];
+-        return section
+-            .split('\n')
+-            .map(line => line.replace(/^\d+\.\s+/, '').replace(/^-\s+/, '').trim())
+-            .filter(line => line.length > 0);
++  private static async loadLegacyRoleSkill(roleSlug: string): Promise<SkillDefinition | null> {
++    const filePath = path.join(this.LEGACY_SKILLS_DIR, `${roleSlug}-skill.md`);
++    try {
++      const content = await fs.readFile(filePath, 'utf-8');
++      return {
++        id: 'repo-navigation',
++        name: this.extractLegacySection(content, 'Skill Name') || roleSlug,
++        description: this.extractLegacySection(content, 'Purpose'),
++        whenToUse: '',
++        whenNotToUse: '',
++        workflow: this.extractLegacyListSection(content, 'Workflow'),
++        sourcePath: path.relative(process.cwd(), filePath),
++      };
++    } catch {
++      return null;
+     }
++  }
++
++  private static extractSection(content: string, sectionTitle: string): string {
++    const regex = new RegExp(`(?:^|\\n)# ${sectionTitle}\\n([\\s\\S]*?)(?=\\n# |$)`);
++    const match = content.match(regex);
++    if (!match || !match[1]) return '';
++    return match[1].trim();
++  }
++
++  private static extractWorkflow(content: string): string[] {
++    const workflow = this.extractSection(content, 'workflow');
++    if (!workflow) return [];
++    return workflow
++      .split('\n')
++      .map((line) => line.replace(/^\d+\.\s+/, '').replace(/^-\s+/, '').trim())
++      .filter((line) => line.length > 0);
++  }
++
++  private static extractLegacySection(content: string, sectionTitle: string): string {
++    const regex = new RegExp(`## ${sectionTitle}\\n+([^#]+)`, 'i');
++    const match = content.match(regex);
++    if (!match || !match[1]) return '';
++    return match[1].trim();
++  }
++
++  private static extractLegacyListSection(content: string, sectionTitle: string): string[] {
++    const section = this.extractLegacySection(content, sectionTitle);
++    if (!section) return [];
++    return section
++      .split('\n')
++      .map((line) => line.replace(/^\d+\.\s+/, '').replace(/^-\s+/, '').trim())
++      .filter((line) => line.length > 0);
++  }
+ }
+diff --git a/src/runtime/__tests__/agent_infra.test.ts b/src/runtime/__tests__/agent_infra.test.ts
+index 7a05d22..071d87f 100644
+--- a/src/runtime/__tests__/agent_infra.test.ts
++++ b/src/runtime/__tests__/agent_infra.test.ts
+@@ -14,7 +14,7 @@ async function testAgentInfrastructure() {
+         const skill = await SkillProvider.loadSkill(role);
+         if (skill) {
+             console.log(`Loaded Skill: ${skill.name}`);
+-            console.log(`Purpose: ${skill.purpose}`);
++            console.log(`Description: ${skill.description}`);
+             console.log(`Workflow steps: ${skill.workflow.length}`);
+         } else {
+             console.warn(`No skill found for ${role}`);
+diff --git a/src/runtime/__tests__/chat_approval_flow_e2e.test.ts b/src/runtime/__tests__/chat_approval_flow_e2e.test.ts
+index 27056b3..cb34c8b 100644
+--- a/src/runtime/__tests__/chat_approval_flow_e2e.test.ts
++++ b/src/runtime/__tests__/chat_approval_flow_e2e.test.ts
+@@ -51,6 +51,9 @@ describe('Chat approve flow e2e', () => {
+     expect(startData.success).toBe(true);
+     expect(startData.status).toBe('awaiting_approval');
+     expect(typeof startData.threadId).toBe('string');
++    expect(typeof startData.selectedPipeline).toBe('string');
++    expect(startData.selectedPipeline).toBe('unified-task-intake');
++    expect(typeof startData.pipelineConfidence).toBe('string');
+ 
+     const approve1 = await fetch(`${baseUrl}/api/chat/approve`, {
+       method: 'POST',
+diff --git a/src/runtime/graphs/PilotQuasiLinearGraph.ts b/src/runtime/graphs/PilotQuasiLinearGraph.ts
+index 858d851..29d6cb8 100644
+--- a/src/runtime/graphs/PilotQuasiLinearGraph.ts
++++ b/src/runtime/graphs/PilotQuasiLinearGraph.ts
+@@ -29,6 +29,10 @@ export const PilotStateAnnotation = Annotation.Root({
+     reducer: (x, y) => y ?? x,
+     default: () => ({ mode: 'mock' })
+   }),
++  selected_pipeline: Annotation<string>({
++    reducer: (x, y) => y ?? x,
++    default: () => 'unified-task-intake',
++  }),
+ });
+ 
+ export type PilotState = typeof PilotStateAnnotation.State;
+@@ -60,7 +64,7 @@ async function intakeNode(state: PilotState): Promise<Partial<PilotState>> {
+   console.log(`[PilotGraph] Running PM Intake for ${state.plane_issue_id}...`);
+   const message = await safeRunRole(
+     role,
+-    `Initialize intake for issue ${state.plane_issue_id}. Objective: ensure all requirements are clear.`,
++    `Initialize intake for issue ${state.plane_issue_id}. Selected pipeline: ${state.selected_pipeline}. Objective: enforce pipeline-first execution and ensure all requirements are clear before implementation.`,
+     `Intake initiated from Plane Issue: ${state.plane_issue_id}`,
+   );
+ 
+diff --git a/src/server.ts b/src/server.ts
+index 5141e69..2d2b719 100644
+--- a/src/server.ts
++++ b/src/server.ts
+@@ -17,6 +17,7 @@ import OpenAI from 'openai';
+ import multer from 'multer';
+ import { getRedisClient } from './runtime/redisClient';
+ import { runOpenAIProbe } from './runtime/OpenAIDiagnostics';
++import { selectPipelineFromMessage } from './runtime/PipelineSelector';
+ 
+ const openai = new OpenAI();
+ const upload = multer({ dest: 'uploads/' });
+@@ -404,7 +405,11 @@ app.post('/api/chat', async (req, res) => {
+         const { message, executionMode = 'multiple_agents' } = req.body;
+         if (!message) return res.status(400).json({ error: 'Message is required' });
+ 
++        const pipelineSelection = selectPipelineFromMessage(message);
+         console.log(`[Chat API] Received task: ${message} (Mode: ${executionMode})`);
++        console.log(
++            `[Chat API] Pipeline selected: ${pipelineSelection.selectedPipeline} (${pipelineSelection.confidence})`,
++        );
+ 
+         if (executionMode === 'mock') {
+             return res.json({
+@@ -428,6 +433,7 @@ app.post('/api/chat', async (req, res) => {
+             pipeline_run_id: runId,
+             thread_id: threadId,
+             status: 'initialized',
++            selected_pipeline: pipelineSelection.selectedPipeline,
+             artifactLogs: [`User Message: ${message}`],
+             executionOptions: { mode: executionMode as any }
+         });
+@@ -447,6 +453,9 @@ app.post('/api/chat', async (req, res) => {
+             success: true,
+             threadId,
+             runId,
++            selectedPipeline: pipelineSelection.selectedPipeline,
++            pipelineConfidence: pipelineSelection.confidence,
++            pipelineReason: pipelineSelection.reason,
+             status: isInterrupted ? 'awaiting_approval' : finalState.status,
+             logs: agentLogs
+         });

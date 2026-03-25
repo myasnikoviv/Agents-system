@@ -1,0 +1,38 @@
+{
+  "run_id": "RUN-YYYYMMDD-HHMM-001",
+  "ticket_id": "RUN-401",
+  "strategy": {
+    "strategy_id": "strategy-2",
+    "strategy_name": "Strategy #2 (DOCX Aligned)"
+  },
+  "market": {
+    "instrument": "PENGUSDT.P",
+    "timeframe": "HTF:1H/LTF:5M",
+    "window": "30d"
+  },
+  "inputs": {
+    "profile": "SOFT_EFFORT_A",
+    "overrides": {}
+  },
+  "dataset_ref": {
+    "cache": "<cache-key>",
+    "source": "local"
+  },
+  "build_ref": {
+    "commit": "<git-sha>",
+    "branch": "<branch>"
+  },
+  "block_versions": {},
+  "result_summary": {
+    "sessions": 0,
+    "trades": 0,
+    "pnl": 0,
+    "winrate": 0
+  },
+  "artifacts": {
+    "json": "",
+    "png": "",
+    "bundle": "",
+    "report": ""
+  }
+}
