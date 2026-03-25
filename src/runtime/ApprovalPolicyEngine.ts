@@ -1,7 +1,7 @@
 export type ApprovalPolicyMode = 'git-only' | 'strict';
 
-const STRICT_INTERRUPTS = ['research', 'qa', 'git'] as const;
-const GIT_ONLY_INTERRUPTS = ['git'] as const;
+const STRICT_INTERRUPTS = [] as const;
+const GIT_ONLY_INTERRUPTS = [] as const;
 
 function normalizeNodeName(input: string): string {
   return String(input || '').trim().toLowerCase();
@@ -25,7 +25,6 @@ export function resolveInterruptBeforeNodes(): string[] {
     if (parsed.length > 0) return Array.from(new Set(parsed));
   }
 
-  const mode = resolveApprovalPolicyMode();
-  return mode === 'strict' ? [...STRICT_INTERRUPTS] : [...GIT_ONLY_INTERRUPTS];
+  return [];
 }
 

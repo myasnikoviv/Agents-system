@@ -9,52 +9,60 @@ import { RunContextAssembler } from '../context/RunContext';
 import { AgentExecutor } from '../AgentExecutor';
 import { BlackboardService } from '../BlackboardService';
 import { resolveInterruptBeforeNodes } from '../ApprovalPolicyEngine';
-import { getCockpitExecutorConfig } from '../CockpitExecutorConfig';
+import { loadConfig } from '../CockpitExecutorConfig';
 import { ReclassificationCheckpoint } from '../context/ReclassificationCheckpoint';
 
 
 // The officially supported way to type State in LangGraph TS
 export const PilotStateAnnotation = Annotation.Root({
   plane_issue_id: Annotation<string>({
-    reducer: (x, y) => y ?? x,
+    reducer: (x: string, y: string) => y ?? x,
     default: () => '',
   }),
   pipeline_run_id: Annotation<string>({
-    reducer: (x, y) => y ?? x,
+    reducer: (x: string, y: string) => y ?? x,
     default: () => '',
   }),
   thread_id: Annotation<string>({
-    reducer: (x, y) => y ?? x,
+    reducer: (x: string, y: string) => y ?? x,
     default: () => '',
   }),
   status: Annotation<string>({
-    reducer: (x, y) => y ?? x,
+    reducer: (x: string, y: string) => y ?? x,
     default: () => 'initialized',
   }),
   artifactLogs: Annotation<string[]>({
-    reducer: (x, y) => x.concat(y),
+    reducer: (x: string[], y: string[]) => x.concat(y),
     default: () => [],
   }),
   executionOptions: Annotation<{ mode: 'linear' | 'multiple_agents' | 'mock' }>({
-    reducer: (x, y) => y ?? x,
+    reducer: (x: { mode: 'linear' | 'multiple_agents' | 'mock' }, y: { mode: 'linear' | 'multiple_agents' | 'mock' }) => y ?? x,
     default: () => ({ mode: 'mock' })
   }),
   selected_pipeline: Annotation<string>({
-    reducer: (x, y) => y ?? x,
+    reducer: (x: string, y: string) => y ?? x,
     default: () => 'unified-task-intake',
   }),
   // Routing fields — set by routerNode, consumed by conditional edges
   intent: Annotation<string>({
-    reducer: (x, y) => y ?? x,
+    reducer: (x: string, y: string) => y ?? x,
     default: () => 'unknown',
   }),
   customAgents: Annotation<string[]>({
-    reducer: (_, y) => y,  // Replace, not concat
+    reducer: (_: string[], y: string[]) => y,  // Replace, not concat
     default: () => [],
   }),
   messages: Annotation<{ role: string, content: string }[]>({
-    reducer: (x, y) => x.concat(y),
+    reducer: (x: { role: string, content: string }[], y: { role: string, content: string }[]) => x.concat(y),
     default: () => [],
+  }),
+  projectId: Annotation<string>({
+    reducer: (x: string, y: string) => y ?? x,
+    default: () => 'trade_bot',
+  }),
+  workspacePath: Annotation<string>({
+    reducer: (x: string, y: string) => y ?? x,
+    default: () => process.cwd(),
   }),
 });
 
@@ -64,9 +72,9 @@ export type PilotState = typeof PilotStateAnnotation.State;
 // Helpers (Updated for Swarm)
 // ---------------------------------------------------------
 
-async function ensureDiscovery(): Promise<void> {
+async function ensureDiscovery(projectRoot?: string): Promise<void> {
   if (AgentRegistry.getAllAgents().length === 0) {
-    await DynamicDiscoveryService.discoverAll();
+    await DynamicDiscoveryService.discoverAll(projectRoot);
   }
 }
 
@@ -118,7 +126,8 @@ async function safeRunRole(
       pipeline,
       context?.stage || 'legacy',
       prompt,
-      { history }
+      { history },
+      { projectId: 'trade_bot', workspacePath: process.cwd() } // Conversational defaults to cwd for now
     );
     const result = await executor.run(runContext);
     return {
@@ -194,7 +203,7 @@ async function routerNode(state: PilotState): Promise<Partial<PilotState>> {
  * Discovers the next pipeline stage from documentation and executes the corresponding agent via AgentExecutor.
  */
 async function swarmNode(state: PilotState): Promise<Partial<PilotState>> {
-  await ensureDiscovery();
+  await ensureDiscovery(state.workspacePath);
   
   const pipelineId = state.selected_pipeline || 'unified-task-intake';
   const pipelineDef = PipelineRegistry.getPipeline(pipelineId);
@@ -240,7 +249,8 @@ async function swarmNode(state: PilotState): Promise<Partial<PilotState>> {
     pipelineDef,
     nextStage.id,
     state.artifactLogs[0] || 'Execute project task',
-    { history }
+    { history },
+    { projectId: state.projectId, workspacePath: state.workspacePath }
   );
 
   const executor = new AgentExecutor();

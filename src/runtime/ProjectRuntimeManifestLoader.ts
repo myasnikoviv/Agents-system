@@ -240,7 +240,24 @@ async function loadPipelines(projectRoot: string): Promise<ManifestPipelineSpec[
 }
 
 export async function loadProjectRuntimeManifest(options: LoaderOptions = {}): Promise<ProjectRuntimeManifest> {
-  const projectRoot = path.resolve(options.projectRoot || process.cwd());
+  let projectRoot = options.projectRoot;
+  
+  if (!projectRoot) {
+    throw new Error('Project root must be explicitly provided to load manifest.');
+  }
+
+  // If projectRoot is a relative path or just a project name (e.g. 'trade-bot'), 
+  // try to resolve it relative to the Agents system projects directory first.
+  if (!path.isAbsolute(projectRoot)) {
+    const agentsSystemRoot = path.resolve(__dirname, '..', '..');
+    const projectPathInAgents = path.resolve(agentsSystemRoot, 'projects', projectRoot);
+    if (await fs.access(projectPathInAgents).then(() => true).catch(() => false)) {
+      projectRoot = projectPathInAgents;
+    } else {
+      projectRoot = path.resolve(projectRoot);
+    }
+  }
+
   const preferCanonicalBundle = options.preferCanonicalBundle ?? true;
 
   if (preferCanonicalBundle) {

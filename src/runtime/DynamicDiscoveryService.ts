@@ -9,17 +9,18 @@ export { AgentProfile, PipelineDefinition, PipelineStage, SkillProfile };
 export { AgentRegistry, PipelineRegistry, SkillRegistry };
 
 export class DynamicDiscoveryService {
-  private static docsPath = path.join(process.cwd(), 'docs');
+  private static defaultDocsPath = path.join(process.cwd(), 'docs');
 
-  static async discoverAll() {
-    await this.discoverAgents();
-    await this.discoverPipelines();
-    await this.discoverSkills();
+  static async discoverAll(projectRoot?: string) {
+    const docsPath = projectRoot ? path.join(projectRoot, 'docs') : this.defaultDocsPath;
+    await this.discoverAgents(docsPath);
+    await this.discoverPipelines(docsPath);
+    await this.discoverSkills(docsPath);
   }
 
-  static async discoverAgents() {
+  static async discoverAgents(docsPath: string = this.defaultDocsPath) {
     AgentRegistry.clear();
-    const agentsDir = path.join(this.docsPath, 'agents');
+    const agentsDir = path.join(docsPath, 'agents');
     if (!fs.existsSync(agentsDir)) return;
 
     const files = fs.readdirSync(agentsDir).filter(f => f.endsWith('.md'));
@@ -57,9 +58,9 @@ export class DynamicDiscoveryService {
     }
   }
 
-  static async discoverPipelines() {
+  static async discoverPipelines(docsPath: string = this.defaultDocsPath) {
     PipelineRegistry.clear();
-    const pipelinesDir = path.join(this.docsPath, 'pipelines');
+    const pipelinesDir = path.join(docsPath, 'pipelines');
     if (!fs.existsSync(pipelinesDir)) return;
 
     const files = fs.readdirSync(pipelinesDir).filter(f => f.endsWith('.md'));
@@ -85,9 +86,9 @@ export class DynamicDiscoveryService {
     }
   }
 
-  static async discoverSkills() {
+  static async discoverSkills(docsPath: string = this.defaultDocsPath) {
     SkillRegistry.clear();
-    const skillsDir = path.join(this.docsPath, 'skills');
+    const skillsDir = path.join(docsPath, 'skills');
     if (!fs.existsSync(skillsDir)) return;
 
     const files = fs.readdirSync(skillsDir).filter(f => f.endsWith('.md'));

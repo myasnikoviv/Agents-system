@@ -1,0 +1,1492 @@
+import React, { useEffect, useMemo, useState } from 'react';
+import { Link, useNavigate, useParams } from 'react-router-dom';
+import { ChevronLeft, Server, SlidersHorizontal, ShieldCheck, Eye, EyeOff, Clipboard, CheckCircle, AlertTriangle, Loader2 } from 'lucide-react';
+import './CockpitSettingsPage.css';
+
+const API_BASE = ((import.meta as { env?: Record<string, string | undefined> }).env?.VITE_API_BASE_URL || '').replace(/\/$/, '');
+const API_FALLBACK_BASE = ((import.meta as { env?: Record<string, string | undefined> }).env?.VITE_API_FALLBACK_URL || 'http://127.0.0.1:3000').replace(/\/$/, '');
+const apiUrl = (path: string) => `${API_BASE}${path}`;
+
+const SECTIONS = [
+  'general',
+  'appearance',
+  'configuration',
+  'personalization',
+  'usage',
+  'mcp-servers',
+  'git',
+  'environment',
+  'worktrees',
+  'archived-threads',
+] as const;
+
+type SectionId = (typeof SECTIONS)[number];
+
+interface MCPHealthRow {
+  name: string;
+  mode: 'isolated' | 'share-safe' | 'exclusive';
+  status: 'ok' | 'warn' | 'unknown';
+  note: string;
+}
+
+interface MCPServerEntry {
+  id: string;
+  name: string;
+  transport: 'stdio' | 'http' | 'sse';
+  mode: 'isolated' | 'share-safe' | 'exclusive';
+  enabled: boolean;
+  busyBy?: string;
+}
+
+interface GeneralSettings {
+  defaultOpenBehavior: 'finder' | 'editor' | 'terminal';
+  language: 'auto' | 'uk' | 'en';
+  commandDetail: 'steps' | 'verbose' | 'minimal';
+  executionSpeed: 'standard' | 'fast' | 'deep';
+  runtimeMode: 'mock' | 'linear' | 'multiple_agents';
+}
+
+interface AppearanceSettings {
+  theme: 'dark' | 'light' | 'system';
+  density: 'compact' | 'comfortable' | 'spacious';
+  accent: 'blue' | 'emerald' | 'violet';
+  fontScale: 'small' | 'medium' | 'large';
+}
+
+interface PersonalizationSettings {
+  assistantName: string;
+  autoApproveSafeSteps: boolean;
+  showHints: boolean;
+  confirmLongActions: boolean;
+}
+
+interface UsageSettings {
+  detailLevel: 'minimal' | 'steps' | 'verbose';
+  notifyOnCompletion: boolean;
+  showTokenStats: boolean;
+}
+interface SkillAnalyticsSummary {
+  totalEvents: number;
+  bySkill: Record<string, number>;
+  byRole: Record<string, number>;
+  byPipeline: Record<string, number>;
+  unusedSkills: string[];
+}
+
+interface GitSettings {
+  enforcePreflight: boolean;
+  requireWorktreeIsolation: boolean;
+  autoRunCleanupSweep: boolean;
+}
+
+interface EnvironmentSettings {
+  executionMode: 'sandbox' | 'full-access';
+  allowNetwork: boolean;
+  defaultShell: 'bash' | 'zsh';
+}
+
+const ApiKeyInput = ({
+  label,
+  value,
+  onChange,
+  placeholder,
+}: {
+  label: string;
+  value: string;
+  onChange: (val: string) => void;
+  placeholder?: string;
+}) => {
+  const [show, setShow] = React.useState(false);
+
+  const handlePaste = async () => {
+    try {
+      const text = await navigator.clipboard.readText();
+      onChange(text);
+    } catch (err) {
+      console.error('Failed to read clipboard', err);
+    }
+  };
+
+  const getTeaser = (val: string) => {
+    if (!val) return '';
+    if (val.length <= 8) return '••••••••';
+    return `${val.slice(0, 4)}••••••••${val.slice(-4)}`;
+  };
+
+  return (
+    <label style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+      {label}
+      <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+        <input
+          type={show ? 'text' : 'password'}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={placeholder}
+          style={{ width: '100%', paddingRight: '70px' }}
+        />
+        {/* Custom teaser overlay when obscured and not empty */}
+        {!show && value && (
+          <div
+            style={{
+              position: 'absolute',
+              left: '12px',
+              top: '50%',
+              transform: 'translateY(-50%)',
+              color: '#94a3b8',
+              fontFamily: 'monospace',
+              pointerEvents: 'none',
+              backgroundColor: '#1e293b', // Match input bg
+              padding: '2px 0',
+            }}
+          >
+            {getTeaser(value)}
+          </div>
+        )}
+        <div
+          style={{
+            position: 'absolute',
+            right: '8px',
+            top: '50%',
+            transform: 'translateY(-50%)',
+            display: 'flex',
+            gap: '8px',
+          }}
+        >
+          <button
+            type="button"
+            onClick={() => setShow(!show)}
+            style={{ 
+              background: 'none', 
+              border: 'none', 
+              color: '#94a3b8', 
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              padding: '4px'
+            }}
+            title={show ? 'Hide' : 'Show'}
+          >
+            {show ? <EyeOff size={16} /> : <Eye size={16} />}
+          </button>
+          <button
+            type="button"
+            onClick={handlePaste}
+            style={{ 
+              background: 'none', 
+              border: 'none', 
+              color: '#94a3b8', 
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              padding: '4px'
+            }}
+            title="Paste"
+          >
+            <Clipboard size={16} />
+          </button>
+        </div>
+      </div>
+    </label>
+  );
+};
+
+interface WorktreeSettings {
+  defaultBasePath: string;
+  autoPruneOnDone: boolean;
+  strictOneTicketPerWorktree: boolean;
+}
+
+interface ArchivedThreadsSettings {
+  retentionDays: '30' | '90' | '180' | '365';
+  includeArtifacts: boolean;
+}
+interface ExecutorSettings {
+  backend: 'claude-cli' | 'codex-cli' | 'openhands-sdk';
+  claude: { bin: string; model: string };
+  codex: { bin: string; model: string; sandbox: 'read-only' | 'workspace-write' | 'danger-full-access' };
+  openhands: { 
+    serverUrl: string; 
+    model: string; 
+    apiKeys: {
+      openai?: string;
+      anthropic?: string;
+      google?: string;
+    };
+    workspacePath: string; 
+  };
+}
+
+function looksLikeHtml(payload: string): boolean {
+  const head = String(payload || '').trim().slice(0, 128).toLowerCase();
+  return head.startsWith('<!doctype') || head.startsWith('<html') || head.startsWith('<head') || head.startsWith('<body');
+}
+
+interface CliStatus {
+  codex?: { loggedIn: boolean };
+  claude?: { loggedIn: boolean; needsLogin?: boolean };
+}
+
+interface CliStatusResponse {
+  success: boolean;
+  status: CliStatus;
+  error?: string;
+}
+
+interface CliTestResponse {
+  success: boolean;
+  error?: string;
+  result?: {
+    stdout?: string;
+    stderr?: string;
+  };
+}
+
+interface CliLoginResponse {
+  success: boolean;
+  error?: string;
+  message?: string;
+  result?: {
+    stderr?: string;
+  };
+}
+
+async function fetchJsonStrict<T>(path: string, init?: RequestInit): Promise<T> {
+  const tryRequest = async (url: string) => {
+    const res = await fetch(url, init);
+    const raw = await res.text();
+    const isHtml = looksLikeHtml(raw);
+    let parsed: T | null = null;
+    try {
+      parsed = raw ? JSON.parse(raw) : null;
+    } catch {
+      parsed = null;
+    }
+    return { res, raw, parsed, isHtml };
+  };
+
+  const primaryUrl = apiUrl(path);
+  const primary = await tryRequest(primaryUrl);
+  if (primary.parsed && !primary.isHtml) return primary.parsed;
+
+  const shouldRetryFallback = !API_BASE;
+  if (shouldRetryFallback) {
+    const fallback = await tryRequest(`${API_FALLBACK_BASE}${path}`);
+    if (fallback.parsed && !fallback.isHtml) return fallback.parsed;
+  }
+
+  if (primary.isHtml) {
+    throw new Error('API returned HTML instead of JSON. Перевір, що backend запущений на :3001.');
+  }
+  throw new Error(`Invalid API response for ${path}`);
+}
+
+const SETTINGS_KEYS = {
+  general: 'cockpit.settings.general.v1',
+  appearance: 'cockpit.settings.appearance.v1',
+  personalization: 'cockpit.settings.personalization.v1',
+  usage: 'cockpit.settings.usage.v1',
+  git: 'cockpit.settings.git.v1',
+  environment: 'cockpit.settings.environment.v1',
+  worktrees: 'cockpit.settings.worktrees.v1',
+  archivedThreads: 'cockpit.settings.archived-threads.v1',
+  executor: 'cockpit.settings.executor.v1',
+} as const;
+const RUNTIME_MODE_KEY = 'cockpit.runtime.mode.v1';
+
+export function CockpitSettingsPage() {
+  const navigate = useNavigate();
+  const { section } = useParams();
+  const currentSection = useMemo<SectionId>(() => {
+    const value = (section || 'general') as SectionId;
+    return (SECTIONS as readonly string[]).includes(value) ? value : 'general';
+  }, [section]);
+
+  const [lastHealthRun, setLastHealthRun] = useState<string>('-');
+  const [healthDetails, setHealthDetails] = useState('No checks run yet.');
+  const [mcpRows, setMcpRows] = useState<MCPHealthRow[]>([
+    { name: 'playwright', mode: 'isolated', status: 'unknown', note: 'Run health check to validate target binding.' },
+    { name: 'plane', mode: 'share-safe', status: 'unknown', note: 'Ticketing API status not checked yet.' },
+    { name: 'filesystem', mode: 'exclusive', status: 'unknown', note: 'Reserved for mutation wave guard.' },
+  ]);
+  const [inventory, setInventory] = useState<MCPServerEntry[]>([
+    { id: 'playwright', name: 'Playwright', transport: 'stdio', mode: 'isolated', enabled: true },
+    { id: 'plane', name: 'Plane', transport: 'http', mode: 'share-safe', enabled: true },
+    { id: 'figma', name: 'Figma', transport: 'http', mode: 'exclusive', enabled: true, busyBy: 'agent:design-lead (eta 2m)' },
+  ]);
+  const [serverDraft, setServerDraft] = useState({ name: '', transport: 'http', mode: 'isolated' });
+  const [testMessage, setTestMessage] = useState('No tests executed.');
+
+  const [cliHealthMessage, setCliHealthMessage] = useState('CLI provider status not checked.');
+  const [codexApiKeyForLogin, setCodexApiKeyForLogin] = useState('');
+  const [runtimeCapabilities, setRuntimeCapabilities] = useState<{ effectiveMode: 'cli' | 'direct'; implicitCodexApiKey?: string }>({ effectiveMode: 'direct' });
+
+  const [generalSavedAt, setGeneralSavedAt] = useState('Unsaved');
+  const [appearanceSavedAt, setAppearanceSavedAt] = useState('Unsaved');
+  const [personalizationSavedAt, setPersonalizationSavedAt] = useState('Unsaved');
+  const [usageSavedAt, setUsageSavedAt] = useState('Unsaved');
+  const [gitSavedAt, setGitSavedAt] = useState('Unsaved');
+  const [environmentSavedAt, setEnvironmentSavedAt] = useState('Unsaved');
+  const [worktreesSavedAt, setWorktreesSavedAt] = useState('Unsaved');
+  const [archivedSavedAt, setArchivedSavedAt] = useState('Unsaved');
+  const [executorSavedAt, setExecutorSavedAt] = useState('Unsaved');
+  const [llmTestResult, setLlmTestResult] = useState<{
+    success: boolean;
+    status: string;
+    message: string;
+    model?: string;
+    provider?: string;
+    response?: string;
+    latencyMs?: number;
+  } | null>(null);
+  const [isTestingLlm, setIsTestingLlm] = useState(false);
+
+  const [generalSettings, setGeneralSettings] = useState<GeneralSettings>({
+    defaultOpenBehavior: 'finder',
+    language: 'auto',
+    commandDetail: 'steps',
+    executionSpeed: 'standard',
+    runtimeMode: 'multiple_agents',
+  });
+  const [appearanceSettings, setAppearanceSettings] = useState<AppearanceSettings>({
+    theme: 'dark',
+    density: 'comfortable',
+    accent: 'blue',
+    fontScale: 'medium',
+  });
+  const [personalizationSettings, setPersonalizationSettings] = useState<PersonalizationSettings>({
+    assistantName: 'Swarm Controller',
+    autoApproveSafeSteps: false,
+    showHints: true,
+    confirmLongActions: true,
+  });
+  const [usageSettings, setUsageSettings] = useState<UsageSettings>({
+    detailLevel: 'steps',
+    notifyOnCompletion: true,
+    showTokenStats: true,
+  });
+  const [skillAnalytics, setSkillAnalytics] = useState<SkillAnalyticsSummary>({
+    totalEvents: 0,
+    bySkill: {},
+    byRole: {},
+    byPipeline: {},
+    unusedSkills: [],
+  });
+  const [skillAnalyticsState, setSkillAnalyticsState] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
+  const [gitSettings, setGitSettings] = useState<GitSettings>({
+    enforcePreflight: true,
+    requireWorktreeIsolation: true,
+    autoRunCleanupSweep: true,
+  });
+  const [environmentSettings, setEnvironmentSettings] = useState<EnvironmentSettings>({
+    executionMode: 'sandbox',
+    allowNetwork: true,
+    defaultShell: 'bash',
+  });
+  const [worktreeSettings, setWorktreeSettings] = useState<WorktreeSettings>({
+    defaultBasePath: './agent-worktrees',
+    autoPruneOnDone: true,
+    strictOneTicketPerWorktree: true,
+  });
+  const [archivedThreadsSettings, setArchivedThreadsSettings] = useState<ArchivedThreadsSettings>({
+    retentionDays: '180',
+    includeArtifacts: true,
+  });
+  const [executorSettings, setExecutorSettings] = useState<ExecutorSettings>({
+    backend: 'claude-cli',
+    claude: { bin: 'claude', model: 'auto' },
+    codex: { bin: 'codex', model: 'auto', sandbox: 'workspace-write' },
+    openhands: { serverUrl: 'http://localhost:8000', model: 'anthropic/claude-3-5-sonnet', apiKeys: { anthropic: '', openai: '', google: '' }, workspacePath: '' },
+  });
+
+  const providerModelPresets: Record<'claude-cli' | 'codex-cli' | 'openhands-sdk', string[]> = {
+    'claude-cli': [
+      'auto',
+      'claude-sonnet-4-6',
+      'claude-opus-4-6',
+      'claude-haiku-4-5-20251001',
+      'claude-sonnet-4-5-20250929',
+      'claude-opus-4-5-20251101',
+      'claude-opus-4-20250514',
+      'claude-sonnet-4-20250514',
+    ],
+    'codex-cli': [
+      'auto',
+      'gpt-5.4', 'gpt-5.4-mini', 'gpt-5.4-nano', 'gpt-5.4-pro',
+      'gpt-5.3-codex', 'gpt-5.2', 'gpt-5.1', 'gpt-5',
+      'o4-mini', 'o3', 'o3-mini', 'o1', 'o1-pro',
+    ],
+    'openhands-sdk': [
+      // Anthropic
+      'anthropic/claude-sonnet-4-6',
+      'anthropic/claude-opus-4-6',
+      'anthropic/claude-haiku-4-5-20251001',
+      'anthropic/claude-sonnet-4-5-20250929',
+      'anthropic/claude-opus-4-5-20251101',
+      'anthropic/claude-opus-4-20250514',
+      'anthropic/claude-sonnet-4-20250514',
+      // OpenAI
+      'openai/gpt-4o', 'openai/gpt-4o-mini',
+      'openai/gpt-4.1', 'openai/gpt-4.1-mini', 'openai/gpt-4.1-nano',
+      'openai/gpt-5', 'openai/gpt-5-mini', 'openai/gpt-5.4', 'openai/gpt-5.4-mini',
+      'openai/o4-mini', 'openai/o3', 'openai/o3-mini', 'openai/o1',
+      // Google Gemini 3.x
+      'google/gemini-3.1-pro-preview',
+      'google/gemini-3-flash-preview',
+      'google/gemini-3.1-flash-lite-preview',
+      // Google Gemini 2.5 (stable GA)
+      'google/gemini-2.5-pro',
+      'google/gemini-2.5-flash',
+      'google/gemini-2.5-flash-lite',
+    ],
+  };
+
+  useEffect(() => {
+    if (section && !(SECTIONS as readonly string[]).includes(section)) {
+      navigate('/cockpit/settings/general', { replace: true });
+    }
+  }, [navigate, section]);
+
+  useEffect(() => {
+    const rawGeneral = localStorage.getItem(SETTINGS_KEYS.general);
+    const rawAppearance = localStorage.getItem(SETTINGS_KEYS.appearance);
+    const rawPersonalization = localStorage.getItem(SETTINGS_KEYS.personalization);
+    const rawUsage = localStorage.getItem(SETTINGS_KEYS.usage);
+    const rawGit = localStorage.getItem(SETTINGS_KEYS.git);
+    const rawEnvironment = localStorage.getItem(SETTINGS_KEYS.environment);
+    const rawWorktrees = localStorage.getItem(SETTINGS_KEYS.worktrees);
+    const rawArchived = localStorage.getItem(SETTINGS_KEYS.archivedThreads);
+    const rawExecutor = localStorage.getItem(SETTINGS_KEYS.executor);
+
+    if (rawGeneral) {
+      try {
+        setGeneralSettings((prev) => ({ ...prev, ...JSON.parse(rawGeneral) }));
+        setGeneralSavedAt('Saved');
+      } catch {
+        // use default
+      }
+    }
+    if (rawAppearance) {
+      try {
+        setAppearanceSettings((prev) => ({ ...prev, ...JSON.parse(rawAppearance) }));
+        setAppearanceSavedAt('Saved');
+      } catch {
+        // use default
+      }
+    }
+    if (rawPersonalization) {
+      try {
+        setPersonalizationSettings((prev) => ({ ...prev, ...JSON.parse(rawPersonalization) }));
+        setPersonalizationSavedAt('Saved');
+      } catch {
+        // use default
+      }
+    }
+    if (rawUsage) {
+      try {
+        setUsageSettings((prev) => ({ ...prev, ...JSON.parse(rawUsage) }));
+        setUsageSavedAt('Saved');
+      } catch {
+        // use default
+      }
+    }
+    if (rawGit) {
+      try {
+        setGitSettings((prev) => ({ ...prev, ...JSON.parse(rawGit) }));
+        setGitSavedAt('Saved');
+      } catch {
+        // use default
+      }
+    }
+    if (rawEnvironment) {
+      try {
+        setEnvironmentSettings((prev) => ({ ...prev, ...JSON.parse(rawEnvironment) }));
+        setEnvironmentSavedAt('Saved');
+      } catch {
+        // use default
+      }
+    }
+    if (rawWorktrees) {
+      try {
+        setWorktreeSettings((prev) => ({ ...prev, ...JSON.parse(rawWorktrees) }));
+        setWorktreesSavedAt('Saved');
+      } catch {
+        // use default
+      }
+    }
+    if (rawArchived) {
+      try {
+        setArchivedThreadsSettings((prev) => ({ ...prev, ...JSON.parse(rawArchived) }));
+        setArchivedSavedAt('Saved');
+      } catch {
+        // use default
+      }
+    }
+    if (rawExecutor) {
+      try {
+        setExecutorSettings((prev) => ({ ...prev, ...JSON.parse(rawExecutor) }));
+        setExecutorSavedAt('Saved');
+      } catch {
+        // use default
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    const loadGeneralFromApi = async () => {
+      try {
+        const res = await fetch(apiUrl('/api/cockpit/settings/general'));
+        const data = await res.json();
+        if (!data.success || !data.settings) return;
+        setGeneralSettings((prev) => ({ ...prev, ...data.settings }));
+        setGeneralSavedAt('Saved');
+      } catch {
+        // Keep local fallback silently.
+      }
+    };
+    void loadGeneralFromApi();
+  }, []);
+
+  useEffect(() => {
+    const loadAppearanceFromApi = async () => {
+      try {
+        const res = await fetch(apiUrl('/api/cockpit/settings/appearance'));
+        const data = await res.json();
+        if (!data.success || !data.settings) return;
+        setAppearanceSettings((prev) => ({ ...prev, ...data.settings }));
+        setAppearanceSavedAt('Saved');
+      } catch {
+        // Keep local fallback silently.
+      }
+    };
+    void loadAppearanceFromApi();
+  }, []);
+
+  useEffect(() => {
+    const loadPersonalizationFromApi = async () => {
+      try {
+        const res = await fetch(apiUrl('/api/cockpit/settings/personalization'));
+        const data = await res.json();
+        if (!data.success || !data.settings) return;
+        setPersonalizationSettings((prev) => ({ ...prev, ...data.settings }));
+        setPersonalizationSavedAt('Saved');
+      } catch {
+        // Keep local fallback silently.
+      }
+    };
+    void loadPersonalizationFromApi();
+  }, []);
+
+  useEffect(() => {
+    const loadUsageFromApi = async () => {
+      try {
+        const res = await fetch(apiUrl('/api/cockpit/settings/usage'));
+        const data = await res.json();
+        if (!data.success || !data.settings) return;
+        setUsageSettings((prev) => ({ ...prev, ...data.settings }));
+        setUsageSavedAt('Saved');
+      } catch {
+        // Keep local fallback silently.
+      }
+    };
+    void loadUsageFromApi();
+  }, []);
+
+  useEffect(() => {
+    const loadSkillAnalytics = async () => {
+      setSkillAnalyticsState('loading');
+      try {
+        const res = await fetch(apiUrl('/api/cockpit/analytics/skills'));
+        const data = await res.json();
+        if (!data?.success || !data?.summary) throw new Error('invalid-analytics-payload');
+        setSkillAnalytics({
+          totalEvents: Number(data.summary.totalEvents || 0),
+          bySkill: data.summary.bySkill || {},
+          byRole: data.summary.byRole || {},
+          byPipeline: data.summary.byPipeline || {},
+          unusedSkills: Array.isArray(data.summary.unusedSkills) ? data.summary.unusedSkills : [],
+        });
+        setSkillAnalyticsState('ready');
+      } catch {
+        setSkillAnalyticsState('error');
+      }
+    };
+    void loadSkillAnalytics();
+  }, []);
+
+  useEffect(() => {
+    const loadGitFromApi = async () => {
+      try {
+        const res = await fetch(apiUrl('/api/cockpit/settings/git'));
+        const data = await res.json();
+        if (!data.success || !data.settings) return;
+        setGitSettings((prev) => ({ ...prev, ...data.settings }));
+        setGitSavedAt('Saved');
+      } catch {
+        // Keep local fallback silently.
+      }
+    };
+    void loadGitFromApi();
+  }, []);
+
+  useEffect(() => {
+    const loadEnvironmentFromApi = async () => {
+      try {
+        const res = await fetch(apiUrl('/api/cockpit/settings/environment'));
+        const data = await res.json();
+        if (!data.success || !data.settings) return;
+        setEnvironmentSettings((prev) => ({ ...prev, ...data.settings }));
+        setEnvironmentSavedAt('Saved');
+      } catch {
+        // Keep local fallback silently.
+      }
+    };
+    void loadEnvironmentFromApi();
+  }, []);
+
+  useEffect(() => {
+    const loadWorktreesFromApi = async () => {
+      try {
+        const res = await fetch(apiUrl('/api/cockpit/settings/worktrees'));
+        const data = await res.json();
+        if (!data.success || !data.settings) return;
+        setWorktreeSettings((prev) => ({ ...prev, ...data.settings }));
+        setWorktreesSavedAt('Saved');
+      } catch {
+        // Keep local fallback silently.
+      }
+    };
+    void loadWorktreesFromApi();
+  }, []);
+
+  useEffect(() => {
+    const loadArchivedThreadsFromApi = async () => {
+      try {
+        const res = await fetch(apiUrl('/api/cockpit/settings/archived-threads'));
+        const data = await res.json();
+        if (!data.success || !data.settings) return;
+        setArchivedThreadsSettings((prev) => ({ ...prev, ...data.settings }));
+        setArchivedSavedAt('Saved');
+      } catch {
+        // Keep local fallback silently.
+      }
+    };
+    void loadArchivedThreadsFromApi();
+  }, []);
+
+  useEffect(() => {
+    const loadExecutorFromApi = async () => {
+      try {
+        const res = await fetch(apiUrl('/api/cockpit/settings/executor'));
+        const data = await res.json();
+        if (!data.success || !data.settings) return;
+        setExecutorSettings((prev) => ({
+          ...prev,
+          ...data.settings,
+          openhands: {
+            ...prev.openhands,
+            ...(data.settings.openhands || {}),
+            apiKeys: {
+              ...(prev.openhands.apiKeys || {}),
+              ...((data.settings.openhands || {}).apiKeys || {}),
+            }
+          }
+        }));
+        setExecutorSavedAt('Saved');
+      } catch {
+        // local fallback
+      }
+    };
+    void loadExecutorFromApi();
+  }, []);
+
+  useEffect(() => {
+    const loadCapabilities = async () => {
+      try {
+        const res = await fetch(apiUrl('/api/cockpit/providers'));
+        const data = await res.json();
+        if (data.success && data.capabilities) {
+          setRuntimeCapabilities(data.capabilities);
+        }
+      } catch {
+        console.error('Failed to load runtime capabilities');
+      }
+    };
+    void loadCapabilities();
+  }, []);
+
+  const runHealth = async () => {
+    try {
+      const [runtimeRes, catalogRes] = await Promise.all([
+        fetch(apiUrl('/api/health')),
+        fetch(apiUrl('/api/cockpit/catalog')),
+      ]);
+      const runtime = runtimeRes.ok ? 'ok' : 'warn';
+      const catalog = catalogRes.ok ? 'ok' : 'warn';
+      setLastHealthRun(new Date().toLocaleTimeString());
+      setHealthDetails(`runtime=${runtime} | catalog=${catalog}`);
+      setMcpRows((prev) =>
+        prev.map((row) => ({
+          ...row,
+          status: row.name === 'playwright' ? (runtimeRes.ok ? 'ok' : 'warn') : catalogRes.ok ? 'ok' : 'warn',
+        })),
+      );
+    } catch (e) {
+      setLastHealthRun(new Date().toLocaleTimeString());
+      setHealthDetails(`health check failed: ${(e as Error)?.message || 'unknown'}`);
+      setMcpRows((prev) => prev.map((row) => ({ ...row, status: 'warn' })));
+    }
+  };
+
+  const toggleServer = (id: string) => {
+    setInventory((prev) => prev.map((row) => (row.id === id ? { ...row, enabled: !row.enabled } : row)));
+  };
+
+  const removeServer = (id: string) => {
+    setInventory((prev) => prev.filter((row) => row.id !== id));
+  };
+
+  const addServer = () => {
+    if (!serverDraft.name.trim()) return;
+    const id = serverDraft.name.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+    setInventory((prev) => {
+      if (prev.some((row) => row.id === id)) return prev;
+      return [
+        ...prev,
+        {
+          id,
+          name: serverDraft.name.trim(),
+          transport: serverDraft.transport as MCPServerEntry['transport'],
+          mode: serverDraft.mode as MCPServerEntry['mode'],
+          enabled: true,
+        },
+      ];
+    });
+    setServerDraft({ name: '', transport: 'http', mode: 'isolated' });
+  };
+
+  const testServer = async (server: MCPServerEntry) => {
+    if (server.mode === 'exclusive' && server.busyBy) {
+      setTestMessage(`${server.name}: busy (${server.busyBy}). Added to queue.`);
+      return;
+    }
+    try {
+      const res = await fetch(apiUrl('/api/health'));
+      setTestMessage(`${server.name}: ${res.ok ? 'PASS' : 'WARN'} (${server.transport}/${server.mode})`);
+    } catch (e) {
+      setTestMessage(`${server.name}: FAIL (${(e as Error)?.message || 'unknown'})`);
+    }
+  };
+
+  const saveExecutorSettings = async () => {
+    try {
+      const res = await fetch(apiUrl('/api/cockpit/settings/executor'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(executorSettings),
+      });
+      const data = await res.json();
+      if (!data.success) {
+        setExecutorSavedAt(`Save failed at ${new Date().toLocaleTimeString()}`);
+        return;
+      }
+      const next = data.settings || executorSettings;
+      setExecutorSettings((prev) => ({ ...prev, ...next }));
+      localStorage.setItem(SETTINGS_KEYS.executor, JSON.stringify(next));
+      setExecutorSavedAt(`Saved at ${new Date().toLocaleTimeString()}`);
+    } catch {
+      localStorage.setItem(SETTINGS_KEYS.executor, JSON.stringify(executorSettings));
+      setExecutorSavedAt(`Saved locally at ${new Date().toLocaleTimeString()}`);
+    }
+  };
+
+  const checkOpenHandsHealth = async () => {
+    try {
+      setCliHealthMessage('Checking OpenHands server status...');
+      const res = await fetch(apiUrl('/api/cockpit/providers/openhands/health'));
+      const data = await res.json();
+      if (data.alive) {
+        setCliHealthMessage(`OpenHands server is ALIVE at ${executorSettings.openhands.serverUrl}`);
+      } else {
+        setCliHealthMessage(`OpenHands server is UNREACHABLE: ${data.error || 'unknown'}`);
+      }
+    } catch (e) {
+      setCliHealthMessage(`OpenHands health error: ${(e as Error)?.message || 'unknown'}`);
+    }
+  };
+
+  const refreshCliStatus = async () => {
+    try {
+      setCliHealthMessage('Checking CLI providers...');
+      const data = await fetchJsonStrict<CliStatusResponse>('/api/cockpit/providers/cli/status');
+      if (!data.success || !data.status) {
+        setCliHealthMessage(`CLI status failed: ${data.error || 'unknown'}`);
+        return;
+      }
+      const codex = data.status.codex;
+      const claude = data.status.claude;
+      setCliHealthMessage(`codex loggedIn=${Boolean(codex?.loggedIn)} | claude loggedIn=${Boolean(claude?.loggedIn)}${claude?.needsLogin ? ' (needs login)' : ''}`);
+    } catch (e) {
+      setCliHealthMessage(`CLI status error: ${(e as Error)?.message || 'unknown'}`);
+    }
+  };
+
+  const testLlmConfig = async () => {
+    setIsTestingLlm(true);
+    setLlmTestResult(null);
+    try {
+      const res = await fetch(apiUrl('/api/cockpit/providers/test-message'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: executorSettings.openhands.model,
+          apiKeys: executorSettings.openhands.apiKeys,
+        }),
+      });
+      const data = await res.json();
+      setLlmTestResult(data);
+    } catch (e) {
+      setLlmTestResult({
+        success: false,
+        status: 'fetch_error',
+        message: (e as Error)?.message || 'Network or internal server error',
+      });
+    } finally {
+      setIsTestingLlm(false);
+    }
+  };
+
+  const testCliProvider = async (provider: 'codex-cli' | 'claude-cli') => {
+    try {
+      setCliHealthMessage(`Testing ${provider}...`);
+      const model = provider === 'codex-cli' ? executorSettings.codex.model : executorSettings.claude.model;
+      const data = await fetchJsonStrict<CliTestResponse>('/api/cockpit/providers/cli/test', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ provider, model }),
+      });
+      let errorReason = data?.error || data?.result?.stderr || 'unknown';
+      if (!data.success && data?.result?.stdout) {
+        const lines = data.result.stdout.split('\n').map((r: string) => r.trim()).filter(Boolean);
+        for (let i = lines.length - 1; i >= 0; i--) {
+          try {
+            const parsed = JSON.parse(lines[i]);
+            if (parsed.type === 'error' && parsed.message) {
+               errorReason = parsed.message;
+               break;
+            }
+            } catch {
+              // Ignore invalid JSON lines
+            }
+        }
+      }
+
+      setCliHealthMessage(
+        data.success
+          ? `${provider}: PASS`
+          : `${provider}: FAIL - ${errorReason}`,
+      );
+    } catch (e) {
+      setCliHealthMessage(`${provider} test error: ${(e as Error)?.message || 'unknown'}`);
+    }
+  };
+
+  const loginCodexWithApiKey = async () => {
+    try {
+      if (!codexApiKeyForLogin.trim()) {
+        setCliHealthMessage('Codex login requires API key.');
+        return;
+      }
+      setCliHealthMessage('Running codex login --with-api-key ...');
+      const data = await fetchJsonStrict<CliLoginResponse>('/api/cockpit/providers/cli/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ provider: 'codex-cli', method: 'api-key', apiKey: codexApiKeyForLogin }),
+      });
+      setCliHealthMessage(data.success ? 'Codex login: PASS' : `Codex login: FAIL (${data?.result?.stderr || data?.error || data?.message || 'unknown'})`);
+      setCodexApiKeyForLogin('');
+    } catch (e) {
+      setCliHealthMessage(`Codex login error: ${(e as Error)?.message || 'unknown'}`);
+    }
+  };
+
+  const saveGeneralSettings = async () => {
+    try {
+      const res = await fetch(apiUrl('/api/cockpit/settings/general'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(generalSettings),
+      });
+      const data = await res.json();
+      if (!data.success) {
+        setGeneralSavedAt(`Save failed at ${new Date().toLocaleTimeString()}`);
+        return;
+      }
+      const next = data.settings || generalSettings;
+      setGeneralSettings((prev) => ({ ...prev, ...next }));
+      localStorage.setItem(SETTINGS_KEYS.general, JSON.stringify(next));
+      localStorage.setItem(RUNTIME_MODE_KEY, next.runtimeMode || generalSettings.runtimeMode);
+      setGeneralSavedAt(`Saved at ${new Date().toLocaleTimeString()}`);
+    } catch {
+      localStorage.setItem(SETTINGS_KEYS.general, JSON.stringify(generalSettings));
+      localStorage.setItem(RUNTIME_MODE_KEY, generalSettings.runtimeMode);
+      setGeneralSavedAt(`Saved locally at ${new Date().toLocaleTimeString()}`);
+    }
+  };
+
+  const saveAppearanceSettings = async () => {
+    try {
+      const res = await fetch(apiUrl('/api/cockpit/settings/appearance'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(appearanceSettings),
+      });
+      const data = await res.json();
+      if (!data.success) {
+        setAppearanceSavedAt(`Save failed at ${new Date().toLocaleTimeString()}`);
+        return;
+      }
+      const next = data.settings || appearanceSettings;
+      setAppearanceSettings((prev) => ({ ...prev, ...next }));
+      localStorage.setItem(SETTINGS_KEYS.appearance, JSON.stringify(next));
+      setAppearanceSavedAt(`Saved at ${new Date().toLocaleTimeString()}`);
+    } catch {
+      localStorage.setItem(SETTINGS_KEYS.appearance, JSON.stringify(appearanceSettings));
+      setAppearanceSavedAt(`Saved locally at ${new Date().toLocaleTimeString()}`);
+    }
+  };
+
+  const savePersonalizationSettings = async () => {
+    try {
+      const res = await fetch(apiUrl('/api/cockpit/settings/personalization'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(personalizationSettings),
+      });
+      const data = await res.json();
+      if (!data.success) {
+        setPersonalizationSavedAt(`Save failed at ${new Date().toLocaleTimeString()}`);
+        return;
+      }
+      const next = data.settings || personalizationSettings;
+      setPersonalizationSettings((prev) => ({ ...prev, ...next }));
+      localStorage.setItem(SETTINGS_KEYS.personalization, JSON.stringify(next));
+      setPersonalizationSavedAt(`Saved at ${new Date().toLocaleTimeString()}`);
+    } catch {
+      localStorage.setItem(SETTINGS_KEYS.personalization, JSON.stringify(personalizationSettings));
+      setPersonalizationSavedAt(`Saved locally at ${new Date().toLocaleTimeString()}`);
+    }
+  };
+
+  const saveUsageSettings = async () => {
+    try {
+      const res = await fetch(apiUrl('/api/cockpit/settings/usage'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(usageSettings),
+      });
+      const data = await res.json();
+      if (!data.success) {
+        setUsageSavedAt(`Save failed at ${new Date().toLocaleTimeString()}`);
+        return;
+      }
+      const next = data.settings || usageSettings;
+      setUsageSettings((prev) => ({ ...prev, ...next }));
+      localStorage.setItem(SETTINGS_KEYS.usage, JSON.stringify(next));
+      setUsageSavedAt(`Saved at ${new Date().toLocaleTimeString()}`);
+    } catch {
+      localStorage.setItem(SETTINGS_KEYS.usage, JSON.stringify(usageSettings));
+      setUsageSavedAt(`Saved locally at ${new Date().toLocaleTimeString()}`);
+    }
+  };
+
+  const saveGitSettings = async () => {
+    try {
+      const res = await fetch(apiUrl('/api/cockpit/settings/git'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(gitSettings),
+      });
+      const data = await res.json();
+      if (!data.success) {
+        setGitSavedAt(`Save failed at ${new Date().toLocaleTimeString()}`);
+        return;
+      }
+      const next = data.settings || gitSettings;
+      setGitSettings((prev) => ({ ...prev, ...next }));
+      localStorage.setItem(SETTINGS_KEYS.git, JSON.stringify(next));
+      setGitSavedAt(`Saved at ${new Date().toLocaleTimeString()}`);
+    } catch {
+      localStorage.setItem(SETTINGS_KEYS.git, JSON.stringify(gitSettings));
+      setGitSavedAt(`Saved locally at ${new Date().toLocaleTimeString()}`);
+    }
+  };
+
+  const saveEnvironmentSettings = async () => {
+    try {
+      const res = await fetch(apiUrl('/api/cockpit/settings/environment'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(environmentSettings),
+      });
+      const data = await res.json();
+      if (!data.success) {
+        setEnvironmentSavedAt(`Save failed at ${new Date().toLocaleTimeString()}`);
+        return;
+      }
+      const next = data.settings || environmentSettings;
+      setEnvironmentSettings((prev) => ({ ...prev, ...next }));
+      localStorage.setItem(SETTINGS_KEYS.environment, JSON.stringify(next));
+      setEnvironmentSavedAt(`Saved at ${new Date().toLocaleTimeString()}`);
+    } catch {
+      localStorage.setItem(SETTINGS_KEYS.environment, JSON.stringify(environmentSettings));
+      setEnvironmentSavedAt(`Saved locally at ${new Date().toLocaleTimeString()}`);
+    }
+  };
+
+  const saveWorktreeSettings = async () => {
+    try {
+      const res = await fetch(apiUrl('/api/cockpit/settings/worktrees'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(worktreeSettings),
+      });
+      const data = await res.json();
+      if (!data.success) {
+        setWorktreesSavedAt(`Save failed at ${new Date().toLocaleTimeString()}`);
+        return;
+      }
+      const next = data.settings || worktreeSettings;
+      setWorktreeSettings((prev) => ({ ...prev, ...next }));
+      localStorage.setItem(SETTINGS_KEYS.worktrees, JSON.stringify(next));
+      setWorktreesSavedAt(`Saved at ${new Date().toLocaleTimeString()}`);
+    } catch {
+      localStorage.setItem(SETTINGS_KEYS.worktrees, JSON.stringify(worktreeSettings));
+      setWorktreesSavedAt(`Saved locally at ${new Date().toLocaleTimeString()}`);
+    }
+  };
+
+  const saveArchivedSettings = async () => {
+    try {
+      const res = await fetch(apiUrl('/api/cockpit/settings/archived-threads'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(archivedThreadsSettings),
+      });
+      const data = await res.json();
+      if (!data.success) {
+        setArchivedSavedAt(`Save failed at ${new Date().toLocaleTimeString()}`);
+        return;
+      }
+      const next = data.settings || archivedThreadsSettings;
+      setArchivedThreadsSettings((prev) => ({ ...prev, ...next }));
+      localStorage.setItem(SETTINGS_KEYS.archivedThreads, JSON.stringify(next));
+      setArchivedSavedAt(`Saved at ${new Date().toLocaleTimeString()}`);
+    } catch {
+      localStorage.setItem(SETTINGS_KEYS.archivedThreads, JSON.stringify(archivedThreadsSettings));
+      setArchivedSavedAt(`Saved locally at ${new Date().toLocaleTimeString()}`);
+    }
+  };
+
+  const sectionTitle = currentSection.replace('-', ' ').replace(/\b\w/g, (m) => m.toUpperCase());
+
+  return (
+    <div className="cockpit-settings-shell">
+      <aside className="settings-sidebar">
+        <Link className="settings-back" to="/cockpit/runtime">
+          <ChevronLeft size={16} />
+          Back To Cockpit
+        </Link>
+        <nav className="settings-nav">
+          {SECTIONS.map((id) => (
+            <Link key={id} to={`/cockpit/settings/${id}`} className={`settings-nav-item ${currentSection === id ? 'active' : ''}`}>
+              {id.replace('-', ' ').replace(/\b\w/g, (m) => m.toUpperCase())}
+            </Link>
+          ))}
+        </nav>
+      </aside>
+
+      <main className="settings-content">
+        <header className="settings-header">
+          <h1>{sectionTitle}</h1>
+          <p>Codex-style settings IA scaffold with functional controls.</p>
+        </header>
+
+        {currentSection === 'general' && (
+          <section className="settings-card">
+            <h2><SlidersHorizontal size={16} />Core Defaults</h2>
+            <div className="settings-grid">
+              <label>Default Open Behavior<select value={generalSettings.defaultOpenBehavior} onChange={(e) => setGeneralSettings((prev) => ({ ...prev, defaultOpenBehavior: e.target.value as GeneralSettings['defaultOpenBehavior'] }))}><option value="finder">Finder</option><option value="editor">Editor</option><option value="terminal">Terminal</option></select></label>
+              <label>Language<select value={generalSettings.language} onChange={(e) => setGeneralSettings((prev) => ({ ...prev, language: e.target.value as GeneralSettings['language'] }))}><option value="auto">Auto Detect</option><option value="uk">Ukrainian</option><option value="en">English</option></select></label>
+              <label>Command Detail<select value={generalSettings.commandDetail} onChange={(e) => setGeneralSettings((prev) => ({ ...prev, commandDetail: e.target.value as GeneralSettings['commandDetail'] }))}><option value="steps">Code Steps</option><option value="verbose">Verbose Logs</option><option value="minimal">Minimal</option></select></label>
+              <label>Execution Speed<select value={generalSettings.executionSpeed} onChange={(e) => setGeneralSettings((prev) => ({ ...prev, executionSpeed: e.target.value as GeneralSettings['executionSpeed'] }))}><option value="standard">Standard</option><option value="fast">Fast</option><option value="deep">Deep Reasoning</option></select></label>
+              <label>Execution Runtime Mode<select value={generalSettings.runtimeMode} onChange={(e) => setGeneralSettings((prev) => ({ ...prev, runtimeMode: e.target.value as GeneralSettings['runtimeMode'] }))}><option value="mock">Mock</option><option value="linear">Quasi-Linear</option><option value="multiple_agents">Multiple Agents</option></select></label>
+            </div>
+            <div className="server-actions"><button className="settings-action" type="button" onClick={saveGeneralSettings}>Save General Settings</button></div>
+            <div className="settings-meta">{generalSavedAt}</div>
+          </section>
+        )}
+
+        {currentSection === 'appearance' && (
+          <section className="settings-card">
+            <h2>Appearance Configuration</h2>
+            <div className="settings-grid">
+              <label>Theme<select value={appearanceSettings.theme} onChange={(e) => setAppearanceSettings((prev) => ({ ...prev, theme: e.target.value as AppearanceSettings['theme'] }))}><option value="dark">Dark</option><option value="light">Light</option><option value="system">System</option></select></label>
+              <label>Density<select value={appearanceSettings.density} onChange={(e) => setAppearanceSettings((prev) => ({ ...prev, density: e.target.value as AppearanceSettings['density'] }))}><option value="compact">Compact</option><option value="comfortable">Comfortable</option><option value="spacious">Spacious</option></select></label>
+              <label>Accent<select value={appearanceSettings.accent} onChange={(e) => setAppearanceSettings((prev) => ({ ...prev, accent: e.target.value as AppearanceSettings['accent'] }))}><option value="blue">Blue</option><option value="emerald">Emerald</option><option value="violet">Violet</option></select></label>
+              <label>Font Scale<select value={appearanceSettings.fontScale} onChange={(e) => setAppearanceSettings((prev) => ({ ...prev, fontScale: e.target.value as AppearanceSettings['fontScale'] }))}><option value="small">Small</option><option value="medium">Medium</option><option value="large">Large</option></select></label>
+            </div>
+            <div className="server-actions"><button className="settings-action" type="button" onClick={saveAppearanceSettings}>Save Appearance</button></div>
+            <div className="settings-meta">{appearanceSavedAt}</div>
+          </section>
+        )}
+
+        {currentSection === 'personalization' && (
+          <section className="settings-card">
+            <h2>Personalization</h2>
+            <div className="settings-grid">
+              <label>Assistant Name<input value={personalizationSettings.assistantName} onChange={(e) => setPersonalizationSettings((prev) => ({ ...prev, assistantName: e.target.value }))} /></label>
+              <label>Auto-approve Safe Steps<select value={String(personalizationSettings.autoApproveSafeSteps)} onChange={(e) => setPersonalizationSettings((prev) => ({ ...prev, autoApproveSafeSteps: e.target.value === 'true' }))}><option value="false">Off</option><option value="true">On</option></select></label>
+              <label>Show Hints<select value={String(personalizationSettings.showHints)} onChange={(e) => setPersonalizationSettings((prev) => ({ ...prev, showHints: e.target.value === 'true' }))}><option value="true">On</option><option value="false">Off</option></select></label>
+              <label>Confirm Long Actions<select value={String(personalizationSettings.confirmLongActions)} onChange={(e) => setPersonalizationSettings((prev) => ({ ...prev, confirmLongActions: e.target.value === 'true' }))}><option value="true">On</option><option value="false">Off</option></select></label>
+            </div>
+            <div className="server-actions"><button className="settings-action" type="button" onClick={savePersonalizationSettings}>Save Personalization</button></div>
+            <div className="settings-meta">{personalizationSavedAt}</div>
+          </section>
+        )}
+
+        {currentSection === 'usage' && (
+          <section className="settings-card">
+            <h2>Usage Preferences</h2>
+            <div className="settings-grid">
+              <label>Detail Level<select value={usageSettings.detailLevel} onChange={(e) => setUsageSettings((prev) => ({ ...prev, detailLevel: e.target.value as UsageSettings['detailLevel'] }))}><option value="minimal">Minimal</option><option value="steps">Steps</option><option value="verbose">Verbose</option></select></label>
+              <label>Notify On Completion<select value={String(usageSettings.notifyOnCompletion)} onChange={(e) => setUsageSettings((prev) => ({ ...prev, notifyOnCompletion: e.target.value === 'true' }))}><option value="true">On</option><option value="false">Off</option></select></label>
+              <label>Show Token Stats<select value={String(usageSettings.showTokenStats)} onChange={(e) => setUsageSettings((prev) => ({ ...prev, showTokenStats: e.target.value === 'true' }))}><option value="true">On</option><option value="false">Off</option></select></label>
+            </div>
+            <div className="server-actions"><button className="settings-action" type="button" onClick={saveUsageSettings}>Save Usage</button></div>
+            <div className="settings-meta">{usageSavedAt}</div>
+
+            <div className="analytics-divider" />
+            <h2>Skill Telemetry Analytics</h2>
+            <p className="settings-note">Live runtime metrics from the skill telemetry registry.</p>
+            <div className="server-actions">
+              <button
+                className="settings-action"
+                type="button"
+                onClick={async () => {
+                  setSkillAnalyticsState('loading');
+                  try {
+                    const res = await fetch(apiUrl('/api/cockpit/analytics/skills'));
+                    const data = await res.json();
+                    if (!data?.success || !data?.summary) throw new Error('invalid-analytics-payload');
+                    setSkillAnalytics({
+                      totalEvents: Number(data.summary.totalEvents || 0),
+                      bySkill: data.summary.bySkill || {},
+                      byRole: data.summary.byRole || {},
+                      byPipeline: data.summary.byPipeline || {},
+                      unusedSkills: Array.isArray(data.summary.unusedSkills) ? data.summary.unusedSkills : [],
+                    });
+                    setSkillAnalyticsState('ready');
+                  } catch {
+                    setSkillAnalyticsState('error');
+                  }
+                }}
+              >
+                Refresh Skill Analytics
+              </button>
+            </div>
+            <div className="settings-meta">
+              {skillAnalyticsState === 'loading' && 'Loading analytics...'}
+              {skillAnalyticsState === 'error' && 'Analytics endpoint unavailable.'}
+              {(skillAnalyticsState === 'ready' || skillAnalyticsState === 'idle') &&
+                `Total skill invocations: ${skillAnalytics.totalEvents}`}
+            </div>
+            <div className="analytics-grid">
+              <div className="analytics-card">
+                <h3>By Skill</h3>
+                {Object.keys(skillAnalytics.bySkill).length === 0 ? (
+                  <p>No skill events yet.</p>
+                ) : (
+                  <ul>
+                    {Object.entries(skillAnalytics.bySkill)
+                      .sort((a, b) => b[1] - a[1])
+                      .map(([skill, count]) => (
+                        <li key={skill}><span>{skill}</span><strong>{count}</strong></li>
+                      ))}
+                  </ul>
+                )}
+              </div>
+              <div className="analytics-card">
+                <h3>By Role</h3>
+                {Object.keys(skillAnalytics.byRole).length === 0 ? (
+                  <p>No role metrics yet.</p>
+                ) : (
+                  <ul>
+                    {Object.entries(skillAnalytics.byRole)
+                      .sort((a, b) => b[1] - a[1])
+                      .map(([role, count]) => (
+                        <li key={role}><span>{role}</span><strong>{count}</strong></li>
+                      ))}
+                  </ul>
+                )}
+              </div>
+              <div className="analytics-card">
+                <h3>By Pipeline</h3>
+                {Object.keys(skillAnalytics.byPipeline).length === 0 ? (
+                  <p>No pipeline metrics yet.</p>
+                ) : (
+                  <ul>
+                    {Object.entries(skillAnalytics.byPipeline)
+                      .sort((a, b) => b[1] - a[1])
+                      .map(([pipeline, count]) => (
+                        <li key={pipeline}><span>{pipeline}</span><strong>{count}</strong></li>
+                      ))}
+                  </ul>
+                )}
+              </div>
+            </div>
+            <div className="analytics-card">
+              <h3>Unused Skills</h3>
+              {skillAnalytics.unusedSkills.length === 0 ? (
+                <p>All registered skills have usage signals.</p>
+              ) : (
+                <ul className="unused-skills-list">
+                  {skillAnalytics.unusedSkills.slice(0, 20).map((skill) => (
+                    <li key={skill}>{skill}</li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </section>
+        )}
+
+        {currentSection === 'git' && (
+          <section className="settings-card">
+            <h2>Git Controls</h2>
+            <div className="settings-grid">
+              <label>Enforce Preflight<select value={String(gitSettings.enforcePreflight)} onChange={(e) => setGitSettings((prev) => ({ ...prev, enforcePreflight: e.target.value === 'true' }))}><option value="true">On</option><option value="false">Off</option></select></label>
+              <label>Require Worktree Isolation<select value={String(gitSettings.requireWorktreeIsolation)} onChange={(e) => setGitSettings((prev) => ({ ...prev, requireWorktreeIsolation: e.target.value === 'true' }))}><option value="true">On</option><option value="false">Off</option></select></label>
+              <label>Auto Cleanup Sweep<select value={String(gitSettings.autoRunCleanupSweep)} onChange={(e) => setGitSettings((prev) => ({ ...prev, autoRunCleanupSweep: e.target.value === 'true' }))}><option value="true">On</option><option value="false">Off</option></select></label>
+            </div>
+            <div className="server-actions"><button className="settings-action" type="button" onClick={saveGitSettings}>Save Git Controls</button></div>
+            <div className="settings-meta">{gitSavedAt}</div>
+          </section>
+        )}
+
+        {currentSection === 'environment' && (
+          <section className="settings-card">
+            <h2>Environment Defaults</h2>
+            <div className="settings-grid">
+              <label>Execution Mode<select value={environmentSettings.executionMode} onChange={(e) => setEnvironmentSettings((prev) => ({ ...prev, executionMode: e.target.value as EnvironmentSettings['executionMode'] }))}><option value="sandbox">Sandbox</option><option value="full-access">Full Access</option></select></label>
+              <label>Allow Network<select value={String(environmentSettings.allowNetwork)} onChange={(e) => setEnvironmentSettings((prev) => ({ ...prev, allowNetwork: e.target.value === 'true' }))}><option value="true">On</option><option value="false">Off</option></select></label>
+              <label>Default Shell<select value={environmentSettings.defaultShell} onChange={(e) => setEnvironmentSettings((prev) => ({ ...prev, defaultShell: e.target.value as EnvironmentSettings['defaultShell'] }))}><option value="bash">bash</option><option value="zsh">zsh</option></select></label>
+            </div>
+            <div className="server-actions"><button className="settings-action" type="button" onClick={saveEnvironmentSettings}>Save Environment</button></div>
+            <div className="settings-meta">{environmentSavedAt}</div>
+          </section>
+        )}
+
+        {currentSection === 'worktrees' && (
+          <section className="settings-card">
+            <h2>Worktree Policy</h2>
+            <div className="settings-grid">
+              <label>Default Base Path<input value={worktreeSettings.defaultBasePath} onChange={(e) => setWorktreeSettings((prev) => ({ ...prev, defaultBasePath: e.target.value }))} /></label>
+              <label>Auto Prune On Done<select value={String(worktreeSettings.autoPruneOnDone)} onChange={(e) => setWorktreeSettings((prev) => ({ ...prev, autoPruneOnDone: e.target.value === 'true' }))}><option value="true">On</option><option value="false">Off</option></select></label>
+              <label>Strict One Ticket/Worktree<select value={String(worktreeSettings.strictOneTicketPerWorktree)} onChange={(e) => setWorktreeSettings((prev) => ({ ...prev, strictOneTicketPerWorktree: e.target.value === 'true' }))}><option value="true">On</option><option value="false">Off</option></select></label>
+            </div>
+            <div className="server-actions"><button className="settings-action" type="button" onClick={saveWorktreeSettings}>Save Worktree Policy</button></div>
+            <div className="settings-meta">{worktreesSavedAt}</div>
+          </section>
+        )}
+
+        {currentSection === 'archived-threads' && (
+          <section className="settings-card">
+            <h2>Archived Threads</h2>
+            <div className="settings-grid">
+              <label>Retention<select value={archivedThreadsSettings.retentionDays} onChange={(e) => setArchivedThreadsSettings((prev) => ({ ...prev, retentionDays: e.target.value as ArchivedThreadsSettings['retentionDays'] }))}><option value="30">30 days</option><option value="90">90 days</option><option value="180">180 days</option><option value="365">365 days</option></select></label>
+              <label>Include Artifacts<select value={String(archivedThreadsSettings.includeArtifacts)} onChange={(e) => setArchivedThreadsSettings((prev) => ({ ...prev, includeArtifacts: e.target.value === 'true' }))}><option value="true">On</option><option value="false">Off</option></select></label>
+            </div>
+            <div className="server-actions"><button className="settings-action" type="button" onClick={saveArchivedSettings}>Save Archive Settings</button></div>
+            <div className="settings-meta">{archivedSavedAt}</div>
+          </section>
+        )}
+
+        {currentSection === 'mcp-servers' && (
+          <>
+            <section className="settings-card">
+              <h2><Server size={16} />MCP Server Workbench</h2>
+              <p className="settings-note">Shared-tool governance preview: isolated, share-safe, and exclusive modes.</p>
+              <button className="settings-action" type="button" onClick={runHealth}>Run MCP Health Report</button>
+              <div className="settings-meta">Last check: {lastHealthRun}</div>
+              <div className="settings-meta">{healthDetails}</div>
+              <div className="settings-meta">Server test result: {testMessage}</div>
+              <div className="mcp-table">
+                <div className="mcp-head">Server</div>
+                <div className="mcp-head">Mode</div>
+                <div className="mcp-head">Status</div>
+                <div className="mcp-head">Note</div>
+                {mcpRows.map((row) => (
+                  <React.Fragment key={row.name}>
+                    <div>{row.name}</div>
+                    <div>{row.mode}</div>
+                    <div className={`mcp-status ${row.status}`}>{row.status}</div>
+                    <div>{row.note}</div>
+                  </React.Fragment>
+                ))}
+              </div>
+            </section>
+            <section className="settings-card">
+              <h2><ShieldCheck size={16} />Connection Testing</h2>
+              <p className="settings-note">Inventory management and per-server test actions (UI-first shell).</p>
+              <div className="settings-grid">
+                <label>Server Name<input value={serverDraft.name} onChange={(e) => setServerDraft((p) => ({ ...p, name: e.target.value }))} placeholder="New MCP server" /></label>
+                <label>Transport<select value={serverDraft.transport} onChange={(e) => setServerDraft((p) => ({ ...p, transport: e.target.value }))}><option value="http">http</option><option value="stdio">stdio</option><option value="sse">sse</option></select></label>
+                <label>Mode<select value={serverDraft.mode} onChange={(e) => setServerDraft((p) => ({ ...p, mode: e.target.value }))}><option value="isolated">isolated</option><option value="share-safe">share-safe</option><option value="exclusive">exclusive</option></select></label>
+              </div>
+              <div className="server-actions"><button className="settings-action" type="button" onClick={addServer}>Add Server</button></div>
+              <div className="inventory-list">
+                {inventory.map((server) => (
+                  <div className="inventory-item" key={server.id}>
+                    <div>
+                      <strong>{server.name}</strong> <span className="settings-meta">({server.transport}, {server.mode})</span>
+                      <div className="settings-meta">{server.busyBy ? `busy: ${server.busyBy}` : 'available'}</div>
+                    </div>
+                    <div className="inventory-actions">
+                      <button type="button" onClick={() => toggleServer(server.id)}>{server.enabled ? 'Disable' : 'Enable'}</button>
+                      <button type="button" onClick={() => testServer(server)}>Test</button>
+                      <button type="button" onClick={() => removeServer(server.id)}>Remove</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </section>
+          </>
+        )}
+
+        {currentSection === 'configuration' && (
+          <section className="settings-card">
+            <h2><ShieldCheck size={16} />Provider & Executor Configuration</h2>
+            <p className="settings-note">Primary configuration for intelligence backend and CLI execution engine.</p>
+            
+            <h3>Executor Backend</h3>
+            <p className="settings-note">Select primary execution model. (Direct API vs Native CLI).</p>
+            <div className="settings-grid">
+              <label>Execution Target<select value={executorSettings.backend} onChange={(e) => setExecutorSettings((prev) => ({ ...prev, backend: e.target.value as ExecutorSettings['backend'] }))}><option value="claude-cli">Claude Code CLI</option><option value="codex-cli">Codex CLI</option><option value="openhands-sdk">OpenHands SDK (Sidecar Server)</option></select></label>
+            </div>
+            <div className="server-actions">
+              <button className="settings-action" type="button" onClick={saveExecutorSettings}>Save Execution Target</button>
+            </div>
+            <div className="settings-meta">{executorSavedAt}</div>
+
+            <hr />
+
+                <h3>CLI Agent Configuration</h3>
+                <p className="settings-note">Configure paths and models for {executorSettings.backend}.</p>
+                <div className="settings-grid">
+                  {executorSettings.backend === 'claude-cli' && (
+                    <>
+                      <label>Claude Binary<input value={executorSettings.claude.bin} onChange={(e) => setExecutorSettings((prev) => ({ ...prev, claude: { ...prev.claude, bin: e.target.value } }))} placeholder="/opt/homebrew/bin/claude" /></label>
+                      <label>Claude Model<select value={executorSettings.claude.model} onChange={(e) => setExecutorSettings((prev) => ({ ...prev, claude: { ...prev.claude, model: e.target.value } }))}>{providerModelPresets['claude-cli'].map(m => <option key={m} value={m}>{m}</option>)}</select></label>
+                    </>
+                  )}
+                  {executorSettings.backend === 'codex-cli' && (
+                    <>
+                      <label>Codex Binary<input value={executorSettings.codex.bin} onChange={(e) => setExecutorSettings((prev) => ({ ...prev, codex: { ...prev.codex, bin: e.target.value } }))} placeholder="/Applications/Codex.app/.../codex" /></label>
+                      <label>Codex Model<select value={executorSettings.codex.model} onChange={(e) => setExecutorSettings((prev) => ({ ...prev, codex: { ...prev.codex, model: e.target.value } }))}>{providerModelPresets['codex-cli'].map(m => <option key={m} value={m}>{m}</option>)}</select></label>
+                      <label>Codex Sandbox<select value={executorSettings.codex.sandbox} onChange={(e) => setExecutorSettings((prev) => ({ ...prev, codex: { ...prev.codex, sandbox: e.target.value as ExecutorSettings['codex']['sandbox'] } }))}><option value="read-only">read-only</option><option value="workspace-write">workspace-write</option><option value="danger-full-access">danger-full-access</option></select></label>
+                    </>
+                  )}
+                  {executorSettings.backend === 'openhands-sdk' && (
+                    <>
+                      <label>Server URL<input value={executorSettings.openhands.serverUrl} onChange={(e) => setExecutorSettings((prev) => ({ ...prev, openhands: { ...prev.openhands, serverUrl: e.target.value } }))} placeholder="http://localhost:8000" /></label>
+                      <label>OpenHands Model<select value={executorSettings.openhands.model} onChange={(e) => setExecutorSettings((prev) => ({ ...prev, openhands: { ...prev.openhands, model: e.target.value } }))}>{providerModelPresets['openhands-sdk'].map(m => <option key={m} value={m}>{m}</option>)}</select></label>
+                      <ApiKeyInput 
+                        label="Anthropic API Key"
+                        value={executorSettings.openhands.apiKeys?.anthropic || ''} 
+                        onChange={(val) => setExecutorSettings((prev) => ({ ...prev, openhands: { ...prev.openhands, apiKeys: { ...(prev.openhands.apiKeys || {}), anthropic: val } } }))} 
+                        placeholder="sk-ant-..." 
+                      />
+                      <ApiKeyInput 
+                        label="OpenAI API Key"
+                        value={executorSettings.openhands.apiKeys?.openai || ''} 
+                        onChange={(val) => setExecutorSettings((prev) => ({ ...prev, openhands: { ...prev.openhands, apiKeys: { ...(prev.openhands.apiKeys || {}), openai: val } } }))} 
+                        placeholder="sk-..." 
+                      />
+                      <ApiKeyInput 
+                        label="Google API Key"
+                        value={executorSettings.openhands.apiKeys?.google || ''} 
+                        onChange={(val) => setExecutorSettings((prev) => ({ ...prev, openhands: { ...prev.openhands, apiKeys: { ...(prev.openhands.apiKeys || {}), google: val } } }))} 
+                        placeholder="AIza..." 
+                      />
+                      <label>Workspace Path Override<input value={executorSettings.openhands.workspacePath} onChange={(e) => setExecutorSettings((prev) => ({ ...prev, openhands: { ...prev.openhands, workspacePath: e.target.value } }))} placeholder="/abs/path/to/project" /></label>
+                    </>
+                  )}
+                </div>
+                <div className="server-actions">
+                  <button className="settings-action" type="button" onClick={saveExecutorSettings}>Save CLI Config</button>
+                </div>
+
+                <hr />
+                <h3>Guided CLI Authentication & Health</h3>
+                <p className="settings-note">Verify CLI availability, auth, and test prompt execution.</p>
+                <div className="server-actions">
+                  <button className="settings-action" type="button" onClick={refreshCliStatus}>Refresh CLI Status</button>
+                  {executorSettings.backend === 'claude-cli' && <button className="settings-action" type="button" onClick={() => testCliProvider('claude-cli')}>Test Claude CLI</button>}
+                  {executorSettings.backend === 'codex-cli' && <button className="settings-action" type="button" onClick={() => testCliProvider('codex-cli')}>Test Codex CLI</button>}
+                  {(executorSettings.backend === 'openhands-sdk') && (
+                    <>
+                      <button className="settings-action" type="button" onClick={checkOpenHandsHealth}>Check Server Health</button>
+                      <button 
+                        className={`settings-action ${isTestingLlm ? 'loading' : ''}`} 
+                        type="button" 
+                        disabled={isTestingLlm}
+                        onClick={testLlmConfig}
+                        style={{ background: 'var(--accent-primary)', color: 'white' }}
+                      >
+                        {isTestingLlm ? <Loader2 size={16} className="spin" /> : <Server size={16} />}
+                        Test End-to-End LLM
+                      </button>
+                    </>
+                  )}
+                </div>
+
+                {llmTestResult && (
+                  <div className={`llm-test-panel ${llmTestResult.success ? 'success' : 'error'}`} style={{ marginTop: 16, padding: 12, borderRadius: 8, border: '1px solid var(--border-color)', background: 'var(--bg-secondary)' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, fontWeight: 'bold' }}>
+                      {llmTestResult.success ? (
+                        <CheckCircle size={18} color="#10b981" />
+                      ) : (
+                        <AlertTriangle size={18} color="#ef4444" />
+                      )}
+                      <span>Result: {llmTestResult.status === 'ok' ? 'Success' : `Failed (${llmTestResult.status})`}</span>
+                      <span style={{ marginLeft: 'auto', fontSize: '0.8em', opacity: 0.6 }}>{llmTestResult.latencyMs}ms</span>
+                    </div>
+                    <div style={{ fontSize: '0.9em', opacity: 0.9 }}>{llmTestResult.message}</div>
+                    {llmTestResult.response && (
+                      <div style={{ marginTop: 10, padding: 10, background: 'var(--bg-primary)', borderRadius: 4, fontFamily: 'monospace', fontSize: '0.85em', whiteSpace: 'pre-wrap', borderLeft: '3px solid var(--accent-primary)' }}>
+                        <strong>Response:</strong> {llmTestResult.response}
+                      </div>
+                    )}
+                  </div>
+                )}
+                <div className="settings-grid" style={{ marginTop: 12 }}>
+                  {executorSettings.backend === 'codex-cli' && (
+                    <>
+                      {runtimeCapabilities.implicitCodexApiKey && (
+                        <div className="settings-meta" style={{ gridColumn: '1 / -1', marginBottom: '8px', padding: '8px', border: '1px solid #4a3c10', backgroundColor: '#1f1a07', borderRadius: '4px' }}>
+                          <span style={{color: '#ffd166', fontWeight: 600}}>Environment Key Bound:</span> Codex is currently using API Key implicitly inherited from your shell environment variables (<code>{runtimeCapabilities.implicitCodexApiKey}</code>).
+                          To override it, you can execute a new login below.
+                        </div>
+                      )}
+                      <label>Codex API Key (for `codex login --with-api-key`)<input type="password" value={codexApiKeyForLogin} onChange={(e) => setCodexApiKeyForLogin(e.target.value)} placeholder="sk-..." /></label>
+                      <label>Codex Login Action<button className="settings-action" type="button" onClick={loginCodexWithApiKey}>Login Codex via API Key</button></label>
+                    </>
+                  )}
+                </div>
+                {executorSettings.backend === 'claude-cli' && <div className="settings-meta">Claude login is interactive: run <code>claude setup-token</code> (or <code>claude /login</code>) in terminal, then click Test Claude CLI.</div>}
+                <div className="settings-meta">{cliHealthMessage}</div>
+          </section>
+        )}
+      </main>
+    </div>
+  );
+}
