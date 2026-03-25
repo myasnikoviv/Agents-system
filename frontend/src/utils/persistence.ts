@@ -1,4 +1,4 @@
-const SYMBOL_KEY = 'trade_bot_selected_symbol';
+const SYMBOL_KEY = 'agent_system_selected_symbol';
 const DEFAULT_SYMBOL = 'HYPEUSDT.P';
 
 export const getPersistentSymbol = (): string => {

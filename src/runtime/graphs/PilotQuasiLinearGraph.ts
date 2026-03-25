@@ -58,7 +58,7 @@ export const PilotStateAnnotation = Annotation.Root({
   }),
   projectId: Annotation<string>({
     reducer: (x: string, y: string) => y ?? x,
-    default: () => 'trade_bot',
+    default: () => 'agent_system',
   }),
   workspacePath: Annotation<string>({
     reducer: (x: string, y: string) => y ?? x,
@@ -127,7 +127,7 @@ async function safeRunRole(
       context?.stage || 'legacy',
       prompt,
       { history },
-      { projectId: 'trade_bot', workspacePath: process.cwd() } // Conversational defaults to cwd for now
+      { projectId: 'agent_system', workspacePath: process.cwd() } // Conversational defaults to cwd for now
     );
     const result = await executor.run(runContext);
     return {
