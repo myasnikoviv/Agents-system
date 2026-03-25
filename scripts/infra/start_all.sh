@@ -56,9 +56,8 @@ fi
 # 6. Start Cockpit UI (Port 5174)
 if ! lsof -i :5174 > /dev/null; then
     echo "Starting Cockpit UI (5174)..."
-    cd frontend && nohup npm run dev > cockpit_ui.log 2>&1 &
+    (cd frontend && nohup npm run dev -- --host 0.0.0.0 --port 5174 > cockpit_ui.log 2>&1 &)
     echo "Cockpit UI starting in background (log: frontend/cockpit_ui.log)"
-    cd ..
 else
     echo "Cockpit UI is already running on port 5174."
 fi
@@ -68,4 +67,4 @@ sleep 5
 ./scripts/infra/startup_check.sh
 
 echo -e "${GREEN}Agent System is ready.${NC}"
-echo -e "${YELLOW}Access Cockpit UI at: http://127.0.0.1:5174${NC}"
+echo -e "${YELLOW}Access Cockpit UI at: http://localhost:5174${NC}"
