@@ -1,0 +1,74 @@
+.toast-container {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    z-index: 10000;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.toast {
+    padding: 12px 20px;
+    border-radius: 6px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+    color: white;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 15px;
+    min-width: 250px;
+    max-width: 400px;
+    animation: slideIn 0.3s ease-out;
+    background: #2a2a2a;
+    border-left: 4px solid #888;
+}
+
+.toast-success {
+    border-left-color: #4CAF50;
+}
+
+.toast-error {
+    border-left-color: #F44336;
+}
+
+.toast-info {
+    border-left-color: #2196F3;
+}
+
+.toast-warning {
+    border-left-color: #FF9800;
+}
+
+.toast button {
+    background: none;
+    border: none;
+    color: #AAA;
+    font-size: 20px;
+    cursor: pointer;
+    line-height: 1;
+    padding: 0;
+}
+
+.toast button:hover {
+    color: white;
+}
+
+@keyframes slideIn {
+    from {
+        transform: translateX(100%);
+        opacity: 0;
+    }
+
+    to {
+        transform: translateX(0);
+        opacity: 1;
+    }
+}
+
+/* Modals are already styled by strategy-builder global classes if we use modal-overlay / modal-content */
+/* But we add some specific overrides if needed here */
+.modal-overlay {
+    background: rgba(0, 0, 0, 0.8) !important;
+    backdrop-filter: blur(2px);
+}

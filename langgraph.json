@@ -1,0 +1,8 @@
+{
+  "node_version": "20",
+  "docker_compose_file": "",
+  "env": ".env",
+  "graphs": {
+    "agent": "./src/runtime/graphs/PilotQuasiLinearGraph.ts:pilotGraph"
+  }
+}

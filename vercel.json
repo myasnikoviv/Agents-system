@@ -1,0 +1,18 @@
+{
+    "version": 2,
+    "rewrites": [
+        {
+            "source": "/api/(.*)",
+            "destination": "/api"
+        },
+        {
+            "source": "/((?!api/).*)",
+            "destination": "/frontend/dist/$1"
+        }
+    ],
+    "functions": {
+        "api/index.ts": {
+            "includeFiles": "{src,strategies}/**"
+        }
+    }
+}

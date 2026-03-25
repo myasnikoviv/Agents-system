@@ -117,7 +117,8 @@ export class RunContextAssembler {
     pipeline: PipelineDefinition,
     stageId: string,
     taskDescription: string,
-    memory: any = {}
+    memory: any = {},
+    projectContext?: { projectId: string, workspacePath: string }
   ): Promise<RunContext> {
     const stageIndex = pipeline.stages.findIndex(s => s.id === stageId);
     const stage = pipeline.stages[stageIndex];
@@ -128,8 +129,8 @@ export class RunContextAssembler {
     const ctx: RunContext = {
       runId: memory.runId || `run_${Date.now()}`,
       threadId: memory.threadId || 'default-thread',
-      projectId: 'trade_bot', // TODO: Dynamic from env/state
-      workspacePath: process.cwd(),
+      projectId: projectContext?.projectId || process.env.ACTIVE_PROJECT_ID || 'default',
+      workspacePath: projectContext?.workspacePath || process.cwd(),
 
       executionTarget: 'langchain', // Default, AgentExecutor will override
       provider: 'openai',

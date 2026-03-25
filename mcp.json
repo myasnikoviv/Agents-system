@@ -1,0 +1,57 @@
+{
+  "mcpServers": {
+    "context7": {
+      "command": "npx",
+      "args": ["-y", "@upstash/context7-mcp@latest"],
+      "purpose": "Up-to-date library docs and API references injected into context"
+    },
+    "filesystem": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/Users/myasnikoviv/development/trade_bot"],
+      "purpose": "Read/write project files with path access controls"
+    },
+    "terminal": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-terminal"],
+      "purpose": "Execute local shell commands (builds, tests, scripts)"
+    },
+    "git": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-git", "--repository", "/Users/myasnikoviv/development/trade_bot"],
+      "purpose": "Git log, diff, branch, commit operations on the project repo"
+    },
+    "redis": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-redis", "redis://localhost:6379"],
+      "purpose": "Key-value cache, session/agent memory, pub/sub messaging"
+    },
+    "vector-search": {
+      "command": "npx",
+      "args": ["-y", "@redis/mcp-redis-cloud"],
+      "env": {
+        "REDIS_URL": "redis://localhost:6379"
+      },
+      "purpose": "Semantic vector search over strategy and knowledge base"
+    },
+    "plane": {
+      "command": "npx",
+      "args": ["-y", "@makeplane/plane-mcp-server@latest"],
+      "env": {
+        "PLANE_API_KEY": "${PLANE_API_TOKEN}",
+        "PLANE_WORKSPACE_SLUG": "trade-bot",
+        "PLANE_API_HOST_URL": "http://localhost:3000"
+      },
+      "purpose": "Ticket CRUD, state transitions, handoff comments in local Plane"
+    },
+    "sqlite-db": {
+      "command": "bash",
+      "args": ["scripts/db/run_sqlite_mcp.sh"],
+      "purpose": "SQLite MCP access to shared strategy DB for cross-worktree reads/writes"
+    },
+    "playwright": {
+      "command": "npx",
+      "args": ["@playwright/mcp@latest"],
+      "purpose": "Browser automation for backtester UI testing (natively integrated in Codex)"
+    }
+  }
+}

@@ -1,0 +1,1619 @@
+import React, { useState, useEffect, useRef } from 'react';
+import { Mic, Send, Cpu, Activity, LayoutDashboard, Terminal, Settings, PanelLeftClose, PanelLeftOpen, Globe2, ChevronDown, Plus, PencilLine, Clock3, Bot, Folder, MessageSquarePlus, SlidersHorizontal, Laptop, ShieldCheck, GitBranch, RefreshCw } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import './CockpitPage.css';
+
+const API_BASE = ((import.meta as { env?: Record<string, string | undefined> }).env?.VITE_API_BASE_URL || '').replace(/\/$/, '');
+const apiUrl = (path: string) => `${API_BASE}${path}`;
+const RUNTIME_MODE_KEY = 'cockpit.runtime.mode.v1';
+
+interface ChatMessage {
+    id: string;
+    role: 'user' | 'agent';
+    content: string;
+    timestamp: Date;
+}
+
+interface RuntimeEvent {
+    event_id: string;
+    event_type: string;
+    timestamp: string;
+    agent_role: string;
+    source_stage: string;
+    target_stage?: string;
+    status: string;
+    plane_issue_id: string;
+}
+
+interface ObservabilityState {
+    pipeline: string;
+    stage: string;
+    nextStage: string;
+    blockingGates: string;
+    approvalRequired: boolean;
+    approvalReason: string;
+}
+
+interface ExecutionFeedEntry {
+    raw: string;
+    stage?: string;
+    role?: string;
+    status?: string;
+    source?: string;
+    fallback?: string;
+    message?: string;
+}
+
+interface GitContext {
+    activeBranch?: string;
+    worktreePath?: string;
+    preflightToken?: string | null;
+}
+interface RuntimeFooterState {
+    executionTarget: 'local' | 'remote';
+    accessPolicy: 'full-access' | 'sandbox';
+    activeBranch?: string;
+    worktreePath?: string;
+    preflightToken?: string | null;
+}
+
+interface CatalogState {
+    agents: string[];
+    pipelines: string[];
+    skills: string[];
+}
+
+interface RailProject {
+    id: string;
+    label: string;
+}
+interface RailThread {
+    id: string;
+    label: string;
+    updatedAt: string;
+}
+
+type PromptTokenKind = 'pipeline' | 'agent' | 'skill';
+interface PromptToken {
+    kind: PromptTokenKind;
+    value: string;
+}
+interface ScopeEntity {
+    id: string;
+    key: string;
+    name: string;
+    stateId: string;
+    completedAt?: string;
+}
+interface UploadedAttachment {
+    id: string;
+    originalName: string;
+    relativePath: string;
+    mimeType: string;
+    size: number;
+    createdAt: string;
+}
+interface WorkScopeState {
+    cycles: Array<{ id: string; name: string }>;
+    stories: ScopeEntity[];
+    tasks: ScopeEntity[];
+    items: ScopeEntity[];
+    selected: { cycleId: string; storyId: string };
+    statusSummary: { total: number; done: number; inProgress: number; todo: number };
+}
+interface MetaAutocompleteState {
+    open: boolean;
+    kind: PromptTokenKind | null;
+    query: string;
+    rangeStart: number;
+    rangeEnd: number;
+    selectedIndex: number;
+    suggestions: string[];
+}
+
+interface SpeechRecognitionEvent {
+    resultIndex: number;
+    results: {
+        length: number;
+        [key: number]: {
+            isFinal: boolean;
+            [key: number]: {
+                transcript: string;
+            };
+        };
+    };
+}
+
+interface SpeechRecognitionErrorEvent {
+    error: string;
+}
+
+interface SpeechRecognitionInstance {
+    continuous: boolean;
+    interimResults: boolean;
+    lang: string;
+    onresult: (event: SpeechRecognitionEvent) => void;
+    onerror: (event: SpeechRecognitionErrorEvent) => void;
+    start: () => void;
+    stop: () => void;
+}
+
+export function CockpitPage() {
+    const navigate = useNavigate();
+    const [mode, setMode] = useState<'mock' | 'linear' | 'multiple_agents'>(() => {
+        const stored = localStorage.getItem(RUNTIME_MODE_KEY);
+        if (stored === 'mock' || stored === 'linear' || stored === 'multiple_agents') return stored;
+        return 'multiple_agents';
+    });
+    const [messages, setMessages] = useState<ChatMessage[]>([]);
+    const [input, setInput] = useState('');
+    const [isRecording, setIsRecording] = useState(false);
+    const [events, setEvents] = useState<RuntimeEvent[]>([]);
+    const [isProcessing, setIsProcessing] = useState(false);
+    const [ghostText, setGhostText] = useState('');
+    const [voiceLang, setVoiceLang] = useState<'auto' | 'uk' | 'en'>('auto');
+    const [currentThreadId, setCurrentThreadId] = useState<string | null>(null);
+    const [currentTicketId, setCurrentTicketId] = useState<string | null>(null);
+    const [status, setStatus] = useState<string>('idle');
+    const [observability, setObservability] = useState<ObservabilityState | null>(null);
+    const [executionFeed, setExecutionFeed] = useState<ExecutionFeedEntry[]>([]);
+    const [gitContext, setGitContext] = useState<GitContext | null>(null);
+    const [catalog, setCatalog] = useState<CatalogState>({ agents: [], pipelines: [], skills: [] });
+
+    const [selectedProvider, setSelectedProvider] = useState<'claude-cli' | 'codex-cli' | 'openhands-sdk' | 'google-genai'>('claude-cli');
+    const [selectedModel, setSelectedModel] = useState('gpt-4o');
+    const [providerMessage, setProviderMessage] = useState<string | null>(null);
+
+    const [runtimePickerOpen, setRuntimePickerOpen] = useState<'provider' | 'model' | 'voice' | 'target' | 'access' | 'branch' | null>(null);
+    const [showCatalogPicker, setShowCatalogPicker] = useState(false);
+    const [showPlusMenu, setShowPlusMenu] = useState(false);
+    const [promptTokens, setPromptTokens] = useState<PromptToken[]>([]);
+    const [metaAutocomplete, setMetaAutocomplete] = useState<MetaAutocompleteState>({
+        open: false,
+        kind: null,
+        query: '',
+        rangeStart: 0,
+        rangeEnd: 0,
+        selectedIndex: 0,
+        suggestions: [],
+    });
+    const [selectedScopeItemIds, setSelectedScopeItemIds] = useState<string[]>([]);
+    const [scopeCardPinned, setScopeCardPinned] = useState(true);
+    const [railCollapsed, setRailCollapsed] = useState(false);
+    const [selectedProject, setSelectedProject] = useState('default');
+    const [selectedThread, setSelectedThread] = useState('current-session');
+    const [railProjects, setRailProjects] = useState<RailProject[]>([]);
+    const [railThreadsByProject, setRailThreadsByProject] = useState<Record<string, RailThread[]>>({});
+    const [runtimeFooter, setRuntimeFooter] = useState<RuntimeFooterState>({
+        executionTarget: 'local',
+        accessPolicy: 'full-access',
+        activeBranch: 'main',
+        worktreePath: '',
+        preflightToken: null,
+    });
+    const [workScope, setWorkScope] = useState<WorkScopeState>({
+        cycles: [],
+        stories: [],
+        tasks: [],
+        items: [],
+        selected: { cycleId: '', storyId: '' },
+        statusSummary: { total: 0, done: 0, inProgress: 0, todo: 0 },
+    });
+    const [uploadedAttachments, setUploadedAttachments] = useState<UploadedAttachment[]>([]);
+
+    // Auto-scroll refs
+    const scrollRef = useRef<HTMLDivElement>(null);
+    const feedEndRef = useRef<HTMLDivElement>(null);
+    const textareaRef = useRef<HTMLTextAreaElement>(null);
+    const fileInputRef = useRef<HTMLInputElement>(null);
+    
+    // Audio recording ref
+    const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+    const audioChunksRef = useRef<Blob[]>([]);
+    const recognitionRef = useRef<SpeechRecognitionInstance | null>(null);
+
+    useEffect(() => {
+        scrollRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }, [messages, status]); // Added status to trigger scroll when approval card appears
+
+    useEffect(() => {
+        feedEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }, [events]);
+
+    useEffect(() => {
+        const win = window as unknown as { 
+            SpeechRecognition?: new () => SpeechRecognitionInstance; 
+            webkitSpeechRecognition?: new () => SpeechRecognitionInstance 
+        };
+        const SpeechRecognition = win.SpeechRecognition || win.webkitSpeechRecognition;
+
+        if (SpeechRecognition) {
+            const recognition = new SpeechRecognition();
+            recognition.continuous = true;
+            recognition.interimResults = true;
+            
+            // Set language based on selected choice
+            const langMap: Record<string, string> = {
+                'auto': 'uk-UA', // default to UA for browser if auto (it doesn't have true auto)
+                'uk': 'uk-UA',
+                'en': 'en-US'
+            };
+            recognition.lang = langMap[voiceLang];
+
+            recognition.onresult = (event: SpeechRecognitionEvent) => {
+                let interimTranscript = '';
+                for (let i = event.resultIndex; i < event.results.length; ++i) {
+                    if (event.results[i].isFinal) {
+                        const final = event.results[i][0].transcript;
+                        setInput(prev => prev + (prev.endsWith(' ') || prev.length === 0 ? '' : ' ') + final);
+                    } else {
+                        interimTranscript += event.results[i][0].transcript;
+                    }
+                }
+                setGhostText(interimTranscript);
+            };
+
+            recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
+                console.error('Speech recognition error:', event.error);
+            };
+
+            recognitionRef.current = recognition;
+        }
+    }, [voiceLang]);
+
+    const sseInitialized = useRef(false);
+
+    useEffect(() => {
+        if (sseInitialized.current) return;
+        sseInitialized.current = true;
+
+        const url = apiUrl('/api/events/stream');
+        const source = new EventSource(url);
+
+        source.onopen = () => {
+            console.log('[SSE] Connected to', url);
+        };
+
+        source.onmessage = (e) => {
+            try {
+                const data = JSON.parse(e.data);
+                if (data.type === 'connected') return;
+                setEvents(prev => [...prev.slice(-49), data as RuntimeEvent]); // keep last 50
+                
+                // If event completes research/arch, add a summary to chat
+                if (data.status === 'success' && data.event_type.endsWith('.completed')) {
+                    setMessages(prev => [...prev, {
+                        id: Date.now().toString(),
+                        role: 'agent',
+                        content: `[${data.agent_role}] Completed stage: ${data.source_stage} → ${data.target_stage}`,
+                        timestamp: new Date(data.timestamp || Date.now())
+                    }]);
+                }
+            } catch (err) {
+                console.error('SSE Error parsing data:', err);
+            }
+        };
+
+        source.onerror = (err) => {
+            console.error('SSE connection error:', err);
+            source.close();
+            sseInitialized.current = false;
+        };
+
+        return () => {
+            console.log('[SSE] Closing connection');
+            source.close();
+            sseInitialized.current = false;
+        };
+    }, []);
+
+    useEffect(() => {
+        const handleClickOutside = () => {
+            setRuntimePickerOpen(null);
+            setShowPlusMenu(false);
+        };
+        window.addEventListener('click', handleClickOutside);
+        return () => window.removeEventListener('click', handleClickOutside);
+    }, []);
+
+    const handleFileAttach = async (event: React.ChangeEvent<HTMLInputElement>) => {
+        const files = Array.from(event.target.files || []);
+        if (files.length === 0) return;
+        const formData = new FormData();
+        for (const file of files) formData.append('files', file);
+        formData.append('projectId', selectedProject);
+        formData.append('threadId', selectedThread);
+        try {
+            const res = await fetch(apiUrl('/api/cockpit/attachments/upload'), {
+                method: 'POST',
+                body: formData,
+            });
+            const data = await res.json();
+            if (data.success && Array.isArray(data.attachments)) {
+                const next = data.attachments as UploadedAttachment[];
+                setUploadedAttachments((prev) => [...prev, ...next]);
+                const fileTokens = next.map((file) => `[file:${file.originalName}]`).join(' ');
+                setInput((prev) => `${prev}${prev.trim().length > 0 ? ' ' : ''}${fileTokens}`.trimStart());
+            }
+        } catch (e) {
+            console.error('Attachment upload failed:', e);
+        }
+        event.target.value = '';
+    };
+
+    useEffect(() => {
+        const loadCatalog = async () => {
+            try {
+                const res = await fetch(apiUrl('/api/cockpit/catalog'));
+                const data = await res.json();
+                if (data.success) {
+                    setCatalog({
+                        agents: data.agents || [],
+                        pipelines: data.pipelines || [],
+                        skills: data.skills || [],
+                    });
+                }
+            } catch (e) {
+                console.error('Catalog load error:', e);
+            }
+        };
+        void loadCatalog();
+    }, []);
+
+    useEffect(() => {
+        const loadProviders = async () => {
+            try {
+                const res = await fetch(apiUrl('/api/cockpit/providers'));
+                const data = await res.json();
+                if (!data.success) return;
+                
+                if (data.runtimeSelection?.provider) {
+                    setSelectedProvider(data.runtimeSelection.provider);
+                }
+                if (data.runtimeSelection?.model) {
+                    setSelectedModel(data.runtimeSelection.model);
+                }
+            } catch (e) {
+                console.error('Provider load error:', e);
+            }
+        };
+        void loadProviders();
+        void loadRuntimeFooter();
+    }, []);
+
+    useEffect(() => {
+        const loadChains = async () => {
+            try {
+                const res = await fetch(apiUrl('/api/cockpit/chains'));
+                const data = await res.json();
+                if (!data.success) return;
+                const projects = (data.projects || []) as RailProject[];
+                const threads = (data.threadsByProject || {}) as Record<string, RailThread[]>;
+                setRailProjects(projects);
+                setRailThreadsByProject(threads);
+
+                if (!projects.some((p) => p.id === selectedProject)) {
+                    const nextProject = projects[0]?.id || '';
+                    setSelectedProject(nextProject);
+                    setSelectedThread((threads[nextProject] || [])[0]?.id || '');
+                    return;
+                }
+
+                if (!(threads[selectedProject] || []).some((t) => t.id === selectedThread)) {
+                    setSelectedThread((threads[selectedProject] || [])[0]?.id || '');
+                }
+            } catch (e) {
+                console.error('Chains load error:', e);
+            }
+        };
+        void loadChains();
+    }, [selectedProject, selectedThread]); // Added dependencies per lint rule
+
+    useEffect(() => {
+        const loadWorkScope = async () => {
+            const params = new URLSearchParams({
+                mode: 'all',
+                cycleId: workScope.selected.cycleId || '',
+                storyId: workScope.selected.storyId || '',
+            });
+            try {
+                const res = await fetch(apiUrl(`/api/cockpit/work-scope?${params.toString()}`));
+                const data = await res.json();
+                if (!data.success) return;
+                setWorkScope({
+                    cycles: data.cycles || [],
+                    stories: data.stories || [],
+                    tasks: data.tasks || [],
+                    items: data.items || [],
+                    selected: data.selected || { cycleId: '', storyId: '' },
+                    statusSummary: data.statusSummary || { total: 0, done: 0, inProgress: 0, todo: 0 },
+                });
+                setSelectedScopeItemIds((prev) => prev.filter((id) => (data.items || []).some((it: ScopeEntity) => it.id === id)));
+            } catch (e) {
+                console.error('Work scope load error:', e);
+            }
+        };
+        void loadWorkScope();
+    }, [workScope.selected.cycleId, workScope.selected.storyId]);
+
+    useEffect(() => {
+        setMessages(prev => [...prev, {
+            id: `mode-change-${Date.now()}`,
+            role: 'agent',
+            content: `Execution mode switched to: ${mode.toUpperCase().replace('_', ' ')}`,
+            timestamp: new Date()
+        }]);
+        localStorage.setItem(RUNTIME_MODE_KEY, mode);
+    }, [mode]);
+
+    useEffect(() => {
+        const syncMode = () => {
+            const stored = localStorage.getItem(RUNTIME_MODE_KEY);
+            if (stored === 'mock' || stored === 'linear' || stored === 'multiple_agents') setMode(stored);
+        };
+        const onStorage = (event: StorageEvent) => {
+            if (event.key === RUNTIME_MODE_KEY) syncMode();
+        };
+        window.addEventListener('focus', syncMode);
+        window.addEventListener('storage', onStorage);
+        return () => {
+            window.removeEventListener('focus', syncMode);
+            window.removeEventListener('storage', onStorage);
+        };
+    }, []);
+
+    useEffect(() => {
+        const closePicker = () => setRuntimePickerOpen(null);
+        window.addEventListener('click', closePicker);
+        return () => window.removeEventListener('click', closePicker);
+    }, []);
+
+    const handleSend = async () => {
+        const hasText = input.trim().length > 0;
+        const hasTokens = promptTokens.length > 0;
+        if ((!hasText && !hasTokens) || isProcessing) return;
+        
+        const tokenPayload = promptTokens.map((t) => `${t.kind}:${t.value}`).join('\n');
+        const selectedScopeKeys = workScope.items
+            .filter((it) => selectedScopeItemIds.includes(it.id))
+            .map((it) => `scope:item:${it.key}`);
+        const scopePayload = selectedScopeKeys.join('\n');
+        const attachmentPayload = uploadedAttachments
+            .map((a) => `attachment:${a.originalName}`)
+            .join('\n');
+        const userMsg = [tokenPayload, scopePayload, attachmentPayload, input.trim()].filter(Boolean).join('\n');
+        setInput('');
+        setPromptTokens([]);
+        setUploadedAttachments([]);
+        
+        setMessages(prev => [...prev, {
+            id: Date.now().toString(),
+            role: 'user',
+            content: userMsg,
+            timestamp: new Date()
+        }]);
+
+        setIsProcessing(true);
+
+        try {
+            const res = await fetch(apiUrl('/api/chat'), {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    message: userMsg,
+                    executionMode: mode,
+                    projectId: selectedProject,
+                    threadId: selectedThread,
+                    attachments: uploadedAttachments,
+                }),
+            });
+            const data = await res.json();
+            
+            if (data.success) { // Changed from data.logs to data.success as threadId/status might be present without logs
+                setCurrentThreadId(data.threadId);
+                setCurrentTicketId(data.ticketId || null);
+                setStatus(data.status);
+                if (data.observability) setObservability(data.observability);
+                if (data.executionFeed) setExecutionFeed(data.executionFeed);
+                if (data.gitContext) setGitContext(data.gitContext);
+
+                // 1. If we have a direct message (conversational response), show it first
+                if (data.message) {
+                    setMessages(prev => [...prev, {
+                        id: Date.now().toString(),
+                        role: 'agent',
+                        content: data.message,
+                        timestamp: new Date()
+                    }]);
+                } 
+                // 2. For legacy direct/linear modes, display logs
+                else if ((data.observability?.pipeline === 'openhands-direct' || mode !== 'multiple_agents') && Array.isArray(data.logs)) {
+                    setMessages(prev => [...prev, ...data.logs.map((log: string, i: number) => ({
+                        id: `${Date.now()}-${i}`,
+                        role: 'agent',
+                        content: log,
+                        timestamp: new Date()
+                    }))]);
+                } 
+                // 3. Otherwise, indicate swarm dispatch
+                else {
+                    setMessages(prev => [...prev, {
+                        id: Date.now().toString(),
+                        role: 'agent',
+                        content: `Task dispatched to Swarm (Run ID: ${data.runId.substring(0,8)}). See event feed for updates.`,
+                        timestamp: new Date()
+                    }]);
+                }
+            }
+        } catch (error) {
+            console.error('Chat error:', error);
+        } finally {
+            setIsProcessing(false);
+        }
+    };
+
+    const handleApprove = async () => {
+        if (!currentThreadId || isProcessing) return;
+        setIsProcessing(true);
+
+        try {
+            const res = await fetch(apiUrl('/api/chat/approve'), {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ threadId: currentThreadId, ticketId: currentTicketId })
+            });
+            const data = await res.json();
+            
+            if (data.success) {
+                setStatus(data.status);
+                if (data.observability) setObservability(data.observability);
+                if (data.executionFeed) setExecutionFeed(data.executionFeed);
+                if (data.gitContext) setGitContext(data.gitContext);
+                if (data.logs) {
+                    setMessages(prev => [...prev, ...data.logs.map((log: string, i: number) => ({
+                        id: `${Date.now()}-${i}`,
+                        role: 'agent',
+                        content: log,
+                        timestamp: new Date()
+                    }))]);
+                }
+            }
+        } catch (error) {
+            console.error('Approve error:', error);
+        } finally {
+            setIsProcessing(false);
+        }
+    };
+
+    const toggleRecording = async () => {
+        if (isRecording) {
+            mediaRecorderRef.current?.stop();
+            recognitionRef.current?.stop();
+            setIsRecording(false);
+            setGhostText('');
+            return;
+        }
+
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            const mediaRecorder = new MediaRecorder(stream);
+            mediaRecorderRef.current = mediaRecorder;
+            audioChunksRef.current = [];
+
+            mediaRecorder.ondataavailable = (event) => {
+                if (event.data.size > 0) audioChunksRef.current.push(event.data);
+            };
+
+            mediaRecorder.onstop = async () => {
+                const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+                stream.getTracks().forEach(track => track.stop());
+                
+                // Final refined transcription fallback (Whisper)
+                const formData = new FormData();
+                formData.append('audio', audioBlob, 'voice.webm');
+                
+                // Add language if not auto
+                if (voiceLang !== 'auto') {
+                    formData.set('language', voiceLang);
+                }
+
+                setIsProcessing(true);
+                try {
+                    const res = await fetch(apiUrl('/api/voice/transcribe'), {
+                        method: 'POST',
+                        body: formData
+                    });
+                    
+                    const data = await res.json();
+                    if (data.text && data.text.length > 5) { // Only overwrite if Whisper is distinct
+                        // setInput(prev => prev + ' ' + data.text); 
+                        console.log('[Whisper] Feedback:', data.text);
+                    }
+                } catch (e) {
+                    console.error("Transcribe fallback failed:", e);
+                } finally {
+                    setIsProcessing(false);
+                }
+            };
+
+            mediaRecorder.start();
+            recognitionRef.current?.start();
+            setIsRecording(true);
+        } catch (err) {
+            console.error('Failed to start recording:', err);
+            alert('Could not access microphone');
+        }
+    };
+
+    const appendCommand = (kind: PromptTokenKind, value: string) => {
+        setPromptTokens((prev) => {
+            const exists = prev.some((t) => t.kind === kind && t.value === value);
+            if (exists) return prev;
+            return [...prev, { kind, value }];
+        });
+    };
+
+    const closeAutocomplete = () => {
+        setMetaAutocomplete((prev) => ({ ...prev, open: false, suggestions: [] }));
+    };
+
+    const updateAutocomplete = (value: string, cursor: number) => {
+        const before = value.slice(0, cursor);
+        const match = before.match(/(^|\s)([@/#])([a-zA-Z0-9._-]*)$/);
+        if (!match) {
+            closeAutocomplete();
+            return;
+        }
+        const symbol = match[2];
+        const rawQuery = (match[3] || '').toLowerCase();
+        const tokenLen = symbol.length + (match[3] || '').length;
+        const rangeStart = cursor - tokenLen;
+        const source = symbol === '@'
+            ? catalog.agents
+            : symbol === '/'
+                ? catalog.pipelines
+                : catalog.skills;
+        const suggestions = source
+            .filter((item) => item.toLowerCase().includes(rawQuery))
+            .slice(0, 8);
+        if (suggestions.length === 0) {
+            closeAutocomplete();
+            return;
+        }
+        setMetaAutocomplete({
+            open: true,
+            kind: symbol === '@' ? 'agent' : symbol === '/' ? 'pipeline' : 'skill',
+            query: rawQuery,
+            rangeStart,
+            rangeEnd: cursor,
+            selectedIndex: 0,
+            suggestions,
+        });
+    };
+
+    const applyAutocompleteChoice = (forcedIndex?: number) => {
+        if (!metaAutocomplete.open || !metaAutocomplete.kind || metaAutocomplete.suggestions.length === 0) return;
+        const idx = typeof forcedIndex === 'number'
+            ? forcedIndex
+            : metaAutocomplete.selectedIndex;
+        const chosen = metaAutocomplete.suggestions[idx];
+        if (!chosen) return;
+        appendCommand(metaAutocomplete.kind, chosen);
+        setInput((prev) => `${prev.slice(0, metaAutocomplete.rangeStart)}${prev.slice(metaAutocomplete.rangeEnd)}`.replace(/\s{2,}/g, ' '));
+        closeAutocomplete();
+    };
+
+    const handleTokenDrop = (event: React.DragEvent<HTMLElement>) => {
+        event.preventDefault();
+        const raw = event.dataTransfer.getData('text/plain') || '';
+        const [kind, ...rest] = raw.split(':');
+        const value = rest.join(':').trim();
+        if (!value) return;
+        if (kind === 'agent' || kind === 'pipeline' || kind === 'skill') {
+            appendCommand(kind, value);
+        }
+    };
+
+    const removeToken = (kind: PromptTokenKind, value: string) => {
+        setPromptTokens((prev) => prev.filter((t) => !(t.kind === kind && t.value === value)));
+    };
+
+    const rehydrateTokenIntoInput = (token: PromptToken) => {
+        const prefix = token.kind === 'agent' ? '@' : token.kind === 'pipeline' ? '/' : '#';
+        setInput((prev) => `${prev}${prev ? ' ' : ''}${prefix}${token.value} `);
+    };
+
+
+
+    const providerModelPresets: Record<'claude-cli' | 'codex-cli' | 'openhands-sdk' | 'google-genai', string[]> = {
+        'claude-cli': [
+            'auto',
+            // Claude 4.x (latest generation)
+            'claude-sonnet-4-6',
+            'claude-opus-4-6',
+            'claude-haiku-4-5-20251001',
+            'claude-sonnet-4-5-20250929',
+            'claude-opus-4-5-20251101',
+            // Claude 4.0
+            'claude-opus-4-20250514',
+            'claude-sonnet-4-20250514',
+        ],
+        'codex-cli': [
+            'auto',
+            // GPT-5.x
+            'gpt-5.4',
+            'gpt-5.4-mini',
+            'gpt-5.4-nano',
+            'gpt-5.4-pro',
+            'gpt-5.3-codex',
+            'gpt-5.2',
+            'gpt-5.1',
+            'gpt-5',
+            // Reasoning
+            'o4-mini',
+            'o3',
+            'o3-mini',
+            'o1',
+            'o1-pro',
+        ],
+        'openhands-sdk': [
+            // ── Anthropic ──────────────────────────────────────────
+            'anthropic/claude-sonnet-4-6',
+            'anthropic/claude-opus-4-6',
+            'anthropic/claude-haiku-4-5-20251001',
+            'anthropic/claude-sonnet-4-5-20250929',
+            'anthropic/claude-opus-4-5-20251101',
+            'anthropic/claude-opus-4-20250514',
+            'anthropic/claude-sonnet-4-20250514',
+            // ── OpenAI ─────────────────────────────────────────────
+            'openai/gpt-4o',
+            'openai/gpt-4o-mini',
+            'openai/gpt-4.1',
+            'openai/gpt-4.1-mini',
+            'openai/gpt-4.1-nano',
+            'openai/gpt-5',
+            'openai/gpt-5-mini',
+            'openai/gpt-5.4',
+            'openai/gpt-5.4-mini',
+            'openai/o4-mini',
+            'openai/o3',
+            'openai/o3-mini',
+            'openai/o1',
+            // ── Google Gemini ──────────────────────────────────────
+            // Gemini 3.x (latest generation, as of 2026-03)
+            'google/gemini-3.1-pro-preview',         // strongest reasoning + agents
+            'google/gemini-3-flash-preview',          // frontier perf, cost-efficient
+            'google/gemini-3.1-flash-lite-preview',   // ultra-fast, low-cost
+            // Gemini 2.5 (stable GA)
+            'google/gemini-2.5-pro',
+            'google/gemini-2.5-flash',
+            'google/gemini-2.5-flash-lite',
+        ],
+        'google-genai': [
+            'auto',
+            'google/gemini-3.1-pro-preview',
+            'google/gemini-3-flash-preview',
+            'google/gemini-3.1-flash-lite-preview',
+            'google/gemini-2.5-pro',
+            'google/gemini-2.5-flash',
+        ],
+    };
+
+    const handleCreateChain = async () => {
+        if (!selectedProject) return;
+        try {
+            const res = await fetch(apiUrl('/api/cockpit/chains'), {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ projectId: selectedProject, label: `Thread ${new Date().toLocaleTimeString()}` }),
+            });
+            const data = await res.json();
+            if (!data.success) return;
+            setRailProjects(data.projects || []);
+            setRailThreadsByProject(data.threadsByProject || {});
+            if (data.thread?.id) setSelectedThread(data.thread.id);
+        } catch (e) {
+            console.error('Create chain error:', e);
+        }
+    };
+
+    const planeTicketUrl = (ticketId: string): string | null => {
+        if (!ticketId || ticketId.startsWith('chat-')) return null;
+        const env = (import.meta as { env?: Record<string, string | undefined> }).env;
+        const base = env?.VITE_PLANE_BASE_URL || 'https://app.plane.so';
+        const projectCode = env?.VITE_PLANE_PROJECT_CODE || 'AGENTS';
+        return `${base.replace(/\/$/, '')}/workspace/projects/${projectCode}/issues/${ticketId}`;
+    };
+
+    const statusBadgeClass = (status?: string): string => {
+        const s = (status || '').toLowerCase();
+        if (s.includes('success') || s.includes('done') || s.includes('completed')) return 'status-badge ok';
+        if (s.includes('fail') || s.includes('error') || s.includes('blocked')) return 'status-badge fail';
+        if (s.includes('progress') || s.includes('running') || s.includes('started')) return 'status-badge progress';
+        return 'status-badge neutral';
+    };
+
+    const prettyStage = (value?: string) => {
+        if (!value) return 'n/a';
+        return value
+            .replace(/[_-]/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim()
+            .replace(/\b\w/g, (m) => m.toUpperCase());
+    };
+
+    const prettyEventType = (value?: string) => {
+        if (!value) return 'event';
+        return value
+            .split('.')
+            .map((part) => prettyStage(part))
+            .join(' / ');
+    };
+    const runtimeModeLabel = mode === 'mock' ? 'Mock' : mode === 'linear' ? 'Quasi-linear' : 'Multiple agents';
+
+    const applyRuntimeSelection = async (provider?: 'claude-cli' | 'codex-cli' | 'openhands-sdk' | 'google-genai', model?: string) => {
+        const nextProvider = provider || selectedProvider;
+        const nextModel = model || selectedModel;
+        try {
+            const res = await fetch(apiUrl('/api/cockpit/providers/select'), {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ provider: nextProvider, model: nextModel }),
+            });
+            const data = await res.json();
+            setProviderMessage(data.success
+                ? `runtime set: ${nextProvider}/${nextModel}`
+                : `runtime select failed: ${data.error || 'unknown'}`);
+        } catch (e) {
+            setProviderMessage(`runtime select error: ${(e as Error)?.message || 'unknown'}`);
+        }
+    };
+
+    const loadRuntimeFooter = async () => {
+        try {
+            const res = await fetch(apiUrl('/api/cockpit/runtime-footer'));
+            const data = await res.json();
+            if (data.success && data.runtimeFooter) {
+                setRuntimeFooter(data.runtimeFooter);
+                setGitContext({
+                    activeBranch: data.runtimeFooter.activeBranch,
+                    worktreePath: data.runtimeFooter.worktreePath,
+                    preflightToken: data.runtimeFooter.preflightToken,
+                });
+            }
+        } catch {
+            // silent refresh fallback
+        }
+    };
+
+    const updateRuntimeFooter = async (patch: Partial<Pick<RuntimeFooterState, 'executionTarget' | 'accessPolicy'>>) => {
+        try {
+            const res = await fetch(apiUrl('/api/cockpit/runtime-footer'), {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(patch),
+            });
+            const data = await res.json();
+            if (data.success && data.runtimeFooter) {
+                setRuntimeFooter((prev) => ({ ...prev, ...data.runtimeFooter }));
+            }
+        } catch (e) {
+            setProviderMessage(`runtime footer update error: ${(e as Error)?.message || 'unknown'}`);
+        }
+    };
+
+    return (
+        <div className="cockpit-container">
+            {/* Header */}
+            <header className="cockpit-header">
+                <div className="header-title">
+                    <LayoutDashboard size={24} />
+                    Agent Cockpit
+                    {providerMessage && <span className="provider-feedback">{providerMessage}</span>}
+                </div>
+                <div className="header-actions">
+                    <button type="button" className="header-icon-btn" onClick={() => navigate('/cockpit/settings/general')} title="Settings" aria-label="Settings">
+                        <Settings size={15} />
+                    </button>
+                </div>
+            </header>
+
+            <main className="cockpit-main">
+                <aside className={`rail-panel ${railCollapsed ? 'collapsed' : ''}`}>
+                    <div className="rail-head">
+                        <span>{railCollapsed ? 'AC' : 'Agent Cockpit'}</span>
+                        <button type="button" className="rail-toggle" onClick={() => setRailCollapsed((p) => !p)} title={railCollapsed ? 'Open sidebar' : 'Hide sidebar'} aria-label={railCollapsed ? 'Open sidebar' : 'Hide sidebar'}>
+                            {railCollapsed ? <PanelLeftOpen size={13} /> : <PanelLeftClose size={13} />}
+                        </button>
+                    </div>
+                    {!railCollapsed && (
+                        <>
+                            <div className="rail-top-actions">
+                                <button type="button" className="rail-top-btn" onClick={handleCreateChain}>
+                                    <PencilLine size={13} />
+                                    <span>Новий ланцюжок</span>
+                                </button>
+                                <button type="button" className="rail-top-btn">
+                                    <Clock3 size={13} />
+                                    <span>Автоматизації</span>
+                                </button>
+                                <button type="button" className="rail-top-btn">
+                                    <Bot size={13} />
+                                    <span>Навички</span>
+                                </button>
+                            </div>
+                            <div className="rail-section-head">
+                                <span>Ланцюжки</span>
+                                <div className="rail-section-actions">
+                                    <button type="button" className="rail-mini-btn" title="New thread" aria-label="New thread">
+                                        <MessageSquarePlus size={12} />
+                                    </button>
+                                    <button type="button" className="rail-mini-btn" title="Filter chains" aria-label="Filter chains">
+                                        <SlidersHorizontal size={12} />
+                                    </button>
+                                </div>
+                            </div>
+                            <div className="rail-project-list">
+                                {railProjects.map((project) => (
+                                    <button
+                                        key={project.id}
+                                        type="button"
+                                        className={`rail-project-btn ${selectedProject === project.id ? 'active' : ''}`}
+                                        onClick={() => {
+                                            setSelectedProject(project.id);
+                                            setSelectedThread((railThreadsByProject[project.id] || [])[0]?.id || '');
+                                        }}
+                                    >
+                                        <Folder size={13} />
+                                        <span>{project.label}</span>
+                                    </button>
+                                ))}
+                            </div>
+                            <div className="rail-thread-list">
+                                {(railThreadsByProject[selectedProject] || []).map((thread) => (
+                                    <button
+                                        key={thread.id}
+                                        type="button"
+                                        className={`rail-thread-btn ${selectedThread === thread.id ? 'active' : ''}`}
+                                        onClick={() => setSelectedThread(thread.id)}
+                                    >
+                                        <span className="rail-thread-label">{thread.label}</span>
+                                        <span className="rail-thread-age">active</span>
+                                    </button>
+                                ))}
+                            </div>
+                        </>
+                    )}
+                </aside>
+                {/* Left Panel: Chat Input */}
+                <section className="left-panel">
+                    <div className="panel-title">
+                        <Terminal size={20} />
+                        Command Interface
+                    </div>
+
+                    <div className="chat-container">
+                        {observability && (
+                            <div className="observability-card">
+                                <div className="observability-title">Pipeline Observability</div>
+                                <div className="observability-grid">
+                                    <span>Pipeline</span><strong>{observability.pipeline}</strong>
+                                    <span>Stage</span><strong>{observability.stage}</strong>
+                                    <span>Next</span><strong>{observability.nextStage}</strong>
+                                    <span>Gates</span><strong>{observability.blockingGates}</strong>
+                                    <span>Approval</span><strong>{observability.approvalReason}</strong>
+                                </div>
+                            </div>
+                        )}
+                        {(currentTicketId || gitContext) && (
+                            <div className="artifact-strip">
+                                {currentTicketId && (
+                                    <div>
+                                        <strong>Ticket:</strong>{' '}
+                                        {planeTicketUrl(currentTicketId) ? (
+                                            <a href={planeTicketUrl(currentTicketId)!} target="_blank" rel="noreferrer">{currentTicketId}</a>
+                                        ) : (
+                                            currentTicketId
+                                        )}
+                                    </div>
+                                )}
+                                {gitContext?.activeBranch && <div><strong>Branch:</strong> {gitContext.activeBranch}</div>}
+                                {gitContext?.worktreePath && <div><strong>Worktree:</strong> {gitContext.worktreePath}</div>}
+                                {gitContext?.preflightToken && <div><strong>Preflight:</strong> {gitContext.preflightToken}</div>}
+                            </div>
+                        )}
+                        {scopeCardPinned && workScope.items.length > 0 && (
+                            <div className="chat-scope-card">
+                                <div className="chat-scope-head">
+                                    <div>
+                                        <strong>Execution Scope</strong>
+                                        <div className="chat-scope-sub">PM checklist: Sprint / Story / Task</div>
+                                    </div>
+                                    <button type="button" className="context-pill" onClick={() => setScopeCardPinned(false)}>Unpin</button>
+                                </div>
+                                <div className="health-grid">
+                                    <span>Total</span><strong>{workScope.statusSummary.total}</strong>
+                                    <span>Done</span><strong className="health-ok">{workScope.statusSummary.done}</strong>
+                                    <span>In Progress</span><strong>{workScope.statusSummary.inProgress}</strong>
+                                    <span>Todo</span><strong>{workScope.statusSummary.todo}</strong>
+                                </div>
+                                <div className="scope-multiselect">
+                                    {workScope.items.slice(0, 10).map((it) => {
+                                        const checked = selectedScopeItemIds.includes(it.id);
+                                        return (
+                                            <label key={`chat-scope-${it.id}`} className="scope-check-item">
+                                                <input
+                                                    type="checkbox"
+                                                    checked={checked}
+                                                    onChange={() =>
+                                                        setSelectedScopeItemIds((prev) =>
+                                                            checked ? prev.filter((id) => id !== it.id) : [...prev, it.id]
+                                                        )
+                                                    }
+                                                />
+                                                <span><strong>{it.key}</strong> {it.name}</span>
+                                            </label>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        )}
+                        {!scopeCardPinned && workScope.items.length > 0 && (
+                            <button type="button" className="scope-pin-restore" onClick={() => setScopeCardPinned(true)}>
+                                Pin Scope Checklist
+                            </button>
+                        )}
+
+                        {messages.length === 0 && status === 'idle' ? (
+                            <div style={{opacity: 0.5, fontStyle: 'italic', margin: 'auto'}}>
+                                No tasks yet. How can the Swarm assist you today?
+                            </div>
+                        ) : null}
+                        
+                        {messages.map((m) => (
+                            <div key={m.id} className={`chat-bubble ${m.role}`}>
+                                <div className="chat-meta">
+                                    <span>{m.role === 'user' ? 'Me' : 'Agent'}</span>
+                                    <span>{m.timestamp.toLocaleTimeString()}</span>
+                                </div>
+                                <div style={{whiteSpace: 'pre-wrap'}}>{m.content}</div>
+                            </div>
+                        ))}
+                        
+                        {status === 'awaiting_approval' && (
+                            <div className="approval-card">
+                                <p>Agent is waiting for your approval to proceed to the next stage.</p>
+                                <button 
+                                    className="approve-btn" 
+                                    onClick={handleApprove}
+                                    disabled={isProcessing}
+                                >
+                                    {isProcessing ? 'Processing...' : 'Approve & Continue'}
+                                </button>
+                            </div>
+                        )}
+                        
+                        <div ref={scrollRef} />
+                    </div>
+
+                    <div className="task-input-wrapper">
+                        {showCatalogPicker && (
+                            <div className="composer-catalog-popover">
+                                <div className="catalog-section">
+                                    <strong>Agents</strong>
+                                    <div className="catalog-chip-list">
+                                        {catalog.agents.length === 0 && <span className="catalog-list">No data</span>}
+                                        {catalog.agents.map((item) => (
+                                            <button
+                                                key={`agent-pop-${item}`}
+                                                className="catalog-chip"
+                                                onClick={() => appendCommand('agent', item)}
+                                            >
+                                                @{item}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+                                <div className="catalog-section">
+                                    <strong>Pipelines</strong>
+                                    <div className="catalog-chip-list">
+                                        {catalog.pipelines.length === 0 && <span className="catalog-list">No data</span>}
+                                        {catalog.pipelines.map((item) => (
+                                            <button
+                                                key={`pipeline-pop-${item}`}
+                                                className="catalog-chip"
+                                                onClick={() => appendCommand('pipeline', item)}
+                                            >
+                                                /{item}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+                                <div className="catalog-section">
+                                    <strong>Skills</strong>
+                                    <div className="catalog-chip-list">
+                                        {catalog.skills.length === 0 && <span className="catalog-list">No data</span>}
+                                        {catalog.skills.map((item) => (
+                                            <button
+                                                key={`skill-pop-${item}`}
+                                                className="catalog-chip"
+                                                onClick={() => appendCommand('skill', item)}
+                                            >
+                                                #{item}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+                        {promptTokens.length > 0 && (
+                            <div className="composer-chip-strip">
+                                {promptTokens.map((token) => (
+                                    <button
+                                        key={`${token.kind}:${token.value}`}
+                                        className="composer-chip"
+                                        onClick={() => removeToken(token.kind, token.value)}
+                                        onContextMenu={(e) => {
+                                            e.preventDefault();
+                                            rehydrateTokenIntoInput(token);
+                                            removeToken(token.kind, token.value);
+                                        }}
+                                        title="Remove token"
+                                    >
+                                        {token.kind}: {token.value} ×
+                                    </button>
+                                ))}
+                            </div>
+                        )}
+                        <textarea 
+                            ref={textareaRef}
+                            className="task-textarea"
+                            placeholder="Describe the feature, issue, or strategy idea..."
+                            value={input}
+                            onChange={e => {
+                                const value = e.target.value;
+                                const cursor = e.target.selectionStart ?? value.length;
+                                setInput(value);
+                                updateAutocomplete(value, cursor);
+                            }}
+                            onDragOver={(e) => e.preventDefault()}
+                            onDrop={handleTokenDrop}
+                            onKeyDown={e => {
+                                if (metaAutocomplete.open) {
+                                    if (e.key === 'ArrowDown') {
+                                        e.preventDefault();
+                                        setMetaAutocomplete((prev) => ({
+                                            ...prev,
+                                            selectedIndex: (prev.selectedIndex + 1) % prev.suggestions.length,
+                                        }));
+                                        return;
+                                    }
+                                    if (e.key === 'ArrowUp') {
+                                        e.preventDefault();
+                                        setMetaAutocomplete((prev) => ({
+                                            ...prev,
+                                            selectedIndex: prev.selectedIndex === 0 ? prev.suggestions.length - 1 : prev.selectedIndex - 1,
+                                        }));
+                                        return;
+                                    }
+                                    if (e.key === 'Enter' || e.key === 'Tab') {
+                                        e.preventDefault();
+                                        applyAutocompleteChoice();
+                                        return;
+                                    }
+                                    if (e.key === 'Escape') {
+                                        e.preventDefault();
+                                        closeAutocomplete();
+                                        return;
+                                    }
+                                }
+                                if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+                                    e.preventDefault();
+                                    setShowCatalogPicker((prev) => !prev);
+                                    return;
+                                }
+                                if (e.key === 'Backspace' && !input.trim() && promptTokens.length > 0) {
+                                    e.preventDefault();
+                                    const last = promptTokens[promptTokens.length - 1];
+                                    removeToken(last.kind, last.value);
+                                    return;
+                                }
+                                if (e.key === 'Enter' && !e.shiftKey) {
+                                    e.preventDefault();
+                                    handleSend();
+                                }
+                            }}
+                            rows={2}
+                        />
+                        {metaAutocomplete.open && (
+                            <div className="meta-autocomplete">
+                                {metaAutocomplete.suggestions.map((item, idx) => (
+                                    <button
+                                        key={`${metaAutocomplete.kind}-${item}`}
+                                        className={`meta-option ${idx === metaAutocomplete.selectedIndex ? 'active' : ''}`}
+                                        type="button"
+                                        onMouseDown={(e) => e.preventDefault()}
+                                        onClick={() => applyAutocompleteChoice(idx)}
+                                    >
+                                        <span className="meta-prefix">{metaAutocomplete.kind === 'agent' ? '@' : metaAutocomplete.kind === 'pipeline' ? '/' : '#'}</span>
+                                        <span>{item}</span>
+                                    </button>
+                                ))}
+                            </div>
+                        )}
+
+                        {ghostText && (
+                            <div className="ghost-text-overlay">
+                                <span className="ghost-label">Listening:</span> {ghostText}...
+                            </div>
+                        )}
+                        <div className="composer-controls-row">
+                            <div className="input-context-selectors">
+                                <div className="runtime-picker">
+                                    <button
+                                        type="button"
+                                        className="runtime-picker-btn runtime-inline-btn"
+                                        onClick={(event) => {
+                                            event.stopPropagation();
+                                            setRuntimePickerOpen((prev) => (prev === 'voice' ? null : 'voice'));
+                                        }}
+                                        aria-label="Voice language"
+                                        title="Voice language"
+                                    >
+                                        <Globe2 size={12} />
+                                        <span>{voiceLang === 'auto' ? 'Auto' : voiceLang.toUpperCase()}</span>
+                                        <ChevronDown size={12} />
+                                    </button>
+                                    {runtimePickerOpen === 'voice' && (
+                                        <div className="runtime-picker-menu" onClick={(event) => event.stopPropagation()}>
+                                            {([
+                                                { id: 'auto', label: 'Auto' },
+                                                { id: 'uk', label: 'UA' },
+                                                { id: 'en', label: 'EN' },
+                                            ] as const).map((item) => (
+                                                <button
+                                                    key={`voice-${item.id}`}
+                                                    type="button"
+                                                    className={`runtime-picker-option ${voiceLang === item.id ? 'active' : ''}`}
+                                                    onClick={() => {
+                                                        setVoiceLang(item.id);
+                                                        setRuntimePickerOpen(null);
+                                                    }}
+                                                >
+                                                    {item.label}
+                                                </button>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+                                <div className="runtime-picker">
+                                    <button
+                                        type="button"
+                                        className="runtime-picker-btn"
+                                        onClick={(event) => {
+                                            event.stopPropagation();
+                                            setRuntimePickerOpen((prev) => (prev === 'provider' ? null : 'provider'));
+                                        }}
+                                        aria-label="Provider"
+                                    >
+                                        <span>{selectedProvider}</span>
+                                        <ChevronDown size={12} />
+                                    </button>
+                                    {runtimePickerOpen === 'provider' && (
+                                        <div className="runtime-picker-menu" onClick={(event) => event.stopPropagation()}>
+                                            {(['claude-cli', 'codex-cli', 'openhands-sdk', 'google-genai'] as const).map((provider) => (
+                                                <button
+                                                    key={`provider-${provider}`}
+                                                    type="button"
+                                                    className={`runtime-picker-option ${selectedProvider === provider ? 'active' : ''}`}
+                                                    onClick={() => {
+                                                        const fallbackModel = providerModelPresets[provider][0];
+                                                        setSelectedProvider(provider);
+                                                        setSelectedModel(fallbackModel);
+                                                        setRuntimePickerOpen(null);
+                                                        void applyRuntimeSelection(provider, fallbackModel);
+                                                    }}
+                                                >
+                                                    {provider}
+                                                </button>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+                                <div className="runtime-picker">
+                                    <button
+                                        type="button"
+                                        className="runtime-picker-btn"
+                                        onClick={(event) => {
+                                            event.stopPropagation();
+                                            setRuntimePickerOpen((prev) => (prev === 'model' ? null : 'model'));
+                                        }}
+                                        aria-label="Model"
+                                    >
+                                        <span>{selectedModel}</span>
+                                        <ChevronDown size={12} />
+                                    </button>
+                                    {runtimePickerOpen === 'model' && (
+                                        <div className="runtime-picker-menu" onClick={(event) => event.stopPropagation()}>
+                                            {providerModelPresets[selectedProvider].map((model) => (
+                                                <button
+                                                    key={`model-${model}`}
+                                                    type="button"
+                                                    className={`runtime-picker-option ${selectedModel === model ? 'active' : ''}`}
+                                                    onClick={() => {
+                                                        setSelectedModel(model);
+                                                        setRuntimePickerOpen(null);
+                                                        void applyRuntimeSelection(selectedProvider, model);
+                                                    }}
+                                                >
+                                                    {model}
+                                                </button>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+                                <div className="runtime-picker">
+                                    <button
+                                        type="button"
+                                        className={`runtime-picker-btn runtime-inline-btn icon-only ${showPlusMenu ? 'active' : ''}`}
+                                        onClick={(event) => {
+                                            event.stopPropagation();
+                                            setShowPlusMenu((prev) => !prev);
+                                        }}
+                                        title="Add action"
+                                        aria-label="Add action"
+                                    >
+                                        <Plus size={13} />
+                                    </button>
+                                    {showPlusMenu && (
+                                        <div className="runtime-picker-menu" onClick={(event) => event.stopPropagation()}>
+                                            <button
+                                                type="button"
+                                                className={`runtime-picker-option ${showCatalogPicker ? 'active' : ''}`}
+                                                onClick={() => {
+                                                    setShowCatalogPicker((prev) => !prev);
+                                                    setShowPlusMenu(false);
+                                                }}
+                                            >
+                                                Toggle catalog
+                                            </button>
+                                            <button
+                                                type="button"
+                                                className="runtime-picker-option"
+                                                onClick={() => {
+                                                    fileInputRef.current?.click();
+                                                    setShowPlusMenu(false);
+                                                }}
+                                            >
+                                                Attach file token
+                                            </button>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                            <div className="input-actions">
+                                <button 
+                                    className={`icon-btn icon-btn-codex-mic ${isRecording ? 'recording' : ''}`}
+                                    onClick={toggleRecording}
+                                    disabled={isProcessing}
+                                    title="Use Voice Input"
+                                >
+                                    <Mic size={15} />
+                                </button>
+                                <button 
+                                    className="icon-btn icon-btn-codex-send"
+                                    onClick={handleSend}
+                                    disabled={(!input.trim() && promptTokens.length === 0) || isProcessing || isRecording}
+                                    aria-label="Send task"
+                                    title="Send task"
+                                >
+                                    <Send size={15} />
+                                </button>
+                            </div>
+                        </div>
+                        <input
+                            ref={fileInputRef}
+                            type="file"
+                            multiple
+                            style={{ display: 'none' }}
+                            onChange={handleFileAttach}
+                        />
+                        <div className="composer-shortcuts compact">
+                            <kbd>Ctrl/Cmd</kbd>+<kbd>K</kbd> catalog
+                        </div>
+                        <div className="runtime-footer-strip">
+                            <div className="runtime-picker">
+                                <button
+                                    type="button"
+                                    className="runtime-footer-item"
+                                    title="Execution target"
+                                    onClick={(event) => {
+                                        event.stopPropagation();
+                                        setRuntimePickerOpen((prev) => (prev === 'target' ? null : 'target'));
+                                    }}
+                                >
+                                    <Laptop size={12} />
+                                    <span>{runtimeFooter.executionTarget === 'local' ? 'Локально' : 'Віддалено'}</span>
+                                    <ChevronDown size={11} />
+                                </button>
+                                {runtimePickerOpen === 'target' && (
+                                    <div className="runtime-picker-menu" onClick={(event) => event.stopPropagation()}>
+                                        <button type="button" className={`runtime-picker-option ${runtimeFooter.executionTarget === 'local' ? 'active' : ''}`} onClick={() => { void updateRuntimeFooter({ executionTarget: 'local' }); setRuntimePickerOpen(null); }}>
+                                            Локально
+                                        </button>
+                                        <button type="button" className={`runtime-picker-option ${runtimeFooter.executionTarget === 'remote' ? 'active' : ''}`} onClick={() => { void updateRuntimeFooter({ executionTarget: 'remote' }); setRuntimePickerOpen(null); }}>
+                                            Віддалено
+                                        </button>
+                                    </div>
+                                )}
+                            </div>
+                            <div className="runtime-picker">
+                                <button
+                                    type="button"
+                                    className="runtime-footer-item runtime-footer-item-accent"
+                                    title="Access policy"
+                                    onClick={(event) => {
+                                        event.stopPropagation();
+                                        setRuntimePickerOpen((prev) => (prev === 'access' ? null : 'access'));
+                                    }}
+                                >
+                                    <ShieldCheck size={12} />
+                                    <span>{runtimeFooter.accessPolicy === 'full-access' ? 'Повний доступ' : 'Sandbox'}</span>
+                                    <ChevronDown size={11} />
+                                </button>
+                                {runtimePickerOpen === 'access' && (
+                                    <div className="runtime-picker-menu" onClick={(event) => event.stopPropagation()}>
+                                        <button type="button" className={`runtime-picker-option ${runtimeFooter.accessPolicy === 'full-access' ? 'active' : ''}`} onClick={() => { void updateRuntimeFooter({ accessPolicy: 'full-access' }); setRuntimePickerOpen(null); }}>
+                                            Повний доступ
+                                        </button>
+                                        <button type="button" className={`runtime-picker-option ${runtimeFooter.accessPolicy === 'sandbox' ? 'active' : ''}`} onClick={() => { void updateRuntimeFooter({ accessPolicy: 'sandbox' }); setRuntimePickerOpen(null); }}>
+                                            Sandbox
+                                        </button>
+                                    </div>
+                                )}
+                            </div>
+                            <div className="runtime-picker">
+                                <button
+                                    type="button"
+                                    className="runtime-footer-item runtime-footer-item-branch"
+                                    title="Git branch"
+                                    onClick={(event) => {
+                                        event.stopPropagation();
+                                        setRuntimePickerOpen((prev) => (prev === 'branch' ? null : 'branch'));
+                                    }}
+                                >
+                                    <GitBranch size={12} />
+                                    <span>{runtimeFooter.activeBranch || gitContext?.activeBranch || 'main'}</span>
+                                    <ChevronDown size={11} />
+                                </button>
+                                {runtimePickerOpen === 'branch' && (
+                                    <div className="runtime-picker-menu" onClick={(event) => event.stopPropagation()}>
+                                        <button type="button" className="runtime-picker-option">
+                                            Branch: {runtimeFooter.activeBranch || gitContext?.activeBranch || 'main'}
+                                        </button>
+                                        <button
+                                            type="button"
+                                            className="runtime-picker-option"
+                                            onClick={() => {
+                                                const value = runtimeFooter.worktreePath || gitContext?.worktreePath || '';
+                                                if (value) void navigator.clipboard?.writeText(value);
+                                                setRuntimePickerOpen(null);
+                                            }}
+                                        >
+                                            {runtimeFooter.worktreePath || gitContext?.worktreePath ? 'Copy worktree path' : 'Worktree path unavailable'}
+                                        </button>
+                                        <button
+                                            type="button"
+                                            className="runtime-picker-option"
+                                            onClick={() => {
+                                                const value = runtimeFooter.preflightToken || gitContext?.preflightToken || '';
+                                                if (value) void navigator.clipboard?.writeText(value);
+                                                setRuntimePickerOpen(null);
+                                            }}
+                                        >
+                                            {runtimeFooter.preflightToken || gitContext?.preflightToken ? 'Copy preflight token path' : 'Preflight token unavailable'}
+                                        </button>
+                                    </div>
+                                )}
+                            </div>
+                            <button type="button" className="runtime-footer-item runtime-footer-item-mode" title="Runtime mode">
+                                <span>{runtimeModeLabel}</span>
+                            </button>
+                            <button type="button" className="runtime-footer-item icon-only" title="Refresh runtime state" onClick={() => void loadRuntimeFooter()}>
+                                <RefreshCw size={12} />
+                            </button>
+                        </div>
+                    </div>
+
+                </section>
+
+                {/* Right Panel: Event Feed & Active Agent */}
+                <section className="right-panel">
+                    <div className="panel-title">
+                        <Activity size={20} />
+                        Live Hive State
+                    </div>
+                    
+                    <div className="agent-status-card">
+                        <div className="agent-avatar">
+                            <Cpu size={24} color={'white'} />
+                        </div>
+                        <div className="agent-info">
+                            <div className="agent-name">Swarm Controller</div>
+                            <div className="agent-activity">
+                                {events.length > 0 
+                                    ? `Last Active: ${events[events.length-1].agent_role || 'System'} (${mode})`
+                                    : `Listening on Events Hub...`}
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="feed-container">
+                            <>
+                                {executionFeed.length > 0 && (
+                                    <div className="catalog-card">
+                                        <div className="catalog-title">Execution Feed</div>
+                                        {executionFeed.map((item, idx) => (
+                                            <div key={`exec-${idx}`} className="execution-item">
+                                                <div className="execution-head">
+                                                    <span>{item.role || 'Unknown role'}</span>
+                                                    <span>{item.stage || 'n/a'}</span>
+                                                </div>
+                                                <div className="execution-body">
+                                                    <span className={statusBadgeClass(item.status)}>{item.status || 'unknown'}</span>
+                                                    {item.fallback && <span className="execution-fallback">fallback: {item.fallback}</span>}
+                                                </div>
+                                                <div className="execution-msg">{item.message || item.raw}</div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+
+                                {events.length === 0 ? (
+                                    <div style={{opacity: 0.5, fontSize: '0.85rem', textAlign: 'center', marginTop: '1rem'}}>
+                                        No events yet...
+                                    </div>
+                                ) : null}
+                                
+                                {events.slice().reverse().map((ev, idx) => (
+                                    <div key={ev.event_id || idx} className="feed-item observability-event-card">
+                                        <div className="feed-header">
+                                            <span>{ev.agent_role || 'System'}</span>
+                                            <span>{new Date(ev.timestamp).toLocaleTimeString()}</span>
+                                        </div>
+                                        <div className="observability-event-type">{prettyEventType(ev.event_type)}</div>
+                                        <div className="execution-body">
+                                            <span className={statusBadgeClass(ev.status)}>{ev.status || 'unknown'}</span>
+                                            <span>from: {prettyStage(ev.source_stage)}</span>
+                                            <span>to: {prettyStage(ev.target_stage)}</span>
+                                        </div>
+                                        <div className="observability-event-grid">
+                                            <span>Role</span>
+                                            <strong>{ev.agent_role || 'system'}</strong>
+                                            <span>Issue</span>
+                                            <strong>
+                                                {ev.plane_issue_id ? (
+                                                    planeTicketUrl(ev.plane_issue_id) ? (
+                                                        <a href={planeTicketUrl(ev.plane_issue_id)!} target="_blank" rel="noreferrer">{ev.plane_issue_id}</a>
+                                                    ) : (
+                                                        ev.plane_issue_id
+                                                    )
+                                                ) : (
+                                                    'n/a'
+                                                )}
+                                            </strong>
+                                            <span>Branch</span>
+                                            <strong>{gitContext?.activeBranch || 'n/a'}</strong>
+                                            <span>Worktree</span>
+                                            <strong>{gitContext?.worktreePath || 'n/a'}</strong>
+                                        </div>
+                                    </div>
+                                ))}
+                            </>
+                        <div ref={feedEndRef} />
+                    </div>
+                </section>
+            </main>
+        </div>
+    );
+}

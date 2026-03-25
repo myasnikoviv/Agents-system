@@ -1,5 +1,5 @@
 import { appendSkillUsage } from './SkillTelemetryRegistry';
-import { getCockpitExecutorConfig } from './CockpitExecutorConfig';
+import { loadConfig } from './CockpitExecutorConfig';
 import { RunContext } from './context/RunContext';
 import { ExecutionAdapter, ExecutionResult } from './adapters/ExecutionAdapter';
 import { ClaudeCliAdapter } from './adapters/ClaudeCliAdapter';
@@ -15,7 +15,7 @@ export class AgentExecutor {
   constructor() {}
 
   async run(context: RunContext, providedAdapter?: ExecutionAdapter): Promise<ExecutionResult> {
-    const cfg = getCockpitExecutorConfig();
+    const cfg = loadConfig(context.workspacePath);
     const backend = cfg.backend;
     
     let adapter: ExecutionAdapter;

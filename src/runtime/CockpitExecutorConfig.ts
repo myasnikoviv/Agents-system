@@ -3,8 +3,6 @@ import * as path from 'path';
 
 export type CockpitExecutorBackend = 'claude-cli' | 'codex-cli' | 'openhands-sdk';
 
-const CONFIG_PATH = path.resolve(process.cwd(), 'cockpit_config.json');
-
 export interface CockpitRuntimeCapabilities {
   requiresLocalAuth: boolean;
   supportsExecutorSelection: boolean;
@@ -15,6 +13,7 @@ export interface CockpitRuntimeCapabilities {
 
 export interface CockpitExecutorConfig {
   backend: CockpitExecutorBackend;
+  projectRoot: string;
   claude: {
     bin: string;
     model: string;
@@ -36,9 +35,13 @@ export interface CockpitExecutorConfig {
   };
 }
 
-function loadConfig(): CockpitExecutorConfig {
+export function loadConfig(projectRoot: string): CockpitExecutorConfig {
+  const absProjectRoot = path.resolve(projectRoot);
+  const configPath = path.resolve(absProjectRoot, 'cockpit_config.json');
+  
   const defaults: CockpitExecutorConfig = {
     backend: 'claude-cli',
+    projectRoot: absProjectRoot,
     claude: {
       bin: process.env.CLAUDE_CLI_BIN || 'claude',
       model: process.env.CLAUDE_CODE_MODEL || 'auto',
@@ -56,13 +59,13 @@ function loadConfig(): CockpitExecutorConfig {
         anthropic: process.env.ANTHROPIC_API_KEY || '',
         google: process.env.GOOGLE_API_KEY || '',
       },
-      workspacePath: process.env.OPENHANDS_WORKSPACE_PATH || process.cwd(),
+      workspacePath: process.env.OPENHANDS_WORKSPACE_PATH || absProjectRoot,
     },
   };
 
-  if (fs.existsSync(CONFIG_PATH)) {
+  if (fs.existsSync(configPath)) {
     try {
-      const stored = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf-8'));
+      const stored = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
       return {
         ...defaults,
         ...stored,
@@ -75,49 +78,31 @@ function loadConfig(): CockpitExecutorConfig {
         },
       };
     } catch (e) {
-      console.error('Failed to load cockpit_config.json:', e);
+      console.error(`Failed to load cockpit_config.json from ${configPath}:`, e);
     }
   }
   return defaults;
 }
 
-let executorConfig: CockpitExecutorConfig = loadConfig();
-
-function saveConfig(config: CockpitExecutorConfig) {
+export function saveConfig(config: CockpitExecutorConfig) {
+  const configPath = path.resolve(config.projectRoot, 'cockpit_config.json');
   try {
-    fs.writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2));
+    const { projectRoot, ...rest } = config; // Don't save projectRoot to the file
+    fs.writeFileSync(configPath, JSON.stringify(rest, null, 2));
   } catch (e) {
-    console.error('Failed to save cockpit_config.json:', e);
+    console.error(`Failed to save cockpit_config.json to ${configPath}:`, e);
   }
 }
 
 export function getCockpitExecutorConfig(): CockpitExecutorConfig {
-  return executorConfig;
+  return loadConfig(process.cwd());
 }
 
-export function updateCockpitExecutorConfig(patch: Partial<CockpitExecutorConfig>): CockpitExecutorConfig {
-  executorConfig = {
-    ...executorConfig,
-    ...patch,
-    claude: {
-      ...executorConfig.claude,
-      ...(patch.claude || {}),
-    },
-    codex: {
-      ...executorConfig.codex,
-      ...(patch.codex || {}),
-    },
-    openhands: {
-      ...executorConfig.openhands,
-      ...(patch.openhands || {}),
-      apiKeys: {
-        ...executorConfig.openhands.apiKeys,
-        ...((patch.openhands || {}).apiKeys || {}),
-      },
-    },
-  };
-  saveConfig(executorConfig);
-  return executorConfig;
+export function updateCockpitExecutorConfig(config: Partial<CockpitExecutorConfig>): CockpitExecutorConfig {
+  const current = getCockpitExecutorConfig();
+  const updated = { ...current, ...config };
+  saveConfig(updated);
+  return updated;
 }
 
 export function resolveRuntimeCapabilities(config?: CockpitExecutorConfig): CockpitRuntimeCapabilities {
@@ -131,7 +116,7 @@ export function resolveRuntimeCapabilities(config?: CockpitExecutorConfig): Cock
     requiresLocalAuth: true,
     supportsExecutorSelection: true,
     implicitCodexApiKey,
-    effectiveMode: 'cli', // Default to cli for this project's current state
-    openhandsServerAlive: false, // Default to false, check would be async
+    effectiveMode: 'cli',
+    openhandsServerAlive: false,
   };
 }
