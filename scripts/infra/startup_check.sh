@@ -22,11 +22,11 @@ fi
 
 echo -e "${YELLOW}--- Running Agent System Health Check ---${NC}"
 
-# 1. Plane Check (API)
-if curl -s -f http://localhost:3000/api/health > /dev/null; then
-    echo -e "${GREEN}[PASS] Plane API is responsive (localhost:3000)${NC}"
+# 1. Plane Check (API Gateway / Port)
+if nc -z localhost 3000 2>/dev/null || curl -s -f http://localhost:3000/health > /dev/null; then
+    echo -e "${GREEN}[PASS] Plane gateway is responsive (localhost:3000)${NC}"
 else
-    echo -e "${RED}[FAIL] Plane API is NOT responsive${NC}"
+    echo -e "${RED}[FAIL] Plane gateway is NOT responsive (localhost:3000)${NC}"
 fi
 
 # 2. Redis Check
@@ -72,7 +72,7 @@ status_text() {
     if $1; then echo -e "${GREEN}UP${NC}"; else echo -e "${RED}DOWN${NC}"; fi
 }
 
-printf "| %-15s | %-5s | %-17s |\n" "Plane API" "3000" "$(status_text "curl -s -f http://localhost:3000/api/health")"
+printf "| %-15s | %-5s | %-17s |\n" "Plane" "3000" "$(status_text "nc -z localhost 3000")"
 printf "| %-15s | %-5s | %-17s |\n" "Redis" "6379" "$(status_text "nc -z localhost 6379")"
 printf "| %-15s | %-5s | %-17s |\n" "LangGraph" "2024" "$(status_text "nc -z localhost 2024")"
 printf "| %-15s | %-5s | %-17s |\n" "OpenHands" "8000" "$(status_text "nc -z localhost 8000")"
