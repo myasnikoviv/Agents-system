@@ -8,60 +8,60 @@ This repository uses a role-based agent system for product work, strategy logic 
 
 1. PM Orchestrator / Supervisor
    - Callsign: `Сокіл-Координатор (PM Orchestrator)`
-   - File: `/Users/myasnikoviv/development/Agentic system common files/docs/agents/pm-orchestrator.md`
-   - Skill: `/Users/myasnikoviv/development/Agentic system common files/docs/skills/pm-orchestrator-skill.md`
+   - File: `./common-agents/docs/agents/pm-orchestrator.md`
+   - Skill: `./common-agents/docs/skills/pm-orchestrator-skill.md`
 2. Research Agent
    - Callsign: `Дослідник Шляху (Research Agent)`
-   - File: `/Users/myasnikoviv/development/Agentic system common files/docs/agents/research-agent.md`
-   - Skill: `/Users/myasnikoviv/development/Agentic system common files/docs/skills/research-agent-skill.md`
+   - File: `./common-agents/docs/agents/research-agent.md`
+   - Skill: `./common-agents/docs/skills/research-agent-skill.md`
 3. Trader Analyst
    - Callsign: `Ринковий Вовк (Trader Analyst)`
-   - File: `/Users/myasnikoviv/development/Agentic system common files/docs/agents/trader-analyst.md`
-   - Skill: `/Users/myasnikoviv/development/Agentic system common files/docs/skills/trader-analyst-skill.md`
+   - File: `./common-agents/docs/agents/trader-analyst.md`
+   - Skill: `./common-agents/docs/skills/trader-analyst-skill.md`
 4. Solution Architect
    - Callsign: `Майстер Креслень (Solution Architect)`
-   - File: `/Users/myasnikoviv/development/Agentic system common files/docs/agents/solution-architect.md`
-   - Skill: `/Users/myasnikoviv/development/Agentic system common files/docs/skills/solution-architect-skill.md`
+   - File: `./common-agents/docs/agents/solution-architect.md`
+   - Skill: `./common-agents/docs/skills/solution-architect-skill.md`
 5. TDD QA
    - Callsign: `Ловець Багів (TDD QA)`
-   - File: `/Users/myasnikoviv/development/Agentic system common files/docs/agents/tdd-qa.md`
-   - Skill: `/Users/myasnikoviv/development/Agentic system common files/docs/skills/tdd-qa-skill.md`
+   - File: `./common-agents/docs/agents/tdd-qa.md`
+   - Skill: `./common-agents/docs/skills/tdd-qa-skill.md`
 6. Developer
    - Callsign: `Кодоковаль (Developer)`
-   - File: `/Users/myasnikoviv/development/Agentic system common files/docs/agents/developer.md`
-   - Skill: `/Users/myasnikoviv/development/Agentic system common files/docs/skills/developer-skill.md`
+   - File: `./common-agents/docs/agents/developer.md`
+   - Skill: `./common-agents/docs/skills/developer-skill.md`
 7. Code Reviewer
    - Callsign: `Вартовий Якості (Code Reviewer)`
-   - File: `/Users/myasnikoviv/development/Agentic system common files/docs/agents/code-reviewer.md`
-   - Skill: `/Users/myasnikoviv/development/Agentic system common files/docs/skills/code-reviewer-skill.md`
+   - File: `./common-agents/docs/agents/code-reviewer.md`
+   - Skill: `./common-agents/docs/skills/code-reviewer-skill.md`
 8. Runner Backtest
    - Callsign: `Бойовий Прогін (Runner Backtest)`
-   - File: `/Users/myasnikoviv/development/Agentic system common files/docs/agents/runner-backtest.md`
-   - Skill: `/Users/myasnikoviv/development/Agentic system common files/docs/skills/runner-backtest-skill.md`
+   - File: `./common-agents/docs/agents/runner-backtest.md`
+   - Skill: `./common-agents/docs/skills/runner-backtest-skill.md`
 9. Knowledge Curator / Learning Agent
    - Callsign: `Хранитель Знань (Knowledge Curator)`
-   - File: `/Users/myasnikoviv/development/Agentic system common files/docs/agents/knowledge-curator.md`
-   - Skill: `/Users/myasnikoviv/development/Agentic system common files/docs/skills/knowledge-curator-skill.md`
+   - File: `./common-agents/docs/agents/knowledge-curator.md`
+   - Skill: `./common-agents/docs/skills/knowledge-curator-skill.md`
 10. Domain Validator (optional, mandatory for domain-heavy tasks)
    - Callsign: `Вартовий Домену (Domain Validator)`
-   - File: `/Users/myasnikoviv/development/Agentic system common files/docs/agents/domain-validator.md`
-   - Skill: `/Users/myasnikoviv/development/Agentic system common files/docs/skills/domain-validator-skill.md`
+   - File: `./common-agents/docs/agents/domain-validator.md`
+   - Skill: `./common-agents/docs/skills/domain-validator-skill.md`
 11. Git Flow Manager
    - Callsign: `Пан Гілка (Git Flow Manager)`
-   - File: `/Users/myasnikoviv/development/Agentic system common files/docs/agents/git-flow-manager.md`
-   - Skill: `/Users/myasnikoviv/development/Agentic system common files/docs/skills/git-flow-manager-skill.md`
+   - File: `./common-agents/docs/agents/git-flow-manager.md`
+   - Skill: `./common-agents/docs/skills/git-flow-manager-skill.md`
 12. Documentation Owner
    - Callsign: `Хранитель Писань (Documentation Owner)`
-   - File: `/Users/myasnikoviv/development/Agentic system common files/docs/agents/documentation-owner.md`
-   - Skill: `/Users/myasnikoviv/development/Agentic system common files/docs/skills/documentation-owner-skill.md`
+   - File: `./common-agents/docs/agents/documentation-owner.md`
+   - Skill: `./common-agents/docs/skills/documentation-owner-skill.md`
 13. DevOps Engineer
    - Callsign: `Техно-Рятівник (DevOps Engineer)`
-   - File: `/Users/myasnikoviv/development/Agentic system common files/docs/agents/devops-engineer.md`
-   - Skill: `/Users/myasnikoviv/development/Agentic system common files/docs/skills/devops-engineer-skill.md`
+   - File: `./common-agents/docs/agents/devops-engineer.md`
+   - Skill: `./common-agents/docs/skills/devops-engineer-skill.md`
 14. Design Lead / UI-UX Authority
    - Callsign: `Маестро Дизайну (Design Lead)`
-   - File: `/Users/myasnikoviv/development/Agentic system common files/docs/agents/design-lead.md`
-   - Skill: `/Users/myasnikoviv/development/Agentic system common files/docs/skills/design-lead-skill.md`
+   - File: `./common-agents/docs/agents/design-lead.md`
+   - Skill: `./common-agents/docs/skills/design-lead-skill.md`
 
 ## Cognitive Loop Contract
 
@@ -71,29 +71,29 @@ For medium/high complexity work, key agents run this loop:
 
 ## Pipelines
 
-1. Unified Task Intake: `/Users/myasnikoviv/development/Agentic system common files/docs/pipelines/unified-task-intake.md`
-2. New Feature: `/Users/myasnikoviv/development/Agentic system common files/docs/pipelines/new-feature.md`
-3. Feature Change: `/Users/myasnikoviv/development/Agentic system common files/docs/pipelines/feature-change.md`
-4. Bug Fix: `/Users/myasnikoviv/development/Agentic system common files/docs/pipelines/bug-fix.md`
-5. Hotfix: `/Users/myasnikoviv/development/Agentic system common files/docs/pipelines/hotfix.md`
-6. Refactor: `/Users/myasnikoviv/development/Agentic system common files/docs/pipelines/refactor.md`
-7. Strategy Tuning / Research Loop: `/Users/myasnikoviv/development/Agentic system common files/docs/pipelines/strategy-tuning.md`
-8. Retrospective & Learning: `/Users/myasnikoviv/development/Agentic system common files/docs/pipelines/retrospective-learning.md`
-9. Git Conflict / Wrong-Branch Recovery: `/Users/myasnikoviv/development/Agentic system common files/docs/pipelines/git-conflict-recovery.md`
-10. Release: `/Users/myasnikoviv/development/Agentic system common files/docs/pipelines/release.md`
-11. Rollback / Incident: `/Users/myasnikoviv/development/Agentic system common files/docs/pipelines/rollback-incident.md`
-12. Design Audit: `/Users/myasnikoviv/development/Agentic system common files/docs/pipelines/design-audit.md`
-13. Sprint Integration Closure: `/Users/myasnikoviv/development/Agentic system common files/docs/pipelines/sprint-integration.md`
+1. Unified Task Intake: `./common-agents/docs/pipelines/unified-task-intake.md`
+2. New Feature: `./common-agents/docs/pipelines/new-feature.md`
+3. Feature Change: `./common-agents/docs/pipelines/feature-change.md`
+4. Bug Fix: `./common-agents/docs/pipelines/bug-fix.md`
+5. Hotfix: `./common-agents/docs/pipelines/hotfix.md`
+6. Refactor: `./common-agents/docs/pipelines/refactor.md`
+7. Strategy Tuning / Research Loop: `./common-agents/docs/pipelines/strategy-tuning.md`
+8. Retrospective & Learning: `./common-agents/docs/pipelines/retrospective-learning.md`
+9. Git Conflict / Wrong-Branch Recovery: `./common-agents/docs/pipelines/git-conflict-recovery.md`
+10. Release: `./common-agents/docs/pipelines/release.md`
+11. Rollback / Incident: `./common-agents/docs/pipelines/rollback-incident.md`
+12. Design Audit: `./common-agents/docs/pipelines/design-audit.md`
+13. Sprint Integration Closure: `./common-agents/docs/pipelines/sprint-integration.md`
 
 ## Knowledge Layer
 
-- Knowledge root: `/Users/myasnikoviv/development/Agentic system common files/docs/knowledge/`
-- Schema: `/Users/myasnikoviv/development/Agentic system common files/docs/knowledge/schema.md`
-- Lessons learned registry: `/Users/myasnikoviv/development/Agentic system common files/docs/knowledge/lessons-learned/`
-- Decision log: `/Users/myasnikoviv/development/Agentic system common files/docs/knowledge/decisions/`
-- Architecture rules registry: `/Users/myasnikoviv/development/Agentic system common files/docs/knowledge/architecture-rules/`
-- Domain validation notes: `/Users/myasnikoviv/development/Agentic system common files/docs/knowledge/domain-notes/`
-- Skills registry and lifecycle: `/Users/myasnikoviv/development/Agentic system common files/docs/skills/skill-schema-v2.md`
+- Knowledge root: ./common-agents/docs/process/
+- Schema: ./common-agents/docs/knowledge/schema.md
+- Lessons learned registry: ./common-agents/docs/process/knowledge/lessons-learned/
+- Decision log: ./common-agents/docs/process/knowledge/decisions/
+- Architecture rules registry: ./common-agents/docs/process/knowledge/architecture-rules/
+- Domain validation notes: ./common-agents/docs/process/knowledge/domain-notes/
+- Skills registry and lifecycle: ./common-agents/docs/skills/skill-schema-v2.md
 
 ## Global Rules
 
