@@ -1181,6 +1181,125 @@
     line-height: 1.35;
 }
 
+.cockpit-modal-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 120;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 1rem;
+    background: rgba(2, 6, 23, 0.72);
+    backdrop-filter: blur(3px);
+}
+
+.cockpit-modal-panel {
+    width: min(100%, 760px);
+    display: flex;
+    flex-direction: column;
+    gap: 0.9rem;
+    border-radius: 0.9rem;
+    border: 1px solid rgba(71, 85, 105, 0.8);
+    background: linear-gradient(180deg, rgba(15, 23, 42, 0.98), rgba(2, 6, 23, 0.98));
+    padding: 1rem;
+    box-shadow: 0 20px 48px rgba(2, 6, 23, 0.5);
+}
+
+.cockpit-modal-title {
+    margin: 0;
+    font-size: 1rem;
+    font-weight: 700;
+    color: #e2e8f0;
+}
+
+.cockpit-modal-subtitle {
+    margin: 0.3rem 0 0;
+    font-size: 0.85rem;
+    color: #94a3b8;
+}
+
+.cockpit-modal-form {
+    display: flex;
+    flex-direction: column;
+    gap: 0.45rem;
+}
+
+.cockpit-modal-row {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 0.45rem;
+}
+
+.cockpit-modal-label {
+    font-size: 0.72rem;
+    font-weight: 700;
+    color: #cbd5e1;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+}
+
+.cockpit-modal-input {
+    height: 2.25rem;
+    border-radius: 0.5rem;
+    border: 1px solid rgba(100, 116, 139, 0.8);
+    background: rgba(15, 23, 42, 0.88);
+    padding: 0 0.72rem;
+    color: #e2e8f0;
+    font-size: 0.86rem;
+}
+
+.cockpit-modal-input:focus {
+    border-color: #3b82f6;
+    box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.25);
+}
+
+.cockpit-modal-hint {
+    font-size: 0.77rem;
+    color: #94a3b8;
+}
+
+.cockpit-modal-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.5rem;
+}
+
+.cockpit-modal-secondary,
+.cockpit-modal-primary {
+    height: 2.25rem;
+    border-radius: 0.5rem;
+    padding: 0 0.85rem;
+    font-size: 0.84rem;
+    font-weight: 700;
+    border: 1px solid transparent;
+    cursor: pointer;
+}
+
+.cockpit-modal-secondary {
+    border-color: rgba(100, 116, 139, 0.85);
+    background: rgba(30, 41, 59, 0.95);
+    color: #cbd5e1;
+}
+
+.cockpit-modal-secondary:hover {
+    background: rgba(51, 65, 85, 0.95);
+}
+
+.cockpit-modal-primary {
+    border-color: #2563eb;
+    background: #1d4ed8;
+    color: #f8fafc;
+}
+
+.cockpit-modal-primary:hover {
+    background: #2563eb;
+}
+
+.cockpit-modal-primary:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+}
+
 .execution-item {
     background: #151b24;
     border: 1px solid #2b3343;
