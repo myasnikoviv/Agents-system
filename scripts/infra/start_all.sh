@@ -62,8 +62,7 @@ fi
 # 6. Start Agent System Backend API (Port 3001)
 if ! lsof -i :3001 > /dev/null; then
     echo "Starting Agent System Backend API (3001)..."
-    nohup npm run backend:start > agent_system_backend.log 2>&1 &
-    echo "Backend starting in background (log: agent_system_backend.log)"
+    ./scripts/infra/backend_ctl.sh start
 else
     echo "Backend API is already running on port 3001."
 fi
