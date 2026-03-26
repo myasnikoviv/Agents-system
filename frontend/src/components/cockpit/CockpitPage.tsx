@@ -990,9 +990,9 @@ export function CockpitPage() {
 
                     <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto p-4">
                         {observability && (
-                            <div className="observability-card">
-                                <div className="observability-title">Pipeline Observability</div>
-                                <div className="observability-grid">
+                            <div className="mb-2 rounded-xl border border-sky-400/40 bg-slate-900/80 p-3.5">
+                                <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-300">Pipeline Observability</div>
+                                <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1.5 text-xs">
                                     <span>Pipeline</span><strong>{observability.pipeline}</strong>
                                     <span>Stage</span><strong>{observability.stage}</strong>
                                     <span>Next</span><strong>{observability.nextStage}</strong>
@@ -1002,7 +1002,7 @@ export function CockpitPage() {
                             </div>
                         )}
                         {(currentTicketId || gitContext) && (
-                            <div className="artifact-strip">
+                            <div className="mb-2 flex flex-col gap-1 rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-xs text-slate-300 [&_a]:text-sky-300 hover:[&_a]:underline">
                                 {currentTicketId && (
                                     <div>
                                         <strong>Ticket:</strong>{' '}
@@ -1019,25 +1019,25 @@ export function CockpitPage() {
                             </div>
                         )}
                         {scopeCardPinned && workScope.items.length > 0 && (
-                            <div className="chat-scope-card">
-                                <div className="chat-scope-head">
+                            <div className="flex flex-col gap-2 rounded-lg border border-slate-700 bg-slate-900 p-2.5">
+                                <div className="flex items-start justify-between gap-2">
                                     <div>
                                         <strong>Execution Scope</strong>
-                                        <div className="chat-scope-sub">PM checklist: Sprint / Story / Task</div>
+                                        <div className="mt-0.5 text-xs text-slate-400">PM checklist: Sprint / Story / Task</div>
                                     </div>
                                     <button type="button" className="context-pill" onClick={() => setScopeCardPinned(false)}>Unpin</button>
                                 </div>
-                                <div className="health-grid">
+                                <div className="grid grid-cols-[auto_auto] gap-x-3 gap-y-1 text-xs">
                                     <span>Total</span><strong>{workScope.statusSummary.total}</strong>
                                     <span>Done</span><strong className="health-ok">{workScope.statusSummary.done}</strong>
                                     <span>In Progress</span><strong>{workScope.statusSummary.inProgress}</strong>
                                     <span>Todo</span><strong>{workScope.statusSummary.todo}</strong>
                                 </div>
-                                <div className="scope-multiselect">
+                                <div className="flex max-h-48 flex-col gap-1 overflow-y-auto rounded-md border border-slate-700 bg-slate-950 p-2">
                                     {workScope.items.slice(0, 10).map((it) => {
                                         const checked = selectedScopeItemIds.includes(it.id);
                                         return (
-                                            <label key={`chat-scope-${it.id}`} className="scope-check-item">
+                                            <label key={`chat-scope-${it.id}`} className="flex items-center gap-2 rounded-md px-1 py-1 text-xs text-slate-300 hover:bg-slate-800">
                                                 <input
                                                     type="checkbox"
                                                     checked={checked}
@@ -1055,7 +1055,11 @@ export function CockpitPage() {
                             </div>
                         )}
                         {!scopeCardPinned && workScope.items.length > 0 && (
-                            <button type="button" className="scope-pin-restore" onClick={() => setScopeCardPinned(true)}>
+                            <button
+                                type="button"
+                                className="self-start rounded-md border border-dashed border-slate-600 bg-slate-900 px-2 py-1 text-xs text-slate-300 hover:bg-slate-800"
+                                onClick={() => setScopeCardPinned(true)}
+                            >
                                 Pin Scope Checklist
                             </button>
                         )}
@@ -1464,13 +1468,13 @@ export function CockpitPage() {
                         Live Hive State
                     </div>
                     
-                    <div className="agent-status-card">
-                        <div className="agent-avatar">
+                    <div className="mx-3 mt-3 flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-900 p-2.5">
+                        <div className="inline-flex h-10 w-10 items-center justify-center rounded-md border border-slate-600 bg-slate-800">
                             <Cpu size={24} color={'white'} />
                         </div>
-                        <div className="agent-info">
-                            <div className="agent-name">Swarm Controller</div>
-                            <div className="agent-activity">
+                        <div className="flex min-w-0 flex-1 flex-col">
+                            <div className="text-sm font-semibold text-slate-100">Swarm Controller</div>
+                            <div className="text-xs text-slate-300">
                                 {events.length > 0 
                                     ? `Last Active: ${events[events.length-1].agent_role || 'System'} (${mode})`
                                     : `Listening on Events Hub...`}
@@ -1481,19 +1485,19 @@ export function CockpitPage() {
                     <div className="min-h-0 flex-1 overflow-y-auto p-3">
                             <>
                                 {executionFeed.length > 0 && (
-                                    <div className="catalog-card">
-                                        <div className="catalog-title">Execution Feed</div>
+                                    <div className="flex flex-col gap-2 rounded-lg border border-slate-700 bg-slate-900 p-2.5">
+                                        <div className="text-[11px] font-bold uppercase tracking-wide text-slate-300">Execution Feed</div>
                                         {executionFeed.map((item, idx) => (
-                                            <div key={`exec-${idx}`} className="execution-item">
-                                                <div className="execution-head">
+                                            <div key={`exec-${idx}`} className="rounded-md border border-slate-700 bg-slate-950 p-2">
+                                                <div className="mb-1 flex items-center justify-between text-xs text-slate-300">
                                                     <span>{item.role || 'Unknown role'}</span>
                                                     <span>{item.stage || 'n/a'}</span>
                                                 </div>
-                                                <div className="execution-body">
+                                                <div className="mb-1 flex flex-wrap items-center gap-2 text-xs text-slate-300">
                                                     <span className={statusBadgeClass(item.status)}>{item.status || 'unknown'}</span>
-                                                    {item.fallback && <span className="execution-fallback">fallback: {item.fallback}</span>}
+                                                    {item.fallback && <span className="rounded border border-slate-600 bg-slate-800 px-1.5 py-0.5 text-[11px] text-amber-200">fallback: {item.fallback}</span>}
                                                 </div>
-                                                <div className="execution-msg">{item.message || item.raw}</div>
+                                                <div className="text-xs text-slate-300">{item.message || item.raw}</div>
                                             </div>
                                         ))}
                                     </div>
@@ -1506,18 +1510,18 @@ export function CockpitPage() {
                                 ) : null}
                                 
                                 {events.slice().reverse().map((ev, idx) => (
-                                    <div key={ev.event_id || idx} className="feed-item observability-event-card">
+                                    <div key={ev.event_id || idx} className="mb-2 rounded-lg border border-slate-700 bg-slate-900 p-2.5">
                                         <div className="feed-header">
                                             <span>{ev.agent_role || 'System'}</span>
                                             <span>{new Date(ev.timestamp).toLocaleTimeString()}</span>
                                         </div>
-                                        <div className="observability-event-type">{prettyEventType(ev.event_type)}</div>
-                                        <div className="execution-body">
+                                        <div className="my-1 text-xs uppercase tracking-wide text-slate-400">{prettyEventType(ev.event_type)}</div>
+                                        <div className="mb-2 flex flex-wrap items-center gap-2 text-xs text-slate-300">
                                             <span className={statusBadgeClass(ev.status)}>{ev.status || 'unknown'}</span>
                                             <span>from: {prettyStage(ev.source_stage)}</span>
                                             <span>to: {prettyStage(ev.target_stage)}</span>
                                         </div>
-                                        <div className="observability-event-grid">
+                                        <div className="grid grid-cols-[auto_1fr] gap-x-2 gap-y-1 text-xs [&_span]:text-slate-400 [&_strong]:text-slate-200 [&_a]:text-sky-300 hover:[&_a]:underline">
                                             <span>Role</span>
                                             <strong>{ev.agent_role || 'system'}</strong>
                                             <span>Issue</span>
