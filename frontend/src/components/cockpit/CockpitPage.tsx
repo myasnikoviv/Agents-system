@@ -64,6 +64,7 @@ interface CatalogState {
 interface RailProject {
     id: string;
     label: string;
+    worktreePath?: string;
 }
 interface RailThread {
     id: string;
@@ -765,7 +766,22 @@ export function CockpitPage() {
         return `${baseId}-${idx}`;
     };
 
-    const handleCreateChain = async (projectIdArg?: string, labelArg?: string) => {
+    const syncProjectRuntimeContext = async (projectId: string) => {
+        const data = await fetchJsonSafe<any>('/api/cockpit/projects/select', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ projectId }),
+        });
+        if (data?.success && data.runtimeFooter) {
+            setRuntimeFooter(data.runtimeFooter);
+        }
+    };
+
+    const handleCreateChain = async (
+        projectIdArg?: string,
+        labelArg?: string,
+        options?: { projectLabel?: string; worktreePath?: string },
+    ) => {
         const projectId = projectIdArg || selectedProject;
         if (!projectId) return;
         const data = await fetchJsonSafe<any>('/api/cockpit/chains', {
@@ -774,6 +790,8 @@ export function CockpitPage() {
             body: JSON.stringify({
                 projectId,
                 label: labelArg || `New chat ${new Date().toLocaleTimeString()}`,
+                projectLabel: options?.projectLabel,
+                worktreePath: options?.worktreePath,
             }),
         });
         if (!data?.success) {
@@ -784,6 +802,7 @@ export function CockpitPage() {
         setRailThreadsByProject(data.threadsByProject || {});
         setSelectedProject(projectId);
         if (data.thread?.id) setSelectedThread(data.thread.id);
+        void syncProjectRuntimeContext(projectId);
     };
 
     const handleChooseDirectory = async () => {
@@ -805,7 +824,10 @@ export function CockpitPage() {
         const folderName = getFolderNameFromPath(projectDirectory);
         if (!folderName) return;
         const projectId = getUniqueProjectId(slugifyProjectId(folderName));
-        await handleCreateChain(projectId, 'New chat');
+        await handleCreateChain(projectId, 'New chat', {
+            projectLabel: folderName,
+            worktreePath: projectDirectory.trim() || undefined,
+        });
         setSelectedProject(projectId);
         setProjectDirectory('');
         setIsProjectModalOpen(false);
@@ -951,6 +973,7 @@ export function CockpitPage() {
                                             onClick={() => {
                                                 setSelectedProject(project.id);
                                                 setSelectedThread((railThreadsByProject[project.id] || [])[0]?.id || '');
+                                                void syncProjectRuntimeContext(project.id);
                                             }}
                                         >
                                             <Folder size={13} />
