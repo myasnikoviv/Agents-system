@@ -1601,34 +1601,34 @@ export function CockpitPage() {
             </main>
 
             {isProjectModalOpen && (
-                <div className="fixed inset-0 z-[120] flex items-center justify-center bg-slate-950/65 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="project-modal-title">
-                    <div className="flex w-full max-w-2xl flex-col gap-4 rounded-xl border border-slate-700 bg-gradient-to-b from-slate-900 to-slate-950 p-4 shadow-2xl shadow-slate-950/60">
+                <div className="cockpit-modal-overlay" role="dialog" aria-modal="true" aria-labelledby="project-modal-title">
+                    <div className="cockpit-modal-panel">
                         <div>
-                            <h3 id="project-modal-title" className="m-0 text-base font-semibold text-slate-100">Add Project Directory</h3>
-                            <p className="mt-1 text-sm text-slate-400">Select a working folder. Project name is generated from the folder name.</p>
+                            <h3 id="project-modal-title" className="cockpit-modal-title">Add Project Directory</h3>
+                            <p className="cockpit-modal-subtitle">Select a working folder. Project name is generated from the folder name.</p>
                         </div>
-                        <div className="flex flex-col gap-2">
-                            <label htmlFor="project-directory-input" className="text-xs font-semibold text-slate-300">Directory Path</label>
-                            <div className="grid grid-cols-[1fr_auto] gap-2">
+                        <div className="cockpit-modal-form">
+                            <label htmlFor="project-directory-input" className="cockpit-modal-label">Directory Path</label>
+                            <div className="cockpit-modal-row">
                                 <input
                                     id="project-directory-input"
                                     value={projectDirectory}
                                     onChange={(e) => setProjectDirectory(e.target.value)}
                                     placeholder="/Users/.../your-project"
-                                    className="h-9 rounded-md border border-slate-600 bg-slate-900 px-3 text-sm text-slate-100 outline-none focus:border-sky-500"
+                                    className="cockpit-modal-input"
                                 />
-                                <button type="button" className="h-9 rounded-md border border-slate-600 bg-slate-800 px-3 text-sm font-semibold text-slate-200 hover:bg-slate-700" onClick={handleChooseDirectory}>
+                                <button type="button" className="cockpit-modal-secondary" onClick={handleChooseDirectory}>
                                     Choose Folder
                                 </button>
                             </div>
-                            <div className="text-xs text-slate-400">
+                            <div className="cockpit-modal-hint">
                                 Project name: <strong>{getFolderNameFromPath(projectDirectory) || '—'}</strong>
                             </div>
                         </div>
-                        <div className="flex justify-end gap-2">
+                        <div className="cockpit-modal-actions">
                             <button
                                 type="button"
-                                className="h-9 rounded-md border border-slate-600 bg-slate-800 px-3 text-sm font-semibold text-slate-200 hover:bg-slate-700"
+                                className="cockpit-modal-secondary"
                                 onClick={() => {
                                     setIsProjectModalOpen(false);
                                     setProjectDirectory('');
@@ -1638,7 +1638,7 @@ export function CockpitPage() {
                             </button>
                             <button
                                 type="button"
-                                className="h-9 rounded-md border border-blue-600 bg-blue-700 px-3 text-sm font-semibold text-white hover:bg-blue-600 disabled:cursor-not-allowed disabled:opacity-50"
+                                className="cockpit-modal-primary"
                                 disabled={!getFolderNameFromPath(projectDirectory)}
                                 onClick={() => { void handleAddNewProject(); }}
                             >
@@ -1650,37 +1650,37 @@ export function CockpitPage() {
             )}
 
             {isChainModalOpen && (
-                <div className="fixed inset-0 z-[120] flex items-center justify-center bg-slate-950/65 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="chain-modal-title">
-                    <div className="flex w-full max-w-2xl flex-col gap-4 rounded-xl border border-slate-700 bg-gradient-to-b from-slate-900 to-slate-950 p-4 shadow-2xl shadow-slate-950/60">
+                <div className="cockpit-modal-overlay" role="dialog" aria-modal="true" aria-labelledby="chain-modal-title">
+                    <div className="cockpit-modal-panel">
                         <div>
-                            <h3 id="chain-modal-title" className="m-0 text-base font-semibold text-slate-100">Create New Chain</h3>
-                            <p className="mt-1 text-sm text-slate-400">Start a new chat chain in the current project or as unbound context.</p>
+                            <h3 id="chain-modal-title" className="cockpit-modal-title">Create New Chain</h3>
+                            <p className="cockpit-modal-subtitle">Start a new chat chain in the current project or as unbound context.</p>
                         </div>
-                        <div className="flex flex-col gap-2">
-                            <label htmlFor="chain-label-input" className="text-xs font-semibold text-slate-300">Chain Name</label>
+                        <div className="cockpit-modal-form">
+                            <label htmlFor="chain-label-input" className="cockpit-modal-label">Chain Name</label>
                             <input
                                 id="chain-label-input"
                                 value={newChainLabel}
                                 onChange={(e) => setNewChainLabel(e.target.value)}
                                 placeholder="For example: Sprint planning sync"
-                                className="h-9 rounded-md border border-slate-600 bg-slate-900 px-3 text-sm text-slate-100 outline-none focus:border-sky-500"
+                                className="cockpit-modal-input"
                             />
-                            <label htmlFor="chain-scope-select" className="text-xs font-semibold text-slate-300">Scope</label>
+                            <label htmlFor="chain-scope-select" className="cockpit-modal-label">Scope</label>
                             <select
                                 id="chain-scope-select"
                                 value={newChainScope}
                                 onChange={(e) => setNewChainScope(e.target.value as 'current' | 'unbound')}
                                 disabled={!selectedProject}
-                                className="h-9 rounded-md border border-slate-600 bg-slate-900 px-3 text-sm text-slate-100 outline-none focus:border-sky-500 disabled:opacity-60"
+                                className="cockpit-modal-input"
                             >
                                 <option value="current">{selectedProject ? `Current project (${selectedProject})` : 'Current project unavailable'}</option>
                                 <option value="unbound">Unbound chain (no project)</option>
                             </select>
                         </div>
-                        <div className="flex justify-end gap-2">
+                        <div className="cockpit-modal-actions">
                             <button
                                 type="button"
-                                className="h-9 rounded-md border border-slate-600 bg-slate-800 px-3 text-sm font-semibold text-slate-200 hover:bg-slate-700"
+                                className="cockpit-modal-secondary"
                                 onClick={() => {
                                     setIsChainModalOpen(false);
                                     setNewChainLabel('');
@@ -1691,7 +1691,7 @@ export function CockpitPage() {
                             </button>
                             <button
                                 type="button"
-                                className="h-9 rounded-md border border-blue-600 bg-blue-700 px-3 text-sm font-semibold text-white hover:bg-blue-600 disabled:cursor-not-allowed disabled:opacity-50"
+                                className="cockpit-modal-primary"
                                 disabled={!selectedProject && newChainScope === 'current'}
                                 onClick={() => { void handleAddNewChain(); }}
                             >
