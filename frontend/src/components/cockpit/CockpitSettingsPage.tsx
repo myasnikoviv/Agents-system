@@ -3,7 +3,6 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import { ChevronLeft, Server, SlidersHorizontal, ShieldCheck, Eye, EyeOff, Clipboard, CheckCircle, AlertTriangle, Loader2 } from 'lucide-react';
 import { apiUrl, fetchJsonStrict } from '../../lib/http';
 import { Button } from '../ui/Button';
-import './CockpitSettingsPage.css';
 
 const SECTIONS = [
   'general',
@@ -1051,87 +1050,102 @@ export function CockpitSettingsPage() {
   };
 
   const sectionTitle = currentSection.replace('-', ' ').replace(/\b\w/g, (m) => m.toUpperCase());
+  const settingsCardClass = 'mb-3 rounded-xl border border-slate-700 bg-slate-900 p-3.5';
+  const settingsNoteClass = 'mb-3 text-sm text-slate-400';
+  const settingsMetaClass = 'mt-2 text-xs text-slate-400';
+  const settingsGridClass =
+    'grid grid-cols-1 overflow-hidden rounded-lg border border-slate-700 bg-slate-950 md:grid-cols-2 ' +
+    '[&_label]:flex [&_label]:flex-col [&_label]:gap-1.5 [&_label]:border-b [&_label]:border-slate-800 [&_label]:p-2.5 [&_label]:text-xs [&_label]:text-slate-300 ' +
+    'md:[&_label:nth-child(odd)]:border-r md:[&_label:nth-last-child(-n+2)]:border-b-0 ' +
+    '[&_select]:rounded-md [&_select]:border [&_select]:border-slate-600 [&_select]:bg-slate-800 [&_select]:px-2.5 [&_select]:py-1.5 [&_select]:text-sm [&_select]:text-slate-100 ' +
+    '[&_input]:rounded-md [&_input]:border [&_input]:border-slate-600 [&_input]:bg-slate-800 [&_input]:px-2.5 [&_input]:py-1.5 [&_input]:text-sm [&_input]:text-slate-100';
 
   return (
-    <div className="cockpit-settings-shell">
-      <aside className="settings-sidebar">
-        <Link className="settings-back" to="/cockpit/runtime">
+    <div className="grid min-h-screen grid-cols-1 bg-[#121315] text-slate-200 lg:grid-cols-[266px_1fr]">
+      <aside className="border-b border-slate-800 bg-slate-900 px-2.5 pb-3.5 pt-3 lg:border-b-0 lg:border-r lg:border-r-slate-800">
+        <Link className="mb-4 inline-flex items-center gap-1.5 text-sm text-slate-400 no-underline transition-colors hover:text-slate-100" to="/cockpit/runtime">
           <ChevronLeft size={16} />
           Back To Cockpit
         </Link>
-        <nav className="settings-nav">
+        <nav className="flex flex-col gap-1">
           {SECTIONS.map((id) => (
-            <Link key={id} to={`/cockpit/settings/${id}`} className={`settings-nav-item ${currentSection === id ? 'active' : ''}`}>
+            <Link
+              key={id}
+              to={`/cockpit/settings/${id}`}
+              className={`block rounded-md px-2.5 py-2 text-sm no-underline transition-colors ${
+                currentSection === id ? 'bg-slate-700 text-white' : 'text-slate-300 hover:bg-slate-800 hover:text-slate-100'
+              }`}
+            >
               {id.replace('-', ' ').replace(/\b\w/g, (m) => m.toUpperCase())}
             </Link>
           ))}
         </nav>
       </aside>
 
-      <main className="settings-content">
-        <header className="settings-header">
-          <h1>{sectionTitle}</h1>
-          <p>Codex-style settings IA scaffold with functional controls.</p>
+      <main className="w-full max-w-[1040px] px-4 py-5 lg:px-6">
+        <header className="mb-4">
+          <h1 className="m-0 text-3xl font-semibold leading-tight text-slate-100">{sectionTitle}</h1>
+          <p className="mb-0 mt-2 text-sm text-slate-400">Codex-style settings IA scaffold with functional controls.</p>
         </header>
 
         {currentSection === 'general' && (
-          <section className="settings-card">
-            <h2><SlidersHorizontal size={16} />Core Defaults</h2>
-            <div className="settings-grid">
+          <section className={settingsCardClass}>
+            <h2 className="mb-2 inline-flex items-center gap-2 text-sm font-semibold text-slate-100"><SlidersHorizontal size={16} />Core Defaults</h2>
+            <div className={settingsGridClass}>
               <label>Default Open Behavior<select value={generalSettings.defaultOpenBehavior} onChange={(e) => setGeneralSettings((prev) => ({ ...prev, defaultOpenBehavior: e.target.value as GeneralSettings['defaultOpenBehavior'] }))}><option value="finder">Finder</option><option value="editor">Editor</option><option value="terminal">Terminal</option></select></label>
               <label>Language<select value={generalSettings.language} onChange={(e) => setGeneralSettings((prev) => ({ ...prev, language: e.target.value as GeneralSettings['language'] }))}><option value="auto">Auto Detect</option><option value="uk">Ukrainian</option><option value="en">English</option></select></label>
               <label>Command Detail<select value={generalSettings.commandDetail} onChange={(e) => setGeneralSettings((prev) => ({ ...prev, commandDetail: e.target.value as GeneralSettings['commandDetail'] }))}><option value="steps">Code Steps</option><option value="verbose">Verbose Logs</option><option value="minimal">Minimal</option></select></label>
               <label>Execution Speed<select value={generalSettings.executionSpeed} onChange={(e) => setGeneralSettings((prev) => ({ ...prev, executionSpeed: e.target.value as GeneralSettings['executionSpeed'] }))}><option value="standard">Standard</option><option value="fast">Fast</option><option value="deep">Deep Reasoning</option></select></label>
               <label>Execution Runtime Mode<select value={generalSettings.runtimeMode} onChange={(e) => setGeneralSettings((prev) => ({ ...prev, runtimeMode: e.target.value as GeneralSettings['runtimeMode'] }))}><option value="mock">Mock</option><option value="linear">Quasi-Linear</option><option value="multiple_agents">Multiple Agents</option></select></label>
             </div>
-            <div className="server-actions"><Button variant="secondary" onClick={saveGeneralSettings}>Save General Settings</Button></div>
-            <div className="settings-meta">{generalSavedAt}</div>
+            <div className="mt-3 flex flex-wrap gap-2"><Button variant="secondary" onClick={saveGeneralSettings}>Save General Settings</Button></div>
+            <div className={settingsMetaClass}>{generalSavedAt}</div>
           </section>
         )}
 
         {currentSection === 'appearance' && (
-          <section className="settings-card">
+          <section className={settingsCardClass}>
             <h2>Appearance Configuration</h2>
-            <div className="settings-grid">
+            <div className={settingsGridClass}>
               <label>Theme<select value={appearanceSettings.theme} onChange={(e) => setAppearanceSettings((prev) => ({ ...prev, theme: e.target.value as AppearanceSettings['theme'] }))}><option value="dark">Dark</option><option value="light">Light</option><option value="system">System</option></select></label>
               <label>Density<select value={appearanceSettings.density} onChange={(e) => setAppearanceSettings((prev) => ({ ...prev, density: e.target.value as AppearanceSettings['density'] }))}><option value="compact">Compact</option><option value="comfortable">Comfortable</option><option value="spacious">Spacious</option></select></label>
               <label>Accent<select value={appearanceSettings.accent} onChange={(e) => setAppearanceSettings((prev) => ({ ...prev, accent: e.target.value as AppearanceSettings['accent'] }))}><option value="blue">Blue</option><option value="emerald">Emerald</option><option value="violet">Violet</option></select></label>
               <label>Font Scale<select value={appearanceSettings.fontScale} onChange={(e) => setAppearanceSettings((prev) => ({ ...prev, fontScale: e.target.value as AppearanceSettings['fontScale'] }))}><option value="small">Small</option><option value="medium">Medium</option><option value="large">Large</option></select></label>
             </div>
-            <div className="server-actions"><Button variant="secondary" onClick={saveAppearanceSettings}>Save Appearance</Button></div>
-            <div className="settings-meta">{appearanceSavedAt}</div>
+            <div className="mt-3 flex flex-wrap gap-2"><Button variant="secondary" onClick={saveAppearanceSettings}>Save Appearance</Button></div>
+            <div className={settingsMetaClass}>{appearanceSavedAt}</div>
           </section>
         )}
 
         {currentSection === 'personalization' && (
-          <section className="settings-card">
+          <section className={settingsCardClass}>
             <h2>Personalization</h2>
-            <div className="settings-grid">
+            <div className={settingsGridClass}>
               <label>Assistant Name<input value={personalizationSettings.assistantName} onChange={(e) => setPersonalizationSettings((prev) => ({ ...prev, assistantName: e.target.value }))} /></label>
               <label>Auto-approve Safe Steps<select value={String(personalizationSettings.autoApproveSafeSteps)} onChange={(e) => setPersonalizationSettings((prev) => ({ ...prev, autoApproveSafeSteps: e.target.value === 'true' }))}><option value="false">Off</option><option value="true">On</option></select></label>
               <label>Show Hints<select value={String(personalizationSettings.showHints)} onChange={(e) => setPersonalizationSettings((prev) => ({ ...prev, showHints: e.target.value === 'true' }))}><option value="true">On</option><option value="false">Off</option></select></label>
               <label>Confirm Long Actions<select value={String(personalizationSettings.confirmLongActions)} onChange={(e) => setPersonalizationSettings((prev) => ({ ...prev, confirmLongActions: e.target.value === 'true' }))}><option value="true">On</option><option value="false">Off</option></select></label>
             </div>
-            <div className="server-actions"><Button variant="secondary" onClick={savePersonalizationSettings}>Save Personalization</Button></div>
-            <div className="settings-meta">{personalizationSavedAt}</div>
+            <div className="mt-3 flex flex-wrap gap-2"><Button variant="secondary" onClick={savePersonalizationSettings}>Save Personalization</Button></div>
+            <div className={settingsMetaClass}>{personalizationSavedAt}</div>
           </section>
         )}
 
         {currentSection === 'usage' && (
-          <section className="settings-card">
+          <section className={settingsCardClass}>
             <h2>Usage Preferences</h2>
-            <div className="settings-grid">
+            <div className={settingsGridClass}>
               <label>Detail Level<select value={usageSettings.detailLevel} onChange={(e) => setUsageSettings((prev) => ({ ...prev, detailLevel: e.target.value as UsageSettings['detailLevel'] }))}><option value="minimal">Minimal</option><option value="steps">Steps</option><option value="verbose">Verbose</option></select></label>
               <label>Notify On Completion<select value={String(usageSettings.notifyOnCompletion)} onChange={(e) => setUsageSettings((prev) => ({ ...prev, notifyOnCompletion: e.target.value === 'true' }))}><option value="true">On</option><option value="false">Off</option></select></label>
               <label>Show Token Stats<select value={String(usageSettings.showTokenStats)} onChange={(e) => setUsageSettings((prev) => ({ ...prev, showTokenStats: e.target.value === 'true' }))}><option value="true">On</option><option value="false">Off</option></select></label>
             </div>
-            <div className="server-actions"><Button variant="secondary" onClick={saveUsageSettings}>Save Usage</Button></div>
-            <div className="settings-meta">{usageSavedAt}</div>
+            <div className="mt-3 flex flex-wrap gap-2"><Button variant="secondary" onClick={saveUsageSettings}>Save Usage</Button></div>
+            <div className={settingsMetaClass}>{usageSavedAt}</div>
 
-            <div className="analytics-divider" />
+            <div className="my-3 border-t border-slate-700" />
             <h2>Skill Telemetry Analytics</h2>
-            <p className="settings-note">Live runtime metrics from the skill telemetry registry.</p>
-            <div className="server-actions">
+            <p className={settingsNoteClass}>Live runtime metrics from the skill telemetry registry.</p>
+            <div className="mt-3 flex flex-wrap gap-2">
               <Button
                 variant="secondary"
                 onClick={async () => {
@@ -1156,14 +1170,14 @@ export function CockpitSettingsPage() {
                 Refresh Skill Analytics
               </Button>
             </div>
-            <div className="settings-meta">
+            <div className={settingsMetaClass}>
               {skillAnalyticsState === 'loading' && 'Loading analytics...'}
               {skillAnalyticsState === 'error' && 'Analytics endpoint unavailable.'}
               {(skillAnalyticsState === 'ready' || skillAnalyticsState === 'idle') &&
                 `Total skill invocations: ${skillAnalytics.totalEvents}`}
             </div>
-            <div className="analytics-grid">
-              <div className="analytics-card">
+            <div className="mt-2 grid grid-cols-1 gap-2 lg:grid-cols-3">
+              <div className="rounded-lg border border-slate-700 bg-slate-950 p-2.5 [&_h3]:mb-2 [&_h3]:text-xs [&_h3]:font-semibold [&_h3]:uppercase [&_h3]:tracking-wide [&_h3]:text-slate-200 [&_p]:text-xs [&_p]:text-slate-400 [&_ul]:m-0 [&_ul]:list-none [&_ul]:space-y-1 [&_ul]:p-0 [&_li]:flex [&_li]:justify-between [&_li]:gap-2 [&_li]:text-xs [&_li]:text-slate-300 [&_li_strong]:font-semibold [&_li_strong]:text-slate-100">
                 <h3>By Skill</h3>
                 {Object.keys(skillAnalytics.bySkill).length === 0 ? (
                   <p>No skill events yet.</p>
@@ -1177,7 +1191,7 @@ export function CockpitSettingsPage() {
                   </ul>
                 )}
               </div>
-              <div className="analytics-card">
+              <div className="rounded-lg border border-slate-700 bg-slate-950 p-2.5 [&_h3]:mb-2 [&_h3]:text-xs [&_h3]:font-semibold [&_h3]:uppercase [&_h3]:tracking-wide [&_h3]:text-slate-200 [&_p]:text-xs [&_p]:text-slate-400 [&_ul]:m-0 [&_ul]:list-none [&_ul]:space-y-1 [&_ul]:p-0 [&_li]:flex [&_li]:justify-between [&_li]:gap-2 [&_li]:text-xs [&_li]:text-slate-300 [&_li_strong]:font-semibold [&_li_strong]:text-slate-100">
                 <h3>By Role</h3>
                 {Object.keys(skillAnalytics.byRole).length === 0 ? (
                   <p>No role metrics yet.</p>
@@ -1191,7 +1205,7 @@ export function CockpitSettingsPage() {
                   </ul>
                 )}
               </div>
-              <div className="analytics-card">
+              <div className="rounded-lg border border-slate-700 bg-slate-950 p-2.5 [&_h3]:mb-2 [&_h3]:text-xs [&_h3]:font-semibold [&_h3]:uppercase [&_h3]:tracking-wide [&_h3]:text-slate-200 [&_p]:text-xs [&_p]:text-slate-400 [&_ul]:m-0 [&_ul]:list-none [&_ul]:space-y-1 [&_ul]:p-0 [&_li]:flex [&_li]:justify-between [&_li]:gap-2 [&_li]:text-xs [&_li]:text-slate-300 [&_li_strong]:font-semibold [&_li_strong]:text-slate-100">
                 <h3>By Pipeline</h3>
                 {Object.keys(skillAnalytics.byPipeline).length === 0 ? (
                   <p>No pipeline metrics yet.</p>
@@ -1206,12 +1220,12 @@ export function CockpitSettingsPage() {
                 )}
               </div>
             </div>
-            <div className="analytics-card">
+            <div className="rounded-lg border border-slate-700 bg-slate-950 p-2.5 [&_h3]:mb-2 [&_h3]:text-xs [&_h3]:font-semibold [&_h3]:uppercase [&_h3]:tracking-wide [&_h3]:text-slate-200 [&_p]:text-xs [&_p]:text-slate-400 [&_ul]:m-0 [&_ul]:list-none [&_ul]:space-y-1 [&_ul]:p-0 [&_li]:flex [&_li]:justify-between [&_li]:gap-2 [&_li]:text-xs [&_li]:text-slate-300 [&_li_strong]:font-semibold [&_li_strong]:text-slate-100">
               <h3>Unused Skills</h3>
               {skillAnalytics.unusedSkills.length === 0 ? (
                 <p>All registered skills have usage signals.</p>
               ) : (
-                <ul className="unused-skills-list">
+                <ul className="flex flex-wrap gap-1.5 [&_li]:rounded-full [&_li]:border [&_li]:border-slate-700 [&_li]:bg-slate-800 [&_li]:px-2 [&_li]:py-0.5 [&_li]:text-xs [&_li]:text-slate-300">
                   {skillAnalytics.unusedSkills.slice(0, 20).map((skill) => (
                     <li key={skill}>{skill}</li>
                   ))}
@@ -1222,97 +1236,99 @@ export function CockpitSettingsPage() {
         )}
 
         {currentSection === 'git' && (
-          <section className="settings-card">
+          <section className={settingsCardClass}>
             <h2>Git Controls</h2>
-            <div className="settings-grid">
+            <div className={settingsGridClass}>
               <label>Enforce Preflight<select value={String(gitSettings.enforcePreflight)} onChange={(e) => setGitSettings((prev) => ({ ...prev, enforcePreflight: e.target.value === 'true' }))}><option value="true">On</option><option value="false">Off</option></select></label>
               <label>Require Worktree Isolation<select value={String(gitSettings.requireWorktreeIsolation)} onChange={(e) => setGitSettings((prev) => ({ ...prev, requireWorktreeIsolation: e.target.value === 'true' }))}><option value="true">On</option><option value="false">Off</option></select></label>
               <label>Auto Cleanup Sweep<select value={String(gitSettings.autoRunCleanupSweep)} onChange={(e) => setGitSettings((prev) => ({ ...prev, autoRunCleanupSweep: e.target.value === 'true' }))}><option value="true">On</option><option value="false">Off</option></select></label>
             </div>
-            <div className="server-actions"><Button variant="secondary" onClick={saveGitSettings}>Save Git Controls</Button></div>
-            <div className="settings-meta">{gitSavedAt}</div>
+            <div className="mt-3 flex flex-wrap gap-2"><Button variant="secondary" onClick={saveGitSettings}>Save Git Controls</Button></div>
+            <div className={settingsMetaClass}>{gitSavedAt}</div>
           </section>
         )}
 
         {currentSection === 'environment' && (
-          <section className="settings-card">
+          <section className={settingsCardClass}>
             <h2>Environment Defaults</h2>
-            <div className="settings-grid">
+            <div className={settingsGridClass}>
               <label>Execution Mode<select value={environmentSettings.executionMode} onChange={(e) => setEnvironmentSettings((prev) => ({ ...prev, executionMode: e.target.value as EnvironmentSettings['executionMode'] }))}><option value="sandbox">Sandbox</option><option value="full-access">Full Access</option></select></label>
               <label>Allow Network<select value={String(environmentSettings.allowNetwork)} onChange={(e) => setEnvironmentSettings((prev) => ({ ...prev, allowNetwork: e.target.value === 'true' }))}><option value="true">On</option><option value="false">Off</option></select></label>
               <label>Default Shell<select value={environmentSettings.defaultShell} onChange={(e) => setEnvironmentSettings((prev) => ({ ...prev, defaultShell: e.target.value as EnvironmentSettings['defaultShell'] }))}><option value="bash">bash</option><option value="zsh">zsh</option></select></label>
             </div>
-            <div className="server-actions"><Button variant="secondary" onClick={saveEnvironmentSettings}>Save Environment</Button></div>
-            <div className="settings-meta">{environmentSavedAt}</div>
+            <div className="mt-3 flex flex-wrap gap-2"><Button variant="secondary" onClick={saveEnvironmentSettings}>Save Environment</Button></div>
+            <div className={settingsMetaClass}>{environmentSavedAt}</div>
           </section>
         )}
 
         {currentSection === 'worktrees' && (
-          <section className="settings-card">
+          <section className={settingsCardClass}>
             <h2>Worktree Policy</h2>
-            <div className="settings-grid">
+            <div className={settingsGridClass}>
               <label>Default Base Path<input value={worktreeSettings.defaultBasePath} onChange={(e) => setWorktreeSettings((prev) => ({ ...prev, defaultBasePath: e.target.value }))} /></label>
               <label>Auto Prune On Done<select value={String(worktreeSettings.autoPruneOnDone)} onChange={(e) => setWorktreeSettings((prev) => ({ ...prev, autoPruneOnDone: e.target.value === 'true' }))}><option value="true">On</option><option value="false">Off</option></select></label>
               <label>Strict One Ticket/Worktree<select value={String(worktreeSettings.strictOneTicketPerWorktree)} onChange={(e) => setWorktreeSettings((prev) => ({ ...prev, strictOneTicketPerWorktree: e.target.value === 'true' }))}><option value="true">On</option><option value="false">Off</option></select></label>
             </div>
-            <div className="server-actions"><Button variant="secondary" onClick={saveWorktreeSettings}>Save Worktree Policy</Button></div>
-            <div className="settings-meta">{worktreesSavedAt}</div>
+            <div className="mt-3 flex flex-wrap gap-2"><Button variant="secondary" onClick={saveWorktreeSettings}>Save Worktree Policy</Button></div>
+            <div className={settingsMetaClass}>{worktreesSavedAt}</div>
           </section>
         )}
 
         {currentSection === 'archived-threads' && (
-          <section className="settings-card">
+          <section className={settingsCardClass}>
             <h2>Archived Threads</h2>
-            <div className="settings-grid">
+            <div className={settingsGridClass}>
               <label>Retention<select value={archivedThreadsSettings.retentionDays} onChange={(e) => setArchivedThreadsSettings((prev) => ({ ...prev, retentionDays: e.target.value as ArchivedThreadsSettings['retentionDays'] }))}><option value="30">30 days</option><option value="90">90 days</option><option value="180">180 days</option><option value="365">365 days</option></select></label>
               <label>Include Artifacts<select value={String(archivedThreadsSettings.includeArtifacts)} onChange={(e) => setArchivedThreadsSettings((prev) => ({ ...prev, includeArtifacts: e.target.value === 'true' }))}><option value="true">On</option><option value="false">Off</option></select></label>
             </div>
-            <div className="server-actions"><Button variant="secondary" onClick={saveArchivedSettings}>Save Archive Settings</Button></div>
-            <div className="settings-meta">{archivedSavedAt}</div>
+            <div className="mt-3 flex flex-wrap gap-2"><Button variant="secondary" onClick={saveArchivedSettings}>Save Archive Settings</Button></div>
+            <div className={settingsMetaClass}>{archivedSavedAt}</div>
           </section>
         )}
 
         {currentSection === 'mcp-servers' && (
           <>
-            <section className="settings-card">
+            <section className={settingsCardClass}>
               <h2><Server size={16} />MCP Server Workbench</h2>
-              <p className="settings-note">Shared-tool governance preview: isolated, share-safe, and exclusive modes.</p>
+              <p className={settingsNoteClass}>Shared-tool governance preview: isolated, share-safe, and exclusive modes.</p>
               <Button variant="secondary" onClick={runHealth}>Run MCP Health Report</Button>
-              <div className="settings-meta">Last check: {lastHealthRun}</div>
-              <div className="settings-meta">{healthDetails}</div>
-              <div className="settings-meta">Server test result: {testMessage}</div>
-              <div className="mcp-table">
-                <div className="mcp-head">Server</div>
-                <div className="mcp-head">Mode</div>
-                <div className="mcp-head">Status</div>
-                <div className="mcp-head">Note</div>
+              <div className={settingsMetaClass}>Last check: {lastHealthRun}</div>
+              <div className={settingsMetaClass}>{healthDetails}</div>
+              <div className={settingsMetaClass}>Server test result: {testMessage}</div>
+              <div className="mt-3 grid grid-cols-1 overflow-hidden rounded-lg border border-slate-700 bg-slate-950 lg:grid-cols-[180px_120px_90px_1fr] [&>div]:border-b [&>div]:border-slate-800 [&>div]:px-2.5 [&>div]:py-2">
+                <div className="hidden bg-slate-900 text-xs uppercase tracking-wide text-slate-500 lg:block">Server</div>
+                <div className="hidden bg-slate-900 text-xs uppercase tracking-wide text-slate-500 lg:block">Mode</div>
+                <div className="hidden bg-slate-900 text-xs uppercase tracking-wide text-slate-500 lg:block">Status</div>
+                <div className="hidden bg-slate-900 text-xs uppercase tracking-wide text-slate-500 lg:block">Note</div>
                 {mcpRows.map((row) => (
                   <React.Fragment key={row.name}>
                     <div>{row.name}</div>
                     <div>{row.mode}</div>
-                    <div className={`mcp-status ${row.status}`}>{row.status}</div>
+                    <div className={row.status === 'ok' ? 'text-emerald-400' : row.status === 'warn' ? 'text-amber-300' : 'text-slate-400'}>
+                      {row.status}
+                    </div>
                     <div>{row.note}</div>
                   </React.Fragment>
                 ))}
               </div>
             </section>
-            <section className="settings-card">
+            <section className={settingsCardClass}>
               <h2><ShieldCheck size={16} />Connection Testing</h2>
-              <p className="settings-note">Inventory management and per-server test actions (UI-first shell).</p>
-              <div className="settings-grid">
+              <p className={settingsNoteClass}>Inventory management and per-server test actions (UI-first shell).</p>
+              <div className={settingsGridClass}>
                 <label>Server Name<input value={serverDraft.name} onChange={(e) => setServerDraft((p) => ({ ...p, name: e.target.value }))} placeholder="New MCP server" /></label>
                 <label>Transport<select value={serverDraft.transport} onChange={(e) => setServerDraft((p) => ({ ...p, transport: e.target.value }))}><option value="http">http</option><option value="stdio">stdio</option><option value="sse">sse</option></select></label>
                 <label>Mode<select value={serverDraft.mode} onChange={(e) => setServerDraft((p) => ({ ...p, mode: e.target.value }))}><option value="isolated">isolated</option><option value="share-safe">share-safe</option><option value="exclusive">exclusive</option></select></label>
               </div>
-              <div className="server-actions"><Button variant="secondary" onClick={addServer}>Add Server</Button></div>
-              <div className="inventory-list">
+              <div className="mt-3 flex flex-wrap gap-2"><Button variant="secondary" onClick={addServer}>Add Server</Button></div>
+              <div className="mt-3 flex flex-col gap-2">
                 {inventory.map((server) => (
-                  <div className="inventory-item" key={server.id}>
+                  <div className="flex items-center justify-between gap-2 rounded-lg border border-slate-700 bg-slate-950 p-2" key={server.id}>
                     <div>
-                      <strong>{server.name}</strong> <span className="settings-meta">({server.transport}, {server.mode})</span>
-                      <div className="settings-meta">{server.busyBy ? `busy: ${server.busyBy}` : 'available'}</div>
+                      <strong>{server.name}</strong> <span className={settingsMetaClass}>({server.transport}, {server.mode})</span>
+                      <div className={settingsMetaClass}>{server.busyBy ? `busy: ${server.busyBy}` : 'available'}</div>
                     </div>
-                    <div className="inventory-actions">
+                    <div className="flex gap-1.5 [&>button]:rounded-md [&>button]:border [&>button]:border-slate-600 [&>button]:bg-slate-800 [&>button]:px-2.5 [&>button]:py-1.5 [&>button]:text-xs [&>button]:text-slate-100 [&>button]:transition-colors hover:[&>button]:border-slate-500 hover:[&>button]:bg-slate-700">
                       <button type="button" onClick={() => toggleServer(server.id)}>{server.enabled ? 'Disable' : 'Enable'}</button>
                       <button type="button" onClick={() => testServer(server)}>Test</button>
                       <button type="button" onClick={() => removeServer(server.id)}>Remove</button>
@@ -1325,25 +1341,25 @@ export function CockpitSettingsPage() {
         )}
 
         {currentSection === 'configuration' && (
-          <section className="settings-card">
+          <section className={settingsCardClass}>
             <h2><ShieldCheck size={16} />Provider & Executor Configuration</h2>
-            <p className="settings-note">Primary configuration for intelligence backend and CLI execution engine.</p>
+            <p className={settingsNoteClass}>Primary configuration for intelligence backend and CLI execution engine.</p>
             
             <h3>Executor Backend</h3>
-            <p className="settings-note">Select primary execution model. (Direct API vs Native CLI).</p>
-            <div className="settings-grid">
+            <p className={settingsNoteClass}>Select primary execution model. (Direct API vs Native CLI).</p>
+            <div className={settingsGridClass}>
               <label>Execution Target<select value={executorSettings.backend} onChange={(e) => setExecutorSettings((prev) => ({ ...prev, backend: e.target.value as ExecutorSettings['backend'] }))}><option value="claude-cli">Claude Code CLI</option><option value="codex-cli">Codex CLI</option><option value="openhands-sdk">OpenHands SDK (Sidecar Server)</option></select></label>
             </div>
-            <div className="server-actions">
+            <div className="mt-3 flex flex-wrap gap-2">
               <Button variant="secondary" onClick={saveExecutorSettings}>Save Execution Target</Button>
             </div>
-            <div className="settings-meta">{executorSavedAt}</div>
+            <div className={settingsMetaClass}>{executorSavedAt}</div>
 
             <hr />
 
                 <h3>CLI Agent Configuration</h3>
-                <p className="settings-note">Configure paths and models for {executorSettings.backend}.</p>
-                <div className="settings-grid">
+                <p className={settingsNoteClass}>Configure paths and models for {executorSettings.backend}.</p>
+                <div className={settingsGridClass}>
                   {executorSettings.backend === 'claude-cli' && (
                     <>
                       <label>Claude Binary<input value={executorSettings.claude.bin} onChange={(e) => setExecutorSettings((prev) => ({ ...prev, claude: { ...prev.claude, bin: e.target.value } }))} placeholder="/opt/homebrew/bin/claude" /></label>
@@ -1382,14 +1398,14 @@ export function CockpitSettingsPage() {
                     </>
                   )}
                 </div>
-                <div className="server-actions">
+                <div className="mt-3 flex flex-wrap gap-2">
                   <Button variant="secondary" onClick={saveExecutorSettings}>Save CLI Config</Button>
                 </div>
 
                 <hr />
                 <h3>Guided CLI Authentication & Health</h3>
-                <p className="settings-note">Verify CLI availability, auth, and test prompt execution.</p>
-                <div className="server-actions">
+                <p className={settingsNoteClass}>Verify CLI availability, auth, and test prompt execution.</p>
+                <div className="mt-3 flex flex-wrap gap-2">
                   <Button variant="secondary" onClick={refreshCliStatus}>Refresh CLI Status</Button>
                   {executorSettings.backend === 'claude-cli' && <Button variant="secondary" onClick={() => testCliProvider('claude-cli')}>Test Claude CLI</Button>}
                   {executorSettings.backend === 'codex-cli' && <Button variant="secondary" onClick={() => testCliProvider('codex-cli')}>Test Codex CLI</Button>}
@@ -1402,7 +1418,7 @@ export function CockpitSettingsPage() {
                         disabled={isTestingLlm}
                         onClick={testLlmConfig}
                       >
-                        {isTestingLlm ? <Loader2 size={16} className="spin" /> : <Server size={16} />}
+                        {isTestingLlm ? <Loader2 size={16} className="animate-spin" /> : <Server size={16} />}
                         Test End-to-End LLM
                       </Button>
                     </>
@@ -1410,7 +1426,11 @@ export function CockpitSettingsPage() {
                 </div>
 
                 {llmTestResult && (
-                  <div className={`llm-test-panel ${llmTestResult.success ? 'success' : 'error'}`} style={{ marginTop: 16, padding: 12, borderRadius: 8, border: '1px solid var(--border-color)', background: 'var(--bg-secondary)' }}>
+                  <div
+                    className={`mt-4 rounded-lg border border-slate-700 bg-slate-900 p-3 ${
+                      llmTestResult.success ? 'border-l-4 border-l-emerald-500' : 'border-l-4 border-l-red-500'
+                    }`}
+                  >
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, fontWeight: 'bold' }}>
                       {llmTestResult.success ? (
                         <CheckCircle size={18} color="#10b981" />
@@ -1428,11 +1448,11 @@ export function CockpitSettingsPage() {
                     )}
                   </div>
                 )}
-                <div className="settings-grid" style={{ marginTop: 12 }}>
+                <div className={settingsGridClass} style={{ marginTop: 12 }}>
                   {executorSettings.backend === 'codex-cli' && (
                     <>
                       {runtimeCapabilities.implicitCodexApiKey && (
-                        <div className="settings-meta" style={{ gridColumn: '1 / -1', marginBottom: '8px', padding: '8px', border: '1px solid #4a3c10', backgroundColor: '#1f1a07', borderRadius: '4px' }}>
+                        <div className={settingsMetaClass} style={{ gridColumn: '1 / -1', marginBottom: '8px', padding: '8px', border: '1px solid #4a3c10', backgroundColor: '#1f1a07', borderRadius: '4px' }}>
                           <span style={{color: '#ffd166', fontWeight: 600}}>Environment Key Bound:</span> Codex is currently using API Key implicitly inherited from your shell environment variables (<code>{runtimeCapabilities.implicitCodexApiKey}</code>).
                           To override it, you can execute a new login below.
                         </div>
@@ -1442,8 +1462,8 @@ export function CockpitSettingsPage() {
                     </>
                   )}
                 </div>
-                {executorSettings.backend === 'claude-cli' && <div className="settings-meta">Claude login is interactive: run <code>claude setup-token</code> (or <code>claude /login</code>) in terminal, then click Test Claude CLI.</div>}
-                <div className="settings-meta">{cliHealthMessage}</div>
+                {executorSettings.backend === 'claude-cli' && <div className={settingsMetaClass}>Claude login is interactive: run <code>claude setup-token</code> (or <code>claude /login</code>) in terminal, then click Test Claude CLI.</div>}
+                <div className={settingsMetaClass}>{cliHealthMessage}</div>
           </section>
         )}
       </main>
