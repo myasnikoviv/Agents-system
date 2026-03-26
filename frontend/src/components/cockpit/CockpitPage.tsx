@@ -149,7 +149,7 @@ export function CockpitPage() {
         if (stored === 'mock' || stored === 'linear' || stored === 'multiple_agents') return stored;
         return 'multiple_agents';
     });
-    const [messages, setMessages] = useState<ChatMessage[]>([]);
+    const [messagesByThread, setMessagesByThread] = useState<Record<string, ChatMessage[]>>({});
     const [input, setInput] = useState('');
     const [isRecording, setIsRecording] = useState(false);
     const [events, setEvents] = useState<RuntimeEvent[]>([]);
@@ -214,6 +214,21 @@ export function CockpitPage() {
     const [isChainModalOpen, setIsChainModalOpen] = useState(false);
     const [newChainLabel, setNewChainLabel] = useState('');
     const [newChainScope, setNewChainScope] = useState<'current' | 'unbound'>('current');
+    const activeThreadKey = selectedThread || '__unbound_thread__';
+    const messages = messagesByThread[activeThreadKey] || [];
+
+    const appendMessagesToThread = (threadId: string | undefined, next: ChatMessage[]) => {
+        const key = threadId && threadId.trim().length > 0 ? threadId : activeThreadKey;
+        if (next.length === 0) return;
+        setMessagesByThread((prev) => ({
+            ...prev,
+            [key]: [...(prev[key] || []), ...next],
+        }));
+    };
+
+    const appendMessageToThread = (threadId: string | undefined, next: ChatMessage) => {
+        appendMessagesToThread(threadId, [next]);
+    };
 
     // Auto-scroll refs
     const scrollRef = useRef<HTMLDivElement>(null);
@@ -296,12 +311,12 @@ export function CockpitPage() {
                 
                 // If event completes research/arch, add a summary to chat
                 if (data.status === 'success' && data.event_type.endsWith('.completed')) {
-                    setMessages(prev => [...prev, {
+                    appendMessageToThread(data.thread_id || selectedThread, {
                         id: Date.now().toString(),
                         role: 'agent',
                         content: `[${data.agent_role}] Completed stage: ${data.source_stage} → ${data.target_stage}`,
                         timestamp: new Date(data.timestamp || Date.now())
-                    }]);
+                    });
                 }
             } catch (err) {
                 console.error('SSE Error parsing data:', err);
@@ -485,12 +500,12 @@ export function CockpitPage() {
         setPromptTokens([]);
         setUploadedAttachments([]);
         
-        setMessages(prev => [...prev, {
+        appendMessageToThread(selectedThread, {
             id: Date.now().toString(),
             role: 'user',
             content: userMsg,
             timestamp: new Date()
-        }]);
+        });
 
         setIsProcessing(true);
 
@@ -509,7 +524,11 @@ export function CockpitPage() {
             const data = await res.json();
             
             if (data.success) { // Changed from data.logs to data.success as threadId/status might be present without logs
-                setCurrentThreadId(data.threadId);
+                const responseThreadId = String(data.threadId || selectedThread || '').trim();
+                if (responseThreadId) {
+                    setCurrentThreadId(responseThreadId);
+                    setSelectedThread(responseThreadId);
+                }
                 setCurrentTicketId(data.ticketId || null);
                 setStatus(data.status);
                 if (data.observability) setObservability(data.observability);
@@ -518,30 +537,32 @@ export function CockpitPage() {
 
                 // 1. If we have a direct message (conversational response), show it first
                 if (data.message) {
-                    setMessages(prev => [...prev, {
+                    appendMessageToThread(responseThreadId || selectedThread, {
                         id: Date.now().toString(),
                         role: 'agent',
                         content: data.message,
                         timestamp: new Date()
-                    }]);
+                    });
                 } 
                 // 2. For legacy direct/linear modes, display logs
-                else if ((data.observability?.pipeline === 'openhands-direct' || mode !== 'multiple_agents') && Array.isArray(data.logs)) {
-                    setMessages(prev => [...prev, ...data.logs.map((log: string, i: number) => ({
+                else if (Array.isArray(data.logs) && data.logs.length > 0 && (data.status === 'completed' || data.observability?.pipeline === 'openhands-direct' || mode !== 'multiple_agents')) {
+                    appendMessagesToThread(responseThreadId || selectedThread, data.logs.map((log: string, i: number) => ({
                         id: `${Date.now()}-${i}`,
                         role: 'agent',
                         content: log,
                         timestamp: new Date()
-                    }))]);
+                    })));
                 } 
                 // 3. Otherwise, indicate swarm dispatch
                 else {
-                    setMessages(prev => [...prev, {
+                    const runId = typeof data.runId === 'string' ? data.runId : '';
+                    const runIdShort = runId ? runId.slice(0, 8) : 'n/a';
+                    appendMessageToThread(responseThreadId || selectedThread, {
                         id: Date.now().toString(),
                         role: 'agent',
-                        content: `Task dispatched to Swarm (Run ID: ${data.runId.substring(0,8)}). See event feed for updates.`,
+                        content: `Task dispatched to Swarm (Run ID: ${runIdShort}). See event feed for updates.`,
                         timestamp: new Date()
-                    }]);
+                    });
                 }
             }
         } catch (error) {
@@ -569,12 +590,12 @@ export function CockpitPage() {
                 if (data.executionFeed) setExecutionFeed(data.executionFeed);
                 if (data.gitContext) setGitContext(data.gitContext);
                 if (data.logs) {
-                    setMessages(prev => [...prev, ...data.logs.map((log: string, i: number) => ({
+                    appendMessagesToThread(selectedThread, data.logs.map((log: string, i: number) => ({
                         id: `${Date.now()}-${i}`,
                         role: 'agent',
                         content: log,
                         timestamp: new Date()
-                    }))]);
+                    })));
                 }
             }
         } catch (error) {

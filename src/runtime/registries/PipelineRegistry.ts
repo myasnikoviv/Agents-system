@@ -42,7 +42,10 @@ export class PipelineRegistry {
     }
     
     const currentIndex = pipeline.stages.findIndex(s => s.id === currentStageId);
-    if (currentIndex === -1 || currentIndex >= pipeline.stages.length - 1) {
+    if (currentIndex === -1) {
+      return pipeline.stages[0];
+    }
+    if (currentIndex >= pipeline.stages.length - 1) {
       return undefined;
     }
     

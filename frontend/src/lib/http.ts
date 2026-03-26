@@ -6,8 +6,15 @@ const API_FALLBACK_BASE = (
 ).replace(/\/$/, '');
 
 export const apiUrl = (path: string) => {
-  if (!path.startsWith('/')) return `${API_BASE}/${path}`;
-  return `${API_BASE}${path}`;
+  const normalizedPath = path.startsWith('/') ? path : `/${path}`;
+  const normalizedBase = API_BASE.endsWith('/') ? API_BASE.slice(0, -1) : API_BASE;
+
+  // Prevent accidental double prefix such as "/api/api/..."
+  if (normalizedBase === '/api' && normalizedPath.startsWith('/api/')) {
+    return normalizedPath;
+  }
+
+  return `${normalizedBase}${normalizedPath}`;
 };
 
 const looksLikeHtml = (payload: string): boolean => {

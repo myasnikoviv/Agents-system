@@ -114,12 +114,47 @@ async function safeRunRole(
 ): Promise<{ message: string; source: 'llm' | 'fallback'; fallbackCategory?: string }> {
   try {
     const executor = new AgentExecutor();
-    const agent = AgentRegistry.getAgent(roleSlug);
-    const pipeline = PipelineRegistry.getPipeline(context?.pipelineId || 'legacy');
-    
-    if (!agent || !pipeline) {
-      return { message: fallbackMessage, source: 'fallback', fallbackCategory: 'missing_registry_entry' };
-    }
+    const agent =
+      AgentRegistry.getAgent(roleSlug) ||
+      AgentRegistry.getAllAgents()[0] ||
+      {
+        slug: roleSlug,
+        name: roleSlug,
+        title: roleSlug,
+        callsign: roleSlug,
+        mission: 'Execute assigned task.',
+        description: 'Fallback synthesized agent profile.',
+        instructions: '',
+        owns: [],
+        guardrails: [],
+        skills: [],
+        tools: [],
+        fullInstructions: '',
+        sourcePath: 'runtime://fallback-agent',
+      };
+    const pipeline =
+      PipelineRegistry.getPipeline(context?.pipelineId || 'legacy') ||
+      {
+        id: context?.pipelineId || 'legacy',
+        slug: context?.pipelineId || 'legacy',
+        name: context?.pipelineId || 'Legacy',
+        title: context?.pipelineId || 'Legacy',
+        description: 'Fallback synthesized pipeline.',
+        stages: [
+          {
+            id: context?.stage || 'respond',
+            name: 'Respond Stage',
+            title: 'Respond Stage',
+            role: roleSlug,
+            agent: agent.slug,
+            description: 'Fallback stage',
+            instructions: 'Fallback stage',
+            nextAllowedRoles: [],
+            completionCriteria: '',
+          },
+        ],
+        sourcePath: 'runtime://fallback-pipeline',
+      };
 
     const runContext = await RunContextAssembler.assemble(
       agent,
@@ -206,13 +241,33 @@ async function swarmNode(state: PilotState): Promise<Partial<PilotState>> {
   await ensureDiscovery(state.workspacePath);
   
   const pipelineId = state.selected_pipeline || 'unified-task-intake';
-  const pipelineDef = PipelineRegistry.getPipeline(pipelineId);
-  
+  let pipelineDef = PipelineRegistry.getPipeline(pipelineId);
   if (!pipelineDef) {
-    console.warn(`[PilotGraph:Swarm] Pipeline ${pipelineId} not found. Terminating.`);
-    return { status: 'pipeline_completed' };
+    const fallbackAgent = AgentRegistry.getAllAgents()[0]?.slug || 'system-core';
+    pipelineDef = {
+      id: pipelineId,
+      slug: pipelineId,
+      name: pipelineId,
+      title: pipelineId,
+      description: 'Fallback synthesized pipeline',
+      stages: [
+        {
+          id: 'intake',
+          name: 'Fallback Intake',
+          title: 'Fallback Intake',
+          role: fallbackAgent,
+          agent: fallbackAgent,
+          description: 'Fallback stage',
+          instructions: 'Fallback stage',
+          nextAllowedRoles: [],
+          completionCriteria: '',
+        },
+      ],
+      sourcePath: 'runtime://fallback-pipeline',
+    };
+    PipelineRegistry.register(pipelineDef);
   }
-
+  
   const currentStage = state.status.replace(/_completed$/, '');
   const nextStage = PipelineRegistry.getNextStage(pipelineId, currentStage);
 
@@ -362,6 +417,7 @@ function routeByIntent(state: PilotState): string {
  */
 async function conversationalNode(state: PilotState): Promise<Partial<PilotState>> {
   console.log(`[PilotGraph] Conversational mode: answering directly via PM Orchestrator...`);
+  await ensureDiscovery(state.workspacePath);
   
   const lastUserMsg = [...(state.messages || [])].filter(m => m.role === 'user').pop();
   const userMessage = lastUserMsg ? lastUserMsg.content : (state.artifactLogs[0] || '').replace(/User Message: /, '');
