@@ -154,6 +154,8 @@ interface DirectoryPickerWindow extends Window {
     showDirectoryPicker?: () => Promise<{ name?: string }>;
 }
 
+type RuntimeProvider = 'claude-cli' | 'codex-cli' | 'openhands-sdk';
+
 export function CockpitPage() {
     const navigate = useNavigate();
     const [mode, setMode] = useState<'mock' | 'linear' | 'multiple_agents'>(() => {
@@ -176,8 +178,13 @@ export function CockpitPage() {
     const [gitContext, setGitContext] = useState<GitContext | null>(null);
     const [catalog, setCatalog] = useState<CatalogState>({ agents: [], pipelines: [], skills: [] });
 
-    const [selectedProvider, setSelectedProvider] = useState<'claude-cli' | 'codex-cli' | 'openhands-sdk' | 'google-genai'>('claude-cli');
-    const [selectedModel, setSelectedModel] = useState('gpt-4o');
+    const [selectedProvider, setSelectedProvider] = useState<RuntimeProvider>('claude-cli');
+    const [selectedModel, setSelectedModel] = useState('auto');
+    const [providerModelPresets, setProviderModelPresets] = useState<Record<RuntimeProvider, string[]>>({
+        'claude-cli': ['auto'],
+        'codex-cli': ['auto'],
+        'openhands-sdk': ['auto'],
+    });
     const [providerMessage, setProviderMessage] = useState<string | null>(null);
 
     const [runtimePickerOpen, setRuntimePickerOpen] = useState<'provider' | 'model' | 'voice' | 'target' | 'access' | 'branch' | null>(null);
@@ -378,8 +385,20 @@ export function CockpitPage() {
 
     useEffect(() => {
         const loadProviders = async () => {
-            const data = await fetchJsonSafe<{ success?: boolean; runtimeSelection?: { provider?: 'claude-cli' | 'codex-cli' | 'openhands-sdk' | 'google-genai'; model?: string } }>('/api/cockpit/providers');
+            const data = await fetchJsonSafe<{
+                success?: boolean;
+                runtimeSelection?: { provider?: RuntimeProvider; model?: string };
+                capabilities?: { providerModels?: Partial<Record<RuntimeProvider, string[]>> };
+            }>('/api/cockpit/providers');
             if (!data?.success) return;
+            const providerModels = data.capabilities?.providerModels;
+            if (providerModels) {
+                setProviderModelPresets((prev) => ({
+                    'claude-cli': providerModels['claude-cli']?.length ? providerModels['claude-cli'] : prev['claude-cli'],
+                    'codex-cli': providerModels['codex-cli']?.length ? providerModels['codex-cli'] : prev['codex-cli'],
+                    'openhands-sdk': providerModels['openhands-sdk']?.length ? providerModels['openhands-sdk'] : prev['openhands-sdk'],
+                }));
+            }
             if (data.runtimeSelection?.provider) setSelectedProvider(data.runtimeSelection.provider);
             if (data.runtimeSelection?.model) setSelectedModel(data.runtimeSelection.model);
         };
@@ -717,82 +736,6 @@ export function CockpitPage() {
         setInput((prev) => `${prev}${prev ? ' ' : ''}${prefix}${token.value} `);
     };
 
-
-
-    const providerModelPresets: Record<'claude-cli' | 'codex-cli' | 'openhands-sdk' | 'google-genai', string[]> = {
-        'claude-cli': [
-            'auto',
-            // Claude 4.x (latest generation)
-            'claude-sonnet-4-6',
-            'claude-opus-4-6',
-            'claude-haiku-4-5-20251001',
-            'claude-sonnet-4-5-20250929',
-            'claude-opus-4-5-20251101',
-            // Claude 4.0
-            'claude-opus-4-20250514',
-            'claude-sonnet-4-20250514',
-        ],
-        'codex-cli': [
-            'auto',
-            // GPT-5.x
-            'gpt-5.4',
-            'gpt-5.4-mini',
-            'gpt-5.4-nano',
-            'gpt-5.4-pro',
-            'gpt-5.3-codex',
-            'gpt-5.2',
-            'gpt-5.1',
-            'gpt-5',
-            // Reasoning
-            'o4-mini',
-            'o3',
-            'o3-mini',
-            'o1',
-            'o1-pro',
-        ],
-        'openhands-sdk': [
-            // ── Anthropic ──────────────────────────────────────────
-            'anthropic/claude-sonnet-4-6',
-            'anthropic/claude-opus-4-6',
-            'anthropic/claude-haiku-4-5-20251001',
-            'anthropic/claude-sonnet-4-5-20250929',
-            'anthropic/claude-opus-4-5-20251101',
-            'anthropic/claude-opus-4-20250514',
-            'anthropic/claude-sonnet-4-20250514',
-            // ── OpenAI ─────────────────────────────────────────────
-            'openai/gpt-4o',
-            'openai/gpt-4o-mini',
-            'openai/gpt-4.1',
-            'openai/gpt-4.1-mini',
-            'openai/gpt-4.1-nano',
-            'openai/gpt-5',
-            'openai/gpt-5-mini',
-            'openai/gpt-5.4',
-            'openai/gpt-5.4-mini',
-            'openai/o4-mini',
-            'openai/o3',
-            'openai/o3-mini',
-            'openai/o1',
-            // ── Google Gemini ──────────────────────────────────────
-            // Gemini 3.x (latest generation, as of 2026-03)
-            'google/gemini-3.1-pro-preview',         // strongest reasoning + agents
-            'google/gemini-3-flash-preview',          // frontier perf, cost-efficient
-            'google/gemini-3.1-flash-lite-preview',   // ultra-fast, low-cost
-            // Gemini 2.5 (stable GA)
-            'google/gemini-2.5-pro',
-            'google/gemini-2.5-flash',
-            'google/gemini-2.5-flash-lite',
-        ],
-        'google-genai': [
-            'auto',
-            'google/gemini-3.1-pro-preview',
-            'google/gemini-3-flash-preview',
-            'google/gemini-3.1-flash-lite-preview',
-            'google/gemini-2.5-pro',
-            'google/gemini-2.5-flash',
-        ],
-    };
-
     const slugifyProjectId = (value: string) =>
         value
             .trim()
@@ -905,7 +848,7 @@ export function CockpitPage() {
     };
     const runtimeModeLabel = mode === 'mock' ? 'Mock' : mode === 'linear' ? 'Quasi-linear' : 'Multiple agents';
 
-    const applyRuntimeSelection = async (provider?: 'claude-cli' | 'codex-cli' | 'openhands-sdk' | 'google-genai', model?: string) => {
+    const applyRuntimeSelection = async (provider?: RuntimeProvider, model?: string) => {
         const nextProvider = provider || selectedProvider;
         const nextModel = model || selectedModel;
         const data = await fetchJsonSafe<any>('/api/cockpit/providers/select', {
@@ -1343,13 +1286,13 @@ export function CockpitPage() {
                                     </button>
                                     {runtimePickerOpen === 'provider' && (
                                         <div className="runtime-picker-menu" onClick={(event) => event.stopPropagation()}>
-                                            {(['claude-cli', 'codex-cli', 'openhands-sdk', 'google-genai'] as const).map((provider) => (
+                                            {(['claude-cli', 'codex-cli', 'openhands-sdk'] as const).map((provider) => (
                                                 <button
                                                     key={`provider-${provider}`}
                                                     type="button"
                                                     className={`runtime-picker-option ${selectedProvider === provider ? 'active' : ''}`}
                                                     onClick={() => {
-                                                        const fallbackModel = providerModelPresets[provider][0];
+                                                        const fallbackModel = providerModelPresets[provider]?.[0] || 'auto';
                                                         setSelectedProvider(provider);
                                                         setSelectedModel(fallbackModel);
                                                         setRuntimePickerOpen(null);
@@ -1377,7 +1320,7 @@ export function CockpitPage() {
                                     </button>
                                     {runtimePickerOpen === 'model' && (
                                         <div className="runtime-picker-menu" onClick={(event) => event.stopPropagation()}>
-                                            {providerModelPresets[selectedProvider].map((model) => (
+                                            {(providerModelPresets[selectedProvider] || ['auto']).map((model) => (
                                                 <button
                                                     key={`model-${model}`}
                                                     type="button"
