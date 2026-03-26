@@ -2,6 +2,9 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Mic, Send, Cpu, Activity, LayoutDashboard, Terminal, Settings, PanelLeftClose, PanelLeftOpen, Globe2, ChevronDown, Plus, PencilLine, Folder, FolderPlus, Laptop, ShieldCheck, GitBranch, RefreshCw } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { apiUrl, fetchJsonSafe } from '../../lib/http';
+import { Button } from '../ui/Button';
+import { Input } from '../ui/Input';
+import { Modal } from '../ui/Modal';
 import './CockpitPage.css';
 const RUNTIME_MODE_KEY = 'cockpit.runtime.mode.v1';
 
@@ -1587,86 +1590,58 @@ export function CockpitPage() {
             </main>
 
             {isProjectModalOpen && (
-                <div className="cockpit-modal-overlay" role="dialog" aria-modal="true" aria-labelledby="project-modal-title">
-                    <div className="cockpit-modal-panel">
-                        <div>
-                            <h3 id="project-modal-title" className="cockpit-modal-title">Add Project Directory</h3>
-                            <p className="cockpit-modal-subtitle">Select a working folder. Project name is generated from the folder name.</p>
-                        </div>
-                        <div className="cockpit-modal-form">
-                            <label htmlFor="project-directory-input" className="cockpit-modal-label">Directory Path</label>
-                            <div className="cockpit-modal-row">
-                                <input
-                                    id="project-directory-input"
-                                    value={projectDirectory}
-                                    onChange={(e) => setProjectDirectory(e.target.value)}
-                                    placeholder="/Users/.../your-project"
-                                    className="cockpit-modal-input"
-                                />
-                                <button type="button" className="cockpit-modal-secondary" onClick={handleChooseDirectory}>
-                                    Choose Folder
-                                </button>
-                            </div>
-                            <div className="cockpit-modal-hint">
-                                Project name: <strong>{getFolderNameFromPath(projectDirectory) || '—'}</strong>
-                            </div>
-                        </div>
-                        <div className="cockpit-modal-actions">
-                            <button
-                                type="button"
-                                className="cockpit-modal-secondary"
+                <Modal
+                    labelledBy="project-modal-title"
+                    title="Add Project Directory"
+                    subtitle="Select a working folder. Project name is generated from the folder name."
+                    footer={
+                        <>
+                            <Button
+                                variant="secondary"
                                 onClick={() => {
                                     setIsProjectModalOpen(false);
                                     setProjectDirectory('');
                                 }}
                             >
                                 Cancel
-                            </button>
-                            <button
-                                type="button"
-                                className="cockpit-modal-primary"
+                            </Button>
+                            <Button
+                                variant="primary"
                                 disabled={!getFolderNameFromPath(projectDirectory)}
                                 onClick={() => { void handleAddNewProject(); }}
                             >
                                 Create Project
-                            </button>
-                        </div>
+                            </Button>
+                        </>
+                    }
+                >
+                    <label htmlFor="project-directory-input" className="text-xs font-semibold text-slate-300">Directory Path</label>
+                    <div className="grid grid-cols-[1fr_auto] gap-2">
+                        <Input
+                            id="project-directory-input"
+                            value={projectDirectory}
+                            onChange={(e) => setProjectDirectory(e.target.value)}
+                            placeholder="/Users/.../your-project"
+                        />
+                        <Button variant="secondary" onClick={handleChooseDirectory}>
+                            Choose Folder
+                        </Button>
                     </div>
-                </div>
+                    <div className="text-xs text-slate-400">
+                        Project name: <strong>{getFolderNameFromPath(projectDirectory) || '—'}</strong>
+                    </div>
+                </Modal>
             )}
 
             {isChainModalOpen && (
-                <div className="cockpit-modal-overlay" role="dialog" aria-modal="true" aria-labelledby="chain-modal-title">
-                    <div className="cockpit-modal-panel">
-                        <div>
-                            <h3 id="chain-modal-title" className="cockpit-modal-title">Create New Chain</h3>
-                            <p className="cockpit-modal-subtitle">Start a new chat chain in the current project or as unbound context.</p>
-                        </div>
-                        <div className="cockpit-modal-form">
-                            <label htmlFor="chain-label-input" className="cockpit-modal-label">Chain Name</label>
-                            <input
-                                id="chain-label-input"
-                                value={newChainLabel}
-                                onChange={(e) => setNewChainLabel(e.target.value)}
-                                placeholder="For example: Sprint planning sync"
-                                className="cockpit-modal-input"
-                            />
-                            <label htmlFor="chain-scope-select" className="cockpit-modal-label">Scope</label>
-                            <select
-                                id="chain-scope-select"
-                                value={newChainScope}
-                                onChange={(e) => setNewChainScope(e.target.value as 'current' | 'unbound')}
-                                disabled={!selectedProject}
-                                className="cockpit-modal-input"
-                            >
-                                <option value="current">{selectedProject ? `Current project (${selectedProject})` : 'Current project unavailable'}</option>
-                                <option value="unbound">Unbound chain (no project)</option>
-                            </select>
-                        </div>
-                        <div className="cockpit-modal-actions">
-                            <button
-                                type="button"
-                                className="cockpit-modal-secondary"
+                <Modal
+                    labelledBy="chain-modal-title"
+                    title="Create New Chain"
+                    subtitle="Start a new chat chain in the current project or as unbound context."
+                    footer={
+                        <>
+                            <Button
+                                variant="secondary"
                                 onClick={() => {
                                     setIsChainModalOpen(false);
                                     setNewChainLabel('');
@@ -1674,18 +1649,36 @@ export function CockpitPage() {
                                 }}
                             >
                                 Cancel
-                            </button>
-                            <button
-                                type="button"
-                                className="cockpit-modal-primary"
+                            </Button>
+                            <Button
+                                variant="primary"
                                 disabled={!selectedProject && newChainScope === 'current'}
                                 onClick={() => { void handleAddNewChain(); }}
                             >
                                 Create Chain
-                            </button>
-                        </div>
-                    </div>
-                </div>
+                            </Button>
+                        </>
+                    }
+                >
+                    <label htmlFor="chain-label-input" className="text-xs font-semibold text-slate-300">Chain Name</label>
+                    <Input
+                        id="chain-label-input"
+                        value={newChainLabel}
+                        onChange={(e) => setNewChainLabel(e.target.value)}
+                        placeholder="For example: Sprint planning sync"
+                    />
+                    <label htmlFor="chain-scope-select" className="text-xs font-semibold text-slate-300">Scope</label>
+                    <select
+                        id="chain-scope-select"
+                        value={newChainScope}
+                        onChange={(e) => setNewChainScope(e.target.value as 'current' | 'unbound')}
+                        disabled={!selectedProject}
+                        className="h-9 rounded-md border border-slate-600 bg-slate-900 px-3 text-sm text-slate-100 outline-none focus:border-sky-500 disabled:opacity-60"
+                    >
+                        <option value="current">{selectedProject ? `Current project (${selectedProject})` : 'Current project unavailable'}</option>
+                        <option value="unbound">Unbound chain (no project)</option>
+                    </select>
+                </Modal>
             )}
         </div>
     );
