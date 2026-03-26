@@ -892,19 +892,29 @@ export function CockpitPage() {
             </header>
 
             <main className="flex flex-1 overflow-hidden">
-                <aside className={`rail-panel ${railCollapsed ? 'collapsed' : ''}`}>
-                    <div className="rail-head">
+                <aside
+                    className={`flex flex-col gap-2 border-r border-slate-800 bg-slate-900 ${
+                        railCollapsed ? 'w-14 flex-none px-1.5 py-2' : 'w-[272px] flex-none px-2 py-2'
+                    }`}
+                >
+                    <div className="flex items-center justify-between border-b border-slate-700 px-1 pb-2 text-xs font-bold tracking-wide text-slate-200">
                         <span>{railCollapsed ? 'AC' : 'Agent Cockpit'}</span>
-                        <button type="button" className="rail-toggle" onClick={() => setRailCollapsed((p) => !p)} title={railCollapsed ? 'Open sidebar' : 'Hide sidebar'} aria-label={railCollapsed ? 'Open sidebar' : 'Hide sidebar'}>
+                        <button
+                            type="button"
+                            className="inline-flex h-6 w-6 items-center justify-center rounded border border-slate-600 bg-slate-800 text-slate-300 hover:bg-slate-700"
+                            onClick={() => setRailCollapsed((p) => !p)}
+                            title={railCollapsed ? 'Open sidebar' : 'Hide sidebar'}
+                            aria-label={railCollapsed ? 'Open sidebar' : 'Hide sidebar'}
+                        >
                             {railCollapsed ? <PanelLeftOpen size={13} /> : <PanelLeftClose size={13} />}
                         </button>
                     </div>
                     {!railCollapsed && (
                         <>
-                            <div className="rail-top-actions">
+                            <div className="mt-1 flex flex-col gap-1">
                                 <button
                                     type="button"
-                                    className="rail-top-btn"
+                                    className="inline-flex items-center gap-2 rounded-md border border-transparent px-2 py-1.5 text-left text-sm text-slate-300 hover:bg-slate-800 hover:text-slate-100"
                                     onClick={() => {
                                         if (!selectedProject) {
                                             setIsProjectModalOpen(true);
@@ -916,20 +926,28 @@ export function CockpitPage() {
                                     <PencilLine size={13} />
                                     <span>Новий ланцюжок</span>
                                 </button>
-                                <button type="button" className="rail-top-btn" onClick={() => setIsProjectModalOpen(true)}>
+                                <button
+                                    type="button"
+                                    className="inline-flex items-center gap-2 rounded-md border border-transparent px-2 py-1.5 text-left text-sm text-slate-300 hover:bg-slate-800 hover:text-slate-100"
+                                    onClick={() => setIsProjectModalOpen(true)}
+                                >
                                     <FolderPlus size={13} />
                                     <span>Add new project</span>
                                 </button>
                             </div>
-                            <div className="rail-section-head">
+                            <div className="mt-2 flex items-center justify-between px-1 text-xs font-semibold tracking-wide text-slate-400">
                                 <span>Projects</span>
                             </div>
-                            <div className="rail-project-list">
+                            <div className="flex flex-col gap-1">
                                 {railProjects.map((project) => (
-                                    <div key={project.id} className="rail-project-node">
+                                    <div key={project.id} className="flex flex-col gap-1">
                                         <button
                                             type="button"
-                                            className={`rail-project-btn ${selectedProject === project.id ? 'active' : ''}`}
+                                            className={`inline-flex items-center gap-2 rounded-md border px-2 py-1.5 text-left text-sm ${
+                                                selectedProject === project.id
+                                                    ? 'border-slate-500 bg-slate-700 text-slate-100'
+                                                    : 'border-slate-700 bg-slate-900 text-slate-300 hover:border-slate-600 hover:bg-slate-800'
+                                            }`}
                                             onClick={() => {
                                                 setSelectedProject(project.id);
                                                 setSelectedThread((railThreadsByProject[project.id] || [])[0]?.id || '');
@@ -939,16 +957,20 @@ export function CockpitPage() {
                                             <span>{project.label}</span>
                                         </button>
                                         {selectedProject === project.id && (
-                                            <div className="rail-thread-list nested">
+                                            <div className="mb-1 ml-3 flex flex-col gap-1">
                                                 {(railThreadsByProject[project.id] || []).map((thread) => (
                                                     <button
                                                         key={thread.id}
                                                         type="button"
-                                                        className={`rail-thread-btn ${selectedThread === thread.id ? 'active' : ''}`}
+                                                        className={`flex w-[calc(100%-0.25rem)] items-center justify-between gap-2 rounded-md border px-2 py-1 text-left text-xs ${
+                                                            selectedThread === thread.id
+                                                                ? 'border-slate-500 bg-slate-700 text-slate-100'
+                                                                : 'border-slate-700 bg-slate-900 text-slate-300 hover:border-slate-600 hover:bg-slate-800'
+                                                        }`}
                                                         onClick={() => setSelectedThread(thread.id)}
                                                     >
-                                                        <span className="rail-thread-label">{thread.label}</span>
-                                                        <span className="rail-thread-age">{new Date(thread.updatedAt).toLocaleDateString()}</span>
+                                                        <span className="min-w-0 flex-1 truncate">{thread.label}</span>
+                                                        <span className="text-[10px] lowercase text-slate-500">{new Date(thread.updatedAt).toLocaleDateString()}</span>
                                                     </button>
                                                 ))}
                                             </div>
