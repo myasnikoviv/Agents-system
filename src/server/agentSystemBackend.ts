@@ -3,6 +3,9 @@ import dotenv from 'dotenv';
 import express from 'express';
 import fs from 'fs';
 import path from 'path';
+import { v4 as uuidv4 } from 'uuid';
+import { executeQuasiLinearRun } from '../runtime/graphs/PilotQuasiLinearGraph';
+import { fetchRecentEvents } from '../runtime/events/EventBus';
 
 dotenv.config();
 
@@ -598,15 +601,69 @@ app.post('/api/cockpit/settings/:section', (req, res) => {
   res.json({ success: true, settings });
 });
 
-app.post('/api/chat', (req, res) => {
+app.post('/api/chat', async (req, res) => {
   const message = String(req.body?.message || req.body?.prompt || '').trim();
-  res.json({
-    success: true,
-    status: 'mock',
-    threadId: req.body?.threadId || `thread_${Date.now()}`,
-    logs: [{ stage: 'backend', role: 'assistant', status: 'completed', message: 'Standalone backend response' }],
-    response: message ? `Standalone backend active. Received: ${message}` : 'Standalone backend active.',
-  });
+  const threadId = String(req.body?.threadId || `thread_${Date.now()}`).trim();
+  const runId = uuidv4();
+  const executionMode = String(req.body?.executionMode || 'multiple_agents').trim();
+  const mode = executionMode === 'linear' || executionMode === 'mock' ? executionMode : 'multiple_agents';
+
+  if (!message) {
+    res.status(400).json({ success: false, error: 'message_required' });
+    return;
+  }
+
+  try {
+    const finalState = await executeQuasiLinearRun({
+      plane_issue_id: String(req.body?.ticketId || '').trim(),
+      pipeline_run_id: runId,
+      thread_id: threadId,
+      status: 'initialized',
+      executionOptions: { mode },
+      messages: [{ role: 'user', content: message }],
+      artifactLogs: [message],
+      projectId: String(req.body?.projectId || 'agent_system'),
+      workspacePath: process.cwd(),
+    });
+
+    const assistantMessage = [...(finalState.messages || [])]
+      .reverse()
+      .find((m: { role: string; content: string }) => m.role === 'assistant')?.content;
+    const artifactLogs = Array.isArray(finalState.artifactLogs) ? finalState.artifactLogs : [];
+    const finalMessage = assistantMessage || artifactLogs[artifactLogs.length - 1] || null;
+
+    res.json({
+      success: true,
+      status: finalState.status || 'completed',
+      threadId,
+      runId,
+      ticketId: finalState.plane_issue_id || null,
+      message: finalMessage,
+      logs: artifactLogs,
+      observability: {
+        pipeline: finalState.selected_pipeline || 'unified-task-intake',
+        stage: finalState.status || 'completed',
+        nextStage: finalState.status === 'pipeline_completed' ? 'finalize' : 'swarm',
+        blockingGates: '',
+        approvalRequired: false,
+        approvalReason: '',
+      },
+      gitContext: {
+        activeBranch: runtimeFooter.activeBranch,
+        worktreePath: runtimeFooter.worktreePath,
+        preflightToken: runtimeFooter.preflightToken,
+      },
+    });
+  } catch (error: any) {
+    console.error('[agent-system-backend] /api/chat error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'chat_execution_failed',
+      message: error?.message || 'Failed to execute runtime loop',
+      threadId,
+      runId,
+    });
+  }
 });
 
 app.post('/api/chat/approve', (_req, res) => {
@@ -622,13 +679,50 @@ app.get('/api/events/stream', (req, res) => {
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
   res.flushHeaders();
-  res.write(`data: ${JSON.stringify({ event_type: 'runtime.idle', status: 'ok', timestamp: new Date().toISOString() })}\n\n`);
+
+  const seenEventIds = new Set<string>();
+  let streamClosed = false;
+
+  const sendEvent = (payload: unknown) => {
+    if (streamClosed) return;
+    res.write(`data: ${JSON.stringify(payload)}\n\n`);
+  };
+
+  sendEvent({ event_type: 'runtime.idle', status: 'ok', timestamp: new Date().toISOString() });
+
+  const pollRecentEvents = async () => {
+    try {
+      const recent = await fetchRecentEvents(25);
+      const chronological = recent.reverse();
+      for (const event of chronological) {
+        const id = `${event.event_id}:${event.timestamp}`;
+        if (seenEventIds.has(id)) continue;
+        seenEventIds.add(id);
+        if (seenEventIds.size > 300) {
+          const first = seenEventIds.values().next().value as string | undefined;
+          if (first) seenEventIds.delete(first);
+        }
+        sendEvent(event);
+      }
+    } catch (error) {
+      console.error('[agent-system-backend] SSE poll error:', error);
+    }
+  };
+
+  void pollRecentEvents();
+
+  const eventsPoller = setInterval(() => {
+    void pollRecentEvents();
+  }, 1500);
 
   const keepAlive = setInterval(() => {
+    if (streamClosed) return;
     res.write(`: keep-alive ${Date.now()}\n\n`);
   }, 15000);
 
   req.on('close', () => {
+    streamClosed = true;
+    clearInterval(eventsPoller);
     clearInterval(keepAlive);
     res.end();
   });
