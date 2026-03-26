@@ -1,6 +1,8 @@
 import cors from 'cors';
 import dotenv from 'dotenv';
 import express from 'express';
+import fs from 'fs';
+import path from 'path';
 
 dotenv.config();
 
@@ -138,6 +140,7 @@ const defaultContractRegistry = {
 const PLANE_BASE_URL = (process.env.PLANE_BASE_URL || 'http://127.0.0.1:3000').replace(/\/$/, '');
 const PLANE_WORKSPACE = process.env.PLANE_WORKSPACE || 'agent-system';
 const PLANE_API_KEY = process.env.PLANE_API_KEY || process.env.PLANE_API_TOKEN || '';
+const SETTINGS_FILE_PATH = path.resolve(process.cwd(), '.agent-system', 'cockpit-settings.json');
 
 const toPlaneIdentifier = (value: string): string =>
   value
@@ -156,6 +159,28 @@ const normalizeProjectKey = (value: string): string =>
   (value || '').toLowerCase().replace(/[^a-z0-9]/g, '');
 
 const canUsePlane = (): boolean => Boolean(PLANE_API_KEY && PLANE_BASE_URL && PLANE_WORKSPACE);
+
+const persistSettingsStore = () => {
+  try {
+    const data = Object.fromEntries(settingsStore.entries());
+    fs.mkdirSync(path.dirname(SETTINGS_FILE_PATH), { recursive: true });
+    fs.writeFileSync(SETTINGS_FILE_PATH, JSON.stringify(data, null, 2), 'utf-8');
+  } catch (error) {
+    console.error('[agent-system-backend] failed to persist settings store:', error);
+  }
+};
+
+const restoreSettingsStore = () => {
+  try {
+    if (!fs.existsSync(SETTINGS_FILE_PATH)) return;
+    const raw = fs.readFileSync(SETTINGS_FILE_PATH, 'utf-8');
+    if (!raw.trim()) return;
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    Object.entries(parsed).forEach(([key, value]) => settingsStore.set(key, value));
+  } catch (error) {
+    console.error('[agent-system-backend] failed to restore settings store:', error);
+  }
+};
 
 const syncPlaneBindingForProject = async (project: { id: string; label: string }) => {
   const checkedAt = new Date().toISOString();
@@ -299,6 +324,11 @@ const ensureProject = (id: string, label: string) => {
 
 ensureProject('default', 'Default');
 void syncPlaneBindingForProject({ id: 'default', label: 'Default' });
+restoreSettingsStore();
+const runtimeFromSettingsAtBoot = getRuntimeSelectionFromExecutorSettings();
+if (runtimeFromSettingsAtBoot) {
+  runtimeSelection = runtimeFromSettingsAtBoot;
+}
 
 app.get('/api/health', (_req, res) => {
   res.json({
@@ -475,7 +505,22 @@ app.get('/api/cockpit/analytics/skills', (_req, res) => {
 });
 
 app.get('/api/cockpit/providers/openhands/health', (_req, res) => {
-  res.json({ success: true, alive: false, error: 'OpenHands not configured for standalone mode' });
+  const raw = settingsStore.get('executor');
+  const executor = (raw && typeof raw === 'object') ? raw as { openhands?: { serverUrl?: string } } : {};
+  const configuredUrl = String(executor.openhands?.serverUrl || '').trim();
+  const serverUrl = (configuredUrl || process.env.OPENHANDS_SERVER_URL || 'http://127.0.0.1:8000').replace(/\/$/, '');
+  fetch(`${serverUrl}/health`)
+    .then(async (response) => {
+      if (!response.ok) {
+        res.json({ success: true, alive: false, error: `HTTP ${response.status}`, serverUrl });
+        return;
+      }
+      const data = await response.json().catch(() => ({}));
+      res.json({ success: true, alive: true, serverUrl, details: data });
+    })
+    .catch((error) => {
+      res.json({ success: true, alive: false, error: error?.message || 'unreachable', serverUrl });
+    });
 });
 
 app.get('/api/cockpit/providers/cli/status', (_req, res) => {
@@ -523,6 +568,7 @@ app.post('/api/cockpit/providers/select', (req, res) => {
     if (provider === 'codex-cli') executor.codex = { ...(executor.codex || {}), model };
     if (provider === 'openhands-sdk') executor.openhands = { ...(executor.openhands || {}), model };
     settingsStore.set('executor', executor);
+    persistSettingsStore();
   }
 
   res.json({ success: true, runtimeSelection });
@@ -540,6 +586,15 @@ app.post('/api/cockpit/settings/:section', (req, res) => {
   const section = req.params.section;
   const settings = req.body || {};
   settingsStore.set(section, settings);
+  persistSettingsStore();
+
+  if (section === 'executor') {
+    const runtimeFromSettings = getRuntimeSelectionFromExecutorSettings();
+    if (runtimeFromSettings) {
+      runtimeSelection = runtimeFromSettings;
+    }
+  }
+
   res.json({ success: true, settings });
 });
 
