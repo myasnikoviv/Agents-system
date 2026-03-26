@@ -1,23 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Mic, Send, Cpu, Activity, LayoutDashboard, Terminal, Settings, PanelLeftClose, PanelLeftOpen, Globe2, ChevronDown, Plus, PencilLine, Folder, FolderPlus, Laptop, ShieldCheck, GitBranch, RefreshCw } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import { apiUrl, fetchJsonSafe } from '../../lib/http';
 import './CockpitPage.css';
-
-const API_BASE = ((import.meta as { env?: Record<string, string | undefined> }).env?.VITE_API_BASE_URL || '').replace(/\/$/, '');
-const apiUrl = (path: string) => `${API_BASE}${path}`;
 const RUNTIME_MODE_KEY = 'cockpit.runtime.mode.v1';
-
-async function fetchJsonSafe<T = any>(path: string, init?: RequestInit): Promise<T | null> {
-    try {
-        const res = await fetch(apiUrl(path), init);
-        if (!res.ok) return null;
-        const text = await res.text();
-        if (!text.trim()) return null;
-        return JSON.parse(text) as T;
-    } catch {
-        return null;
-    }
-}
 
 interface ChatMessage {
     id: string;
