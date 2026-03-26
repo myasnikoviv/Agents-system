@@ -1071,7 +1071,7 @@ export function CockpitPage() {
                         )}
 
                         {messages.length === 0 && status === 'idle' ? (
-                            <div style={{opacity: 0.5, fontStyle: 'italic', margin: 'auto'}}>
+                            <div className="m-auto italic opacity-50">
                                 No tasks yet. How can the Swarm assist you today?
                             </div>
                         ) : null}
@@ -1089,7 +1089,7 @@ export function CockpitPage() {
                                     <span>{m.role === 'user' ? 'Me' : 'Agent'}</span>
                                     <span>{m.timestamp.toLocaleTimeString()}</span>
                                 </div>
-                                <div style={{whiteSpace: 'pre-wrap'}}>{m.content}</div>
+                                <div className="whitespace-pre-wrap">{m.content}</div>
                             </div>
                         ))}
                         
@@ -1373,7 +1373,7 @@ export function CockpitPage() {
                             ref={fileInputRef}
                             type="file"
                             multiple
-                            style={{ display: 'none' }}
+                            className="hidden"
                             onChange={handleFileAttach}
                         />
                         <div className="px-1 pb-0.5 text-[11px] text-slate-500">
@@ -1529,7 +1529,7 @@ export function CockpitPage() {
                                 )}
 
                                 {events.length === 0 ? (
-                                    <div style={{opacity: 0.5, fontSize: '0.85rem', textAlign: 'center', marginTop: '1rem'}}>
+                                    <div className="mt-4 text-center text-sm opacity-50">
                                         No events yet...
                                     </div>
                                 ) : null}

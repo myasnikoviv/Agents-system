@@ -111,56 +111,27 @@ const ApiKeyInput = ({
   };
 
   return (
-    <label style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+    <label className="flex flex-col gap-1">
       {label}
-      <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+      <div className="relative flex items-center">
         <input
           type={show ? 'text' : 'password'}
           value={value}
           onChange={(e) => onChange(e.target.value)}
           placeholder={placeholder}
-          style={{ width: '100%', paddingRight: '70px' }}
+          className="w-full rounded-md border border-slate-600 bg-slate-800 px-2.5 py-1.5 pr-20 text-sm text-slate-100"
         />
         {/* Custom teaser overlay when obscured and not empty */}
         {!show && value && (
-          <div
-            style={{
-              position: 'absolute',
-              left: '12px',
-              top: '50%',
-              transform: 'translateY(-50%)',
-              color: '#94a3b8',
-              fontFamily: 'monospace',
-              pointerEvents: 'none',
-              backgroundColor: '#1e293b', // Match input bg
-              padding: '2px 0',
-            }}
-          >
+          <div className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 bg-slate-800 py-0.5 font-mono text-slate-400">
             {getTeaser(value)}
           </div>
         )}
-        <div
-          style={{
-            position: 'absolute',
-            right: '8px',
-            top: '50%',
-            transform: 'translateY(-50%)',
-            display: 'flex',
-            gap: '8px',
-          }}
-        >
+        <div className="absolute right-2 top-1/2 flex -translate-y-1/2 gap-2">
           <button
             type="button"
             onClick={() => setShow(!show)}
-            style={{ 
-              background: 'none', 
-              border: 'none', 
-              color: '#94a3b8', 
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              padding: '4px'
-            }}
+            className="inline-flex items-center rounded p-1 text-slate-400 hover:bg-slate-700 hover:text-slate-200"
             title={show ? 'Hide' : 'Show'}
           >
             {show ? <EyeOff size={16} /> : <Eye size={16} />}
@@ -168,15 +139,7 @@ const ApiKeyInput = ({
           <button
             type="button"
             onClick={handlePaste}
-            style={{ 
-              background: 'none', 
-              border: 'none', 
-              color: '#94a3b8', 
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              padding: '4px'
-            }}
+            className="inline-flex items-center rounded p-1 text-slate-400 hover:bg-slate-700 hover:text-slate-200"
             title="Paste"
           >
             <Clipboard size={16} />
@@ -1431,29 +1394,29 @@ export function CockpitSettingsPage() {
                       llmTestResult.success ? 'border-l-4 border-l-emerald-500' : 'border-l-4 border-l-red-500'
                     }`}
                   >
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, fontWeight: 'bold' }}>
+                    <div className="mb-2 flex items-center gap-2 font-semibold">
                       {llmTestResult.success ? (
                         <CheckCircle size={18} color="#10b981" />
                       ) : (
                         <AlertTriangle size={18} color="#ef4444" />
                       )}
                       <span>Result: {llmTestResult.status === 'ok' ? 'Success' : `Failed (${llmTestResult.status})`}</span>
-                      <span style={{ marginLeft: 'auto', fontSize: '0.8em', opacity: 0.6 }}>{llmTestResult.latencyMs}ms</span>
+                      <span className="ml-auto text-xs opacity-60">{llmTestResult.latencyMs}ms</span>
                     </div>
-                    <div style={{ fontSize: '0.9em', opacity: 0.9 }}>{llmTestResult.message}</div>
+                    <div className="text-sm opacity-90">{llmTestResult.message}</div>
                     {llmTestResult.response && (
-                      <div style={{ marginTop: 10, padding: 10, background: 'var(--bg-primary)', borderRadius: 4, fontFamily: 'monospace', fontSize: '0.85em', whiteSpace: 'pre-wrap', borderLeft: '3px solid var(--accent-primary)' }}>
+                      <div className="mt-2.5 rounded border-l-4 border-sky-500 bg-slate-950 p-2.5 font-mono text-xs whitespace-pre-wrap">
                         <strong>Response:</strong> {llmTestResult.response}
                       </div>
                     )}
                   </div>
                 )}
-                <div className={settingsGridClass} style={{ marginTop: 12 }}>
+                <div className={`${settingsGridClass} mt-3`}>
                   {executorSettings.backend === 'codex-cli' && (
                     <>
                       {runtimeCapabilities.implicitCodexApiKey && (
-                        <div className={settingsMetaClass} style={{ gridColumn: '1 / -1', marginBottom: '8px', padding: '8px', border: '1px solid #4a3c10', backgroundColor: '#1f1a07', borderRadius: '4px' }}>
-                          <span style={{color: '#ffd166', fontWeight: 600}}>Environment Key Bound:</span> Codex is currently using API Key implicitly inherited from your shell environment variables (<code>{runtimeCapabilities.implicitCodexApiKey}</code>).
+                        <div className={`${settingsMetaClass} col-span-full mb-2 rounded border border-amber-800 bg-amber-950/40 p-2`}>
+                          <span className="font-semibold text-amber-300">Environment Key Bound:</span> Codex is currently using API Key implicitly inherited from your shell environment variables (<code>{runtimeCapabilities.implicitCodexApiKey}</code>).
                           To override it, you can execute a new login below.
                         </div>
                       )}
