@@ -12,48 +12,63 @@ echo -e "${YELLOW}--- Starting Agent System Infrastructure ---${NC}"
 
 # Parse arguments
 PROJECT_NAME="default"
+STANDALONE_MODE="false"
 while [[ "$#" -gt 0 ]]; do
     case $1 in
         --project) PROJECT_NAME="$2"; shift ;;
+        --standalone) STANDALONE_MODE="true" ;;
         *) echo "Unknown parameter passed: $1"; exit 1 ;;
     esac
     shift
 done
 
 echo -e "${YELLOW}Project context: ${PROJECT_NAME}${NC}"
+echo -e "${YELLOW}Standalone mode: ${STANDALONE_MODE}${NC}"
 
-# 1. Start Docker if needed
-if ! docker info > /dev/null 2>&1; then
-    echo "Starting Docker Desktop..."
-    open -a Docker
-    while ! docker info > /dev/null 2>&1; do sleep 1; done
+# Full infra bootstrap (skipped in standalone mode)
+if [[ "$STANDALONE_MODE" != "true" ]]; then
+    # 1. Start Docker if needed
+    if ! docker info > /dev/null 2>&1; then
+        echo "Starting Docker Desktop..."
+        open -a Docker
+        while ! docker info > /dev/null 2>&1; do sleep 1; done
+    fi
+
+    # 2. Start Plane
+    echo "Starting Plane (Docker Compose)..."
+    cd .plane-runtime/plane/ && docker compose up -d && cd ../..
+
+    # 3. Start Local Redis
+    if ! lsof -i :6379 > /dev/null; then
+        echo "Starting local Redis..."
+        brew services start redis || redis-server --daemonize yes
+    fi
+
+    # 4. Start LangGraph Server (Port 2024) via launchd service
+    if ! lsof -i :2024 > /dev/null; then
+        echo "Starting LangGraph Dev Server (launchd service)..."
+        ./scripts/infra/langgraph_ctl.sh start
+    fi
+
+    # 5. Start OpenHands Sidecar (Port 8000)
+    if ! lsof -i :8000 > /dev/null; then
+        echo "Starting OpenHands Sidecar Server..."
+        ./scripts/openhands/server_ctl.sh start
+    fi
+else
+    echo "Standalone mode active: skipping Docker/Plane/Redis/LangGraph/OpenHands startup."
 fi
 
-# 2. Start Plane
-echo "Starting Plane (Docker Compose)..."
-cd .plane-runtime/plane/ && docker compose up -d && cd ../..
-
-# 3. Start Local Redis
-if ! lsof -i :6379 > /dev/null; then
-    echo "Starting local Redis..."
-    brew services start redis || redis-server --daemonize yes
+# 6. Start Agent System Backend API (Port 3001)
+if ! lsof -i :3001 > /dev/null; then
+    echo "Starting Agent System Backend API (3001)..."
+    nohup npm run backend:start > agent_system_backend.log 2>&1 &
+    echo "Backend starting in background (log: agent_system_backend.log)"
+else
+    echo "Backend API is already running on port 3001."
 fi
 
-# 4. Start LangGraph Server (Port 2024)
-if ! lsof -i :2024 > /dev/null; then
-    echo "Starting LangGraph Dev Server..."
-    # We pass the default or specific project manifest if available
-    nohup npx @langchain/langgraph-cli dev --host 127.0.0.1 --port 2024 > langgraph_dev.log 2>&1 &
-    echo "LangGraph starting in background (log: langgraph_dev.log)"
-fi
-
-# 5. Start OpenHands Sidecar (Port 8000)
-if ! lsof -i :8000 > /dev/null; then
-    echo "Starting OpenHands Sidecar Server..."
-    ./scripts/openhands/server_ctl.sh start
-fi
-
-# 6. Start Cockpit UI (Port 5174)
+# 7. Start Cockpit UI (Port 5174)
 if ! lsof -i :5174 > /dev/null; then
     echo "Starting Cockpit UI (5174)..."
     (cd frontend && nohup npm run dev -- --host 0.0.0.0 --port 5174 > cockpit_ui.log 2>&1 &)
@@ -62,9 +77,15 @@ else
     echo "Cockpit UI is already running on port 5174."
 fi
 
-# 7. Verify Health
+# 8. Verify Health
 sleep 5
-./scripts/infra/startup_check.sh
+if [[ "$STANDALONE_MODE" == "true" ]]; then
+    ./scripts/infra/startup_check.sh --standalone
+else
+    ./scripts/infra/startup_check.sh
+fi
 
 echo -e "${GREEN}Agent System is ready.${NC}"
 echo -e "${YELLOW}Access Cockpit UI at: http://localhost:5174${NC}"
+echo -e "${YELLOW}LangGraph API: http://127.0.0.1:2024/info${NC}"
+echo -e "${YELLOW}LangSmith Studio (root): https://smith.langchain.com/studio?baseUrl=http%3A%2F%2Flocalhost%3A2024${NC}"

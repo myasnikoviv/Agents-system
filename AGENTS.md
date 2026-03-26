@@ -1,5 +1,6 @@
 # Multi-Agent Operating Model v2 (Cognitive)
 
+
 Ticket: AGSYS-231
 
 This repository uses a role-based agent system for product work, strategy logic updates, testing, and release.
@@ -8,60 +9,68 @@ This repository uses a role-based agent system for product work, strategy logic 
 
 1. PM Orchestrator / Supervisor
    - Callsign: `Сокіл-Координатор (PM Orchestrator)`
-   - File: `./common-agents/docs/agents/pm-orchestrator.md`
-   - Skill: `./common-agents/docs/skills/pm-orchestrator-skill.md`
+   - File: `./generated/templates/agents/pm-orchestrator.md`
+   - Skill: `./generated/templates/skills/pm-orchestrator-skill.md, ./generated/templates/skills/plane-project-management-db-fallback-skill.md`
 2. Research Agent
    - Callsign: `Дослідник Шляху (Research Agent)`
-   - File: `./common-agents/docs/agents/research-agent.md`
-   - Skill: `./common-agents/docs/skills/research-agent-skill.md`
+   - File: `./generated/templates/agents/research-agent.md`
+   - Skill: `./generated/templates/skills/research-agent-skill.md, ./generated/templates/skills/engineering/repo-navigation/repo-navigation.md, ./generated/templates/skills/trading/market-structure-research/market-structure-research.md`
 3. Trader Analyst
    - Callsign: `Ринковий Вовк (Trader Analyst)`
-   - File: `./common-agents/docs/agents/trader-analyst.md`
-   - Skill: `./common-agents/docs/skills/trader-analyst-skill.md`
+   - File: `./generated/templates/agents/trader-analyst.md`
+   - Skill: `./generated/templates/skills/trader-analyst-skill.md, ./generated/templates/skills/trading/backtest-result-analysis/backtest-result-analysis.md, ./generated/templates/skills/trading/market-structure-research/market-structure-research.md, ./generated/templates/skills/trading/strategy-validation/strategy-validation.md, ./generated/templates/skills/trading/wave-logic-formalization/wave-logic-formalization.md`
 4. Solution Architect
    - Callsign: `Майстер Креслень (Solution Architect)`
-   - File: `./common-agents/docs/agents/solution-architect.md`
-   - Skill: `./common-agents/docs/skills/solution-architect-skill.md`
+   - File: `./generated/templates/agents/solution-architect.md`
+   - Skill: `./generated/templates/skills/solution-architect-skill.md, ./generated/templates/skills/engineering/architecture-review/architecture-review.md`
 5. TDD QA
    - Callsign: `Ловець Багів (TDD QA)`
-   - File: `./common-agents/docs/agents/tdd-qa.md`
-   - Skill: `./common-agents/docs/skills/tdd-qa-skill.md`
+   - File: `./generated/templates/agents/tdd-qa.md`
+   - Skill: `./generated/templates/skills/tdd-qa-skill.md, ./generated/templates/skills/engineering/test-fixing/test-fixing.md, ./generated/templates/skills/engineering/test-generation/test-generation.md`
 6. Developer
    - Callsign: `Кодоковаль (Developer)`
-   - File: `./common-agents/docs/agents/developer.md`
-   - Skill: `./common-agents/docs/skills/developer-skill.md`
+   - File: `./generated/templates/agents/developer.md`
+   - Skill: `./generated/templates/skills/developer-skill.md, ./generated/templates/skills/engineering/refactor/refactor.md, ./generated/templates/skills/engineering/repo-navigation/repo-navigation.md, ./generated/templates/skills/engineering/test-fixing/test-fixing.md, ./generated/templates/skills/engineering/test-generation/test-generation.md`
 7. Code Reviewer
    - Callsign: `Вартовий Якості (Code Reviewer)`
-   - File: `./common-agents/docs/agents/code-reviewer.md`
-   - Skill: `./common-agents/docs/skills/code-reviewer-skill.md`
+   - File: `./generated/templates/agents/code-reviewer.md`
+   - Skill: `./generated/templates/skills/code-reviewer-skill.md`
 8. Runner Backtest
    - Callsign: `Бойовий Прогін (Runner Backtest)`
-   - File: `./common-agents/docs/agents/runner-backtest.md`
-   - Skill: `./common-agents/docs/skills/runner-backtest-skill.md`
+   - File: `./generated/templates/agents/runner-backtest.md`
+   - Skill: `./generated/templates/skills/runner-backtest-skill.md`
 9. Knowledge Curator / Learning Agent
    - Callsign: `Хранитель Знань (Knowledge Curator)`
-   - File: `./common-agents/docs/agents/knowledge-curator.md`
-   - Skill: `./common-agents/docs/skills/knowledge-curator-skill.md`
-10. Domain Validator (optional, mandatory for domain-heavy tasks)
+   - File: `./generated/templates/agents/knowledge-curator.md`
+   - Skill: `./generated/templates/skills/knowledge-curator-skill.md`
+10. Domain Validator (optional)
    - Callsign: `Вартовий Домену (Domain Validator)`
-   - File: `./common-agents/docs/agents/domain-validator.md`
-   - Skill: `./common-agents/docs/skills/domain-validator-skill.md`
+   - File: `./generated/templates/agents/domain-validator.md`
+   - Skill: `./generated/templates/skills/domain-validator-skill.md, ./generated/templates/skills/trading/domain-ambiguity-detection/domain-ambiguity-detection.md`
 11. Git Flow Manager
    - Callsign: `Пан Гілка (Git Flow Manager)`
-   - File: `./common-agents/docs/agents/git-flow-manager.md`
-   - Skill: `./common-agents/docs/skills/git-flow-manager-skill.md`
+   - File: `./generated/templates/agents/git-flow-manager.md`
+   - Skill: `./generated/templates/skills/git-flow-manager-skill.md`
 12. Documentation Owner
    - Callsign: `Хранитель Писань (Documentation Owner)`
-   - File: `./common-agents/docs/agents/documentation-owner.md`
-   - Skill: `./common-agents/docs/skills/documentation-owner-skill.md`
+   - File: `./generated/templates/agents/documentation-owner.md`
+   - Skill: `./generated/templates/skills/documentation-owner-skill.md, ./generated/templates/skills/engineering/documentation-update/documentation-update.md`
 13. DevOps Engineer
    - Callsign: `Техно-Рятівник (DevOps Engineer)`
-   - File: `./common-agents/docs/agents/devops-engineer.md`
-   - Skill: `./common-agents/docs/skills/devops-engineer-skill.md`
+   - File: `./generated/templates/agents/devops-engineer.md`
+   - Skill: `./generated/templates/skills/devops-engineer-skill.md, ./generated/templates/skills/system-diagnostics-skill.md`
 14. Design Lead / UI-UX Authority
    - Callsign: `Маестро Дизайну (Design Lead)`
-   - File: `./common-agents/docs/agents/design-lead.md`
-   - Skill: `./common-agents/docs/skills/design-lead-skill.md`
+   - File: `./generated/templates/agents/design-lead.md`
+   - Skill: `./generated/templates/skills/design-lead-skill.md`
+15. Audit Agent
+   - Callsign: `Вартовий Системи (Audit Agent)`
+   - File: `./generated/templates/agents/audit-agent.md`
+   - Skill: `./generated/templates/skills/system-diagnostics-skill.md`
+16. System Core
+   - Callsign: `Ядро (System Core)`
+   - File: `./generated/templates/agents/system-core.md`
+   - Skill: `./generated/templates/skills/pm-orchestrator-skill.md`
 
 ## Cognitive Loop Contract
 
@@ -71,29 +80,29 @@ For medium/high complexity work, key agents run this loop:
 
 ## Pipelines
 
-1. Unified Task Intake: `./common-agents/docs/pipelines/unified-task-intake.md`
-2. New Feature: `./common-agents/docs/pipelines/new-feature.md`
-3. Feature Change: `./common-agents/docs/pipelines/feature-change.md`
-4. Bug Fix: `./common-agents/docs/pipelines/bug-fix.md`
-5. Hotfix: `./common-agents/docs/pipelines/hotfix.md`
-6. Refactor: `./common-agents/docs/pipelines/refactor.md`
-7. Strategy Tuning / Research Loop: `./common-agents/docs/pipelines/strategy-tuning.md`
-8. Retrospective & Learning: `./common-agents/docs/pipelines/retrospective-learning.md`
-9. Git Conflict / Wrong-Branch Recovery: `./common-agents/docs/pipelines/git-conflict-recovery.md`
-10. Release: `./common-agents/docs/pipelines/release.md`
-11. Rollback / Incident: `./common-agents/docs/pipelines/rollback-incident.md`
-12. Design Audit: `./common-agents/docs/pipelines/design-audit.md`
-13. Sprint Integration Closure: `./common-agents/docs/pipelines/sprint-integration.md`
+1. Unified Task Intake: `./generated/templates/pipelines/unified-task-intake.md`
+2. New Feature: `./generated/templates/pipelines/new-feature.md`
+3. Feature Change: `./generated/templates/pipelines/feature-change.md`
+4. Bug Fix: `./generated/templates/pipelines/bug-fix.md`
+5. Hotfix: `./generated/templates/pipelines/hotfix.md`
+6. Refactor: `./generated/templates/pipelines/refactor.md`
+7. Strategy Tuning / Research Loop: `./generated/templates/pipelines/strategy-tuning.md`
+8. Retrospective & Learning: `./generated/templates/pipelines/retrospective-learning.md`
+9. Git Conflict / Wrong-Branch Recovery: `./generated/templates/pipelines/git-conflict-recovery.md`
+10. Release: `./generated/templates/pipelines/release.md`
+11. Rollback / Incident: `./generated/templates/pipelines/rollback-incident.md`
+12. Design Audit: `./generated/templates/pipelines/design-audit.md`
+13. Sprint Integration Closure: `./generated/templates/pipelines/sprint-integration.md`
 
 ## Knowledge Layer
 
-- Knowledge root: ./common-agents/docs/process/
-- Schema: ./common-agents/docs/knowledge/schema.md
-- Lessons learned registry: ./common-agents/docs/process/knowledge/lessons-learned/
-- Decision log: ./common-agents/docs/process/knowledge/decisions/
-- Architecture rules registry: ./common-agents/docs/process/knowledge/architecture-rules/
-- Domain validation notes: ./common-agents/docs/process/knowledge/domain-notes/
-- Skills registry and lifecycle: ./common-agents/docs/skills/skill-schema-v2.md
+- Knowledge root: `docs/knowledge/`
+- Schema: `docs/knowledge/schema.md`
+- Lessons learned registry: `docs/knowledge/lessons-learned/`
+- Decision log: `docs/knowledge/decisions/`
+- Architecture rules registry: `docs/knowledge/architecture-rules/`
+- Domain validation notes: `docs/knowledge/domain-notes/`
+- Skills registry and lifecycle: `docs/skills/skill-schema-v2.md`
 
 ## Global Rules
 
@@ -101,7 +110,7 @@ For medium/high complexity work, key agents run this loop:
 - Mandatory pipeline selection at task entry: every user request must be mapped to exactly one pipeline before any other action.
 - Mandatory intake requirements pack gate: no research/planning/implementation may start until PM creates requirements artifact `docs/process/tickets/<id>-requirements-pack.md` and owner explicitly approves it.
 - Mandatory assumptions review gate: before implementation, PM must create assumptions artifact `docs/process/tickets/<id>-assumptions-review.md` with evidence-backed assumptions and owner corrections/confirmation.
-- Mandatory approval traceability: each gate above must include approver identity, timestamp, and approval status in pipeline state card and Plane comments.
+- Mandatory approval traceability: each gate above must include approver identity, timestamp, and approval status in pipeline state card and [object Object] comments.
 - No free-form execution outside pipeline context. If request is informational-only, it must still be labeled as `pipeline=unified-task-intake` with stage `intake-qna-only`.
 - Pipeline continuity is mandatory: after each meaningful step, PM updates pipeline state artifact `docs/process/pm/pipeline-state/<ticket-or-thread>.md`.
 - Any role response without explicit pipeline context is invalid and must be corrected before continuing.
@@ -120,14 +129,14 @@ For medium/high complexity work, key agents run this loop:
 - Any detected branch/worktree collision (preflight, in-flight, or postflight audit) is a hard stop and must trigger `pipeline=git-conflict-recovery`.
 - Direct pushes to `main` are forbidden for role agents; merge/push flow is coordinated by `Пан Гілка (Git Flow Manager)` via approved branch/worktree path.
 - Git Flow Manager must run periodic drift audit (`scripts/git/worktree_audit.sh`) and PM must reconcile audit result before sprint closure.
-- Any task completion (Plane status `Done`/`Closed`) must be followed by `scripts/git/worktree_cleanup_sweep.sh` execution to prune resources.
+- Any task completion ([object Object] status `Done`/`Closed`) must be followed by `scripts/git/worktree_cleanup_sweep.sh` execution to prune resources.
 - Sprint closure hard gate: PM may declare sprint closed only after `pipeline=sprint-integration` passes with explicit evidence that:
   - all sprint ticket branches are merged into a dedicated integration branch/worktree,
   - integration and regression tests are green on that integration branch,
   - integration branch is merged into `main` (remote),
   - local `main` is synchronized to the merged remote SHA.
 - If any sprint ticket is not merged to `main`, sprint closure is invalid and must remain `In Progress`.
-- Sprint/task closure hard gate: before moving any issue to `Done`/`Closed`, PM must attach reproducible postflight evidence to Plane and `docs/process/tests/<ticket>.md` including:
+- Sprint/task closure hard gate: before moving any issue to `Done`/`Closed`, PM must attach reproducible postflight evidence to [object Object] and `docs/process/tests/<ticket>.md` including:
   - CLI/API smoke command outputs (or explicit N/A rationale),
   - UI smoke via Playwright MCP (or equivalent visual MCP) with concrete observed result (or explicit N/A rationale).
 - If any required postflight channel fails or is missing, PM must revert ticket state from `Done` to `In Progress` and continue execution; “partial pass” closure is forbidden.

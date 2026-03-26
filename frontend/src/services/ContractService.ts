@@ -51,7 +51,10 @@ class ContractService {
     private isDebugEnabled(): boolean {
         if (typeof window === 'undefined') return false;
         try {
-            return window.localStorage.getItem('tb_debug_contracts') === '1';
+            return (
+                window.localStorage.getItem('agsys_debug_contracts') === '1' ||
+                window.localStorage.getItem('tb_debug_contracts') === '1'
+            );
         } catch {
             return false;
         }

@@ -5,7 +5,7 @@ import axios from 'axios';
 
 const PLANE_API_KEY = process.env.PLANE_API_KEY || process.env.PLANE_API_TOKEN || '';
 const PLANE_BASE_URL = process.env.PLANE_BASE_URL || 'http://127.0.0.1:3000';
-const PLANE_WORKSPACE = process.env.PLANE_WORKSPACE || 'trade-bot';
+const PLANE_WORKSPACE = process.env.PLANE_WORKSPACE || 'agent-system';
 const PLANE_PROJECT_ID = process.env.PLANE_PROJECT_ID || '605caec0-10f7-44f1-be01-172d381eb2e7';
 
 const planeClient = axios.create({

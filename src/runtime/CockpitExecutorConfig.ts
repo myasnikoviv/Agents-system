@@ -31,7 +31,6 @@ export interface CockpitExecutorConfig {
       anthropic?: string;
       google?: string;
     };
-    workspacePath: string;
   };
 }
 
@@ -59,23 +58,24 @@ export function loadConfig(projectRoot: string): CockpitExecutorConfig {
         anthropic: process.env.ANTHROPIC_API_KEY || '',
         google: process.env.GOOGLE_API_KEY || '',
       },
-      workspacePath: process.env.OPENHANDS_WORKSPACE_PATH || absProjectRoot,
     },
   };
 
   if (fs.existsSync(configPath)) {
     try {
       const stored = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+      const openhandsConfigRaw = {
+        ...defaults.openhands,
+        ...(stored.openhands || {}),
+        apiKeys: { ...defaults.openhands.apiKeys, ...(stored.openhands?.apiKeys || {}) },
+      };
+      const { workspacePath: _deprecatedWorkspacePath, ...openhandsConfig } = openhandsConfigRaw as typeof openhandsConfigRaw & { workspacePath?: string };
       return {
         ...defaults,
         ...stored,
         claude: { ...defaults.claude, ...(stored.claude || {}) },
         codex: { ...defaults.codex, ...(stored.codex || {}) },
-        openhands: { 
-          ...defaults.openhands, 
-          ...(stored.openhands || {}),
-          apiKeys: { ...defaults.openhands.apiKeys, ...(stored.openhands?.apiKeys || {}) }
-        },
+        openhands: openhandsConfig,
       };
     } catch (e) {
       console.error(`Failed to load cockpit_config.json from ${configPath}:`, e);
