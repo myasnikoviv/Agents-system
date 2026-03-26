@@ -29,6 +29,90 @@ let runtimeSelection = {
   model: 'gpt-5.4',
 };
 
+const providerModelCatalog: Record<'claude-cli' | 'codex-cli' | 'openhands-sdk', string[]> = {
+  'claude-cli': [
+    'auto',
+    'claude-sonnet-4-6',
+    'claude-opus-4-6',
+    'claude-haiku-4-5-20251001',
+    'claude-sonnet-4-5-20250929',
+    'claude-opus-4-5-20251101',
+    'claude-opus-4-20250514',
+    'claude-sonnet-4-20250514',
+  ],
+  'codex-cli': [
+    'auto',
+    'gpt-5.4',
+    'gpt-5.4-mini',
+    'gpt-5.4-nano',
+    'gpt-5.4-pro',
+    'gpt-5.3-codex',
+    'gpt-5.2',
+    'gpt-5.1',
+    'gpt-5',
+    'o4-mini',
+    'o3',
+    'o3-mini',
+    'o1',
+    'o1-pro',
+  ],
+  'openhands-sdk': [
+    'anthropic/claude-sonnet-4-6',
+    'anthropic/claude-opus-4-6',
+    'anthropic/claude-haiku-4-5-20251001',
+    'anthropic/claude-sonnet-4-5-20250929',
+    'anthropic/claude-opus-4-5-20251101',
+    'anthropic/claude-opus-4-20250514',
+    'anthropic/claude-sonnet-4-20250514',
+    'openai/gpt-4o',
+    'openai/gpt-4o-mini',
+    'openai/gpt-4.1',
+    'openai/gpt-4.1-mini',
+    'openai/gpt-4.1-nano',
+    'openai/gpt-5',
+    'openai/gpt-5-mini',
+    'openai/gpt-5.4',
+    'openai/gpt-5.4-mini',
+    'openai/o4-mini',
+    'openai/o3',
+    'openai/o3-mini',
+    'openai/o1',
+    'google/gemini-3.1-pro-preview',
+    'google/gemini-3-flash-preview',
+    'google/gemini-3.1-flash-lite-preview',
+    'google/gemini-2.5-pro',
+    'google/gemini-2.5-flash',
+    'google/gemini-2.5-flash-lite',
+  ],
+};
+
+type RuntimeProvider = keyof typeof providerModelCatalog;
+
+const isRuntimeProvider = (value: string): value is RuntimeProvider => value in providerModelCatalog;
+
+const getRuntimeSelectionFromExecutorSettings = (): { provider: RuntimeProvider; model: string } | null => {
+  const raw = settingsStore.get('executor');
+  if (!raw || typeof raw !== 'object') return null;
+  const executor = raw as {
+    backend?: string;
+    claude?: { model?: string };
+    codex?: { model?: string };
+    openhands?: { model?: string };
+  };
+  if (!executor.backend || !isRuntimeProvider(executor.backend)) return null;
+  const provider = executor.backend;
+  const modelFromSettings =
+    provider === 'claude-cli'
+      ? executor.claude?.model
+      : provider === 'codex-cli'
+        ? executor.codex?.model
+        : executor.openhands?.model;
+  return {
+    provider,
+    model: modelFromSettings || providerModelCatalog[provider][0],
+  };
+};
+
 let runtimeFooter = {
   executionTarget: 'local' as 'local' | 'remote',
   accessPolicy: 'full-access' as 'full-access' | 'sandbox',
@@ -243,11 +327,22 @@ app.get('/api/cockpit/catalog', (_req, res) => {
 });
 
 app.get('/api/cockpit/providers', (_req, res) => {
+  const runtimeFromSettings = getRuntimeSelectionFromExecutorSettings();
+  if (runtimeFromSettings) {
+    runtimeSelection = runtimeFromSettings;
+  } else if (!isRuntimeProvider(runtimeSelection.provider)) {
+    runtimeSelection = {
+      provider: 'codex-cli',
+      model: providerModelCatalog['codex-cli'][0],
+    };
+  }
+
   res.json({
     success: true,
     runtimeSelection,
     capabilities: {
-      providers: ['codex-cli', 'claude-cli', 'openhands-sdk'],
+      providers: Object.keys(providerModelCatalog),
+      providerModels: providerModelCatalog,
       executionTargets: ['local'],
       accessPolicies: ['full-access', 'sandbox'],
     },
@@ -407,9 +502,21 @@ app.post('/api/cockpit/providers/test-message', (_req, res) => {
 });
 
 app.post('/api/cockpit/providers/select', (req, res) => {
-  const provider = String(req.body?.provider || runtimeSelection.provider);
+  const requestedProvider = String(req.body?.provider || runtimeSelection.provider);
   const model = String(req.body?.model || runtimeSelection.model);
+  const provider: RuntimeProvider = isRuntimeProvider(requestedProvider) ? requestedProvider : 'codex-cli';
   runtimeSelection = { provider, model };
+
+  const raw = settingsStore.get('executor');
+  if (raw && typeof raw === 'object') {
+    const executor = raw as Record<string, any>;
+    executor.backend = provider;
+    if (provider === 'claude-cli') executor.claude = { ...(executor.claude || {}), model };
+    if (provider === 'codex-cli') executor.codex = { ...(executor.codex || {}), model };
+    if (provider === 'openhands-sdk') executor.openhands = { ...(executor.openhands || {}), model };
+    settingsStore.set('executor', executor);
+  }
+
   res.json({ success: true, runtimeSelection });
 });
 
