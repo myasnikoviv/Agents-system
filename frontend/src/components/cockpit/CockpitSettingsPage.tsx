@@ -1,11 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { ChevronLeft, Server, SlidersHorizontal, ShieldCheck, Eye, EyeOff, Clipboard, CheckCircle, AlertTriangle, Loader2 } from 'lucide-react';
+import { apiUrl, fetchJsonStrict } from '../../lib/http';
 import './CockpitSettingsPage.css';
-
-const API_BASE = ((import.meta as { env?: Record<string, string | undefined> }).env?.VITE_API_BASE_URL || '').replace(/\/$/, '');
-const API_FALLBACK_BASE = ((import.meta as { env?: Record<string, string | undefined> }).env?.VITE_API_FALLBACK_URL || 'http://127.0.0.1:3000').replace(/\/$/, '');
-const apiUrl = (path: string) => `${API_BASE}${path}`;
 
 const SECTIONS = [
   'general',
@@ -215,10 +212,6 @@ interface ExecutorSettings {
   };
 }
 
-function looksLikeHtml(payload: string): boolean {
-  const head = String(payload || '').trim().slice(0, 128).toLowerCase();
-  return head.startsWith('<!doctype') || head.startsWith('<html') || head.startsWith('<head') || head.startsWith('<body');
-}
 
 interface CliStatus {
   codex?: { loggedIn: boolean };
@@ -247,36 +240,6 @@ interface CliLoginResponse {
   result?: {
     stderr?: string;
   };
-}
-
-async function fetchJsonStrict<T>(path: string, init?: RequestInit): Promise<T> {
-  const tryRequest = async (url: string) => {
-    const res = await fetch(url, init);
-    const raw = await res.text();
-    const isHtml = looksLikeHtml(raw);
-    let parsed: T | null = null;
-    try {
-      parsed = raw ? JSON.parse(raw) : null;
-    } catch {
-      parsed = null;
-    }
-    return { res, raw, parsed, isHtml };
-  };
-
-  const primaryUrl = apiUrl(path);
-  const primary = await tryRequest(primaryUrl);
-  if (primary.parsed && !primary.isHtml) return primary.parsed;
-
-  const shouldRetryFallback = !API_BASE;
-  if (shouldRetryFallback) {
-    const fallback = await tryRequest(`${API_FALLBACK_BASE}${path}`);
-    if (fallback.parsed && !fallback.isHtml) return fallback.parsed;
-  }
-
-  if (primary.isHtml) {
-    throw new Error('API returned HTML instead of JSON. Перевір, що backend запущений на :3001.');
-  }
-  throw new Error(`Invalid API response for ${path}`);
 }
 
 const SETTINGS_KEYS = {
