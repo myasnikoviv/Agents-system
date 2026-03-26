@@ -6,6 +6,7 @@ import { Button } from '../ui/Button';
 import { Input } from '../ui/Input';
 import { Modal } from '../ui/Modal';
 import { IconButton } from '../ui/IconButton';
+import { Dropdown } from '../ui/Dropdown';
 import './CockpitPage.css';
 const RUNTIME_MODE_KEY = 'cockpit.runtime.mode.v1';
 
@@ -1224,109 +1225,60 @@ export function CockpitPage() {
                         )}
                         <div className="composer-controls-row">
                             <div className="input-context-selectors">
-                                <div className="runtime-picker">
-                                    <button
-                                        type="button"
-                                        className="runtime-picker-btn runtime-inline-btn"
-                                        onClick={(event) => {
-                                            event.stopPropagation();
-                                            setRuntimePickerOpen((prev) => (prev === 'voice' ? null : 'voice'));
-                                        }}
-                                        aria-label="Voice language"
-                                        title="Voice language"
-                                    >
-                                        <Globe2 size={12} />
-                                        <span>{voiceLang === 'auto' ? 'Auto' : voiceLang.toUpperCase()}</span>
-                                        <ChevronDown size={12} />
-                                    </button>
-                                    {runtimePickerOpen === 'voice' && (
-                                        <div className="runtime-picker-menu" onClick={(event) => event.stopPropagation()}>
-                                            {([
-                                                { id: 'auto', label: 'Auto' },
-                                                { id: 'uk', label: 'UA' },
-                                                { id: 'en', label: 'EN' },
-                                            ] as const).map((item) => (
-                                                <button
-                                                    key={`voice-${item.id}`}
-                                                    type="button"
-                                                    className={`runtime-picker-option ${voiceLang === item.id ? 'active' : ''}`}
-                                                    onClick={() => {
-                                                        setVoiceLang(item.id);
-                                                        setRuntimePickerOpen(null);
-                                                    }}
-                                                >
-                                                    {item.label}
-                                                </button>
-                                            ))}
-                                        </div>
-                                    )}
-                                </div>
-                                <div className="runtime-picker">
-                                    <button
-                                        type="button"
-                                        className="runtime-picker-btn"
-                                        onClick={(event) => {
-                                            event.stopPropagation();
-                                            setRuntimePickerOpen((prev) => (prev === 'provider' ? null : 'provider'));
-                                        }}
-                                        aria-label="Provider"
-                                    >
-                                        <span>{selectedProvider}</span>
-                                        <ChevronDown size={12} />
-                                    </button>
-                                    {runtimePickerOpen === 'provider' && (
-                                        <div className="runtime-picker-menu" onClick={(event) => event.stopPropagation()}>
-                                            {(['claude-cli', 'codex-cli', 'openhands-sdk'] as const).map((provider) => (
-                                                <button
-                                                    key={`provider-${provider}`}
-                                                    type="button"
-                                                    className={`runtime-picker-option ${selectedProvider === provider ? 'active' : ''}`}
-                                                    onClick={() => {
-                                                        const fallbackModel = providerModelPresets[provider]?.[0] || 'auto';
-                                                        setSelectedProvider(provider);
-                                                        setSelectedModel(fallbackModel);
-                                                        setRuntimePickerOpen(null);
-                                                        void applyRuntimeSelection(provider, fallbackModel);
-                                                    }}
-                                                >
-                                                    {provider}
-                                                </button>
-                                            ))}
-                                        </div>
-                                    )}
-                                </div>
-                                <div className="runtime-picker">
-                                    <button
-                                        type="button"
-                                        className="runtime-picker-btn"
-                                        onClick={(event) => {
-                                            event.stopPropagation();
-                                            setRuntimePickerOpen((prev) => (prev === 'model' ? null : 'model'));
-                                        }}
-                                        aria-label="Model"
-                                    >
-                                        <span>{selectedModel}</span>
-                                        <ChevronDown size={12} />
-                                    </button>
-                                    {runtimePickerOpen === 'model' && (
-                                        <div className="runtime-picker-menu" onClick={(event) => event.stopPropagation()}>
-                                            {(providerModelPresets[selectedProvider] || ['auto']).map((model) => (
-                                                <button
-                                                    key={`model-${model}`}
-                                                    type="button"
-                                                    className={`runtime-picker-option ${selectedModel === model ? 'active' : ''}`}
-                                                    onClick={() => {
-                                                        setSelectedModel(model);
-                                                        setRuntimePickerOpen(null);
-                                                        void applyRuntimeSelection(selectedProvider, model);
-                                                    }}
-                                                >
-                                                    {model}
-                                                </button>
-                                            ))}
-                                        </div>
-                                    )}
-                                </div>
+                                <Dropdown
+                                    label={voiceLang === 'auto' ? 'Auto' : voiceLang.toUpperCase()}
+                                    icon={<Globe2 size={12} />}
+                                    title="Voice language"
+                                    open={runtimePickerOpen === 'voice'}
+                                    onToggle={() => setRuntimePickerOpen((prev) => (prev === 'voice' ? null : 'voice'))}
+                                    options={([
+                                        { id: 'auto', label: 'Auto' },
+                                        { id: 'uk', label: 'UA' },
+                                        { id: 'en', label: 'EN' },
+                                    ] as const).map((item) => ({
+                                        key: `voice-${item.id}`,
+                                        label: item.label,
+                                        active: voiceLang === item.id,
+                                        onClick: () => {
+                                            setVoiceLang(item.id);
+                                            setRuntimePickerOpen(null);
+                                        },
+                                    }))}
+                                />
+                                <Dropdown
+                                    label={selectedProvider}
+                                    title="Provider"
+                                    open={runtimePickerOpen === 'provider'}
+                                    onToggle={() => setRuntimePickerOpen((prev) => (prev === 'provider' ? null : 'provider'))}
+                                    options={(['claude-cli', 'codex-cli', 'openhands-sdk'] as const).map((provider) => ({
+                                        key: `provider-${provider}`,
+                                        label: provider,
+                                        active: selectedProvider === provider,
+                                        onClick: () => {
+                                            const fallbackModel = providerModelPresets[provider]?.[0] || 'auto';
+                                            setSelectedProvider(provider);
+                                            setSelectedModel(fallbackModel);
+                                            setRuntimePickerOpen(null);
+                                            void applyRuntimeSelection(provider, fallbackModel);
+                                        },
+                                    }))}
+                                />
+                                <Dropdown
+                                    label={selectedModel}
+                                    title="Model"
+                                    open={runtimePickerOpen === 'model'}
+                                    onToggle={() => setRuntimePickerOpen((prev) => (prev === 'model' ? null : 'model'))}
+                                    options={(providerModelPresets[selectedProvider] || ['auto']).map((model) => ({
+                                        key: `model-${model}`,
+                                        label: model,
+                                        active: selectedModel === model,
+                                        onClick: () => {
+                                            setSelectedModel(model);
+                                            setRuntimePickerOpen(null);
+                                            void applyRuntimeSelection(selectedProvider, model);
+                                        },
+                                    }))}
+                                />
                                 <div className="runtime-picker">
                                     <button
                                         type="button"
@@ -1398,56 +1350,60 @@ export function CockpitPage() {
                             <kbd>Ctrl/Cmd</kbd>+<kbd>K</kbd> catalog
                         </div>
                         <div className="runtime-footer-strip">
-                            <div className="runtime-picker">
-                                <button
-                                    type="button"
-                                    className="runtime-footer-item"
-                                    title="Execution target"
-                                    onClick={(event) => {
-                                        event.stopPropagation();
-                                        setRuntimePickerOpen((prev) => (prev === 'target' ? null : 'target'));
-                                    }}
-                                >
-                                    <Laptop size={12} />
-                                    <span>{runtimeFooter.executionTarget === 'local' ? 'Локально' : 'Віддалено'}</span>
-                                    <ChevronDown size={11} />
-                                </button>
-                                {runtimePickerOpen === 'target' && (
-                                    <div className="runtime-picker-menu" onClick={(event) => event.stopPropagation()}>
-                                        <button type="button" className={`runtime-picker-option ${runtimeFooter.executionTarget === 'local' ? 'active' : ''}`} onClick={() => { void updateRuntimeFooter({ executionTarget: 'local' }); setRuntimePickerOpen(null); }}>
-                                            Локально
-                                        </button>
-                                        <button type="button" className={`runtime-picker-option ${runtimeFooter.executionTarget === 'remote' ? 'active' : ''}`} onClick={() => { void updateRuntimeFooter({ executionTarget: 'remote' }); setRuntimePickerOpen(null); }}>
-                                            Віддалено
-                                        </button>
-                                    </div>
-                                )}
-                            </div>
-                            <div className="runtime-picker">
-                                <button
-                                    type="button"
-                                    className="runtime-footer-item runtime-footer-item-accent"
-                                    title="Access policy"
-                                    onClick={(event) => {
-                                        event.stopPropagation();
-                                        setRuntimePickerOpen((prev) => (prev === 'access' ? null : 'access'));
-                                    }}
-                                >
-                                    <ShieldCheck size={12} />
-                                    <span>{runtimeFooter.accessPolicy === 'full-access' ? 'Повний доступ' : 'Sandbox'}</span>
-                                    <ChevronDown size={11} />
-                                </button>
-                                {runtimePickerOpen === 'access' && (
-                                    <div className="runtime-picker-menu" onClick={(event) => event.stopPropagation()}>
-                                        <button type="button" className={`runtime-picker-option ${runtimeFooter.accessPolicy === 'full-access' ? 'active' : ''}`} onClick={() => { void updateRuntimeFooter({ accessPolicy: 'full-access' }); setRuntimePickerOpen(null); }}>
-                                            Повний доступ
-                                        </button>
-                                        <button type="button" className={`runtime-picker-option ${runtimeFooter.accessPolicy === 'sandbox' ? 'active' : ''}`} onClick={() => { void updateRuntimeFooter({ accessPolicy: 'sandbox' }); setRuntimePickerOpen(null); }}>
-                                            Sandbox
-                                        </button>
-                                    </div>
-                                )}
-                            </div>
+                            <Dropdown
+                                label={runtimeFooter.executionTarget === 'local' ? 'Локально' : 'Віддалено'}
+                                icon={<Laptop size={12} />}
+                                title="Execution target"
+                                open={runtimePickerOpen === 'target'}
+                                onToggle={() => setRuntimePickerOpen((prev) => (prev === 'target' ? null : 'target'))}
+                                options={[
+                                    {
+                                        key: 'target-local',
+                                        label: 'Локально',
+                                        active: runtimeFooter.executionTarget === 'local',
+                                        onClick: () => {
+                                            void updateRuntimeFooter({ executionTarget: 'local' });
+                                            setRuntimePickerOpen(null);
+                                        },
+                                    },
+                                    {
+                                        key: 'target-remote',
+                                        label: 'Віддалено',
+                                        active: runtimeFooter.executionTarget === 'remote',
+                                        onClick: () => {
+                                            void updateRuntimeFooter({ executionTarget: 'remote' });
+                                            setRuntimePickerOpen(null);
+                                        },
+                                    },
+                                ]}
+                            />
+                            <Dropdown
+                                label={runtimeFooter.accessPolicy === 'full-access' ? 'Повний доступ' : 'Sandbox'}
+                                icon={<ShieldCheck size={12} />}
+                                title="Access policy"
+                                open={runtimePickerOpen === 'access'}
+                                onToggle={() => setRuntimePickerOpen((prev) => (prev === 'access' ? null : 'access'))}
+                                options={[
+                                    {
+                                        key: 'access-full',
+                                        label: 'Повний доступ',
+                                        active: runtimeFooter.accessPolicy === 'full-access',
+                                        onClick: () => {
+                                            void updateRuntimeFooter({ accessPolicy: 'full-access' });
+                                            setRuntimePickerOpen(null);
+                                        },
+                                    },
+                                    {
+                                        key: 'access-sandbox',
+                                        label: 'Sandbox',
+                                        active: runtimeFooter.accessPolicy === 'sandbox',
+                                        onClick: () => {
+                                            void updateRuntimeFooter({ accessPolicy: 'sandbox' });
+                                            setRuntimePickerOpen(null);
+                                        },
+                                    },
+                                ]}
+                            />
                             <div className="runtime-picker">
                                 <button
                                     type="button"
