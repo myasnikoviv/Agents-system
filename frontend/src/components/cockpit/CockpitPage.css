@@ -54,93 +54,6 @@
 
 /* Chat Output */
 
-.observability-card {
-    background: rgba(15, 23, 42, 0.75);
-    border: 1px solid rgba(96, 165, 250, 0.35);
-    border-radius: 0.75rem;
-    padding: 0.9rem 1rem;
-    margin-bottom: 0.5rem;
-}
-
-.artifact-strip {
-    background: #151a23;
-    border: 1px solid #2b3240;
-    border-radius: 0.5rem;
-    padding: 0.48rem 0.6rem;
-    font-size: 0.76rem;
-    color: #c0c8d8;
-    display: flex;
-    flex-direction: column;
-    gap: 0.25rem;
-    margin-bottom: 0.5rem;
-}
-.artifact-strip a {
-    color: #93c5fd;
-    text-decoration: none;
-}
-.artifact-strip a:hover {
-    text-decoration: underline;
-}
-
-.chat-scope-card {
-    background: #151b24;
-    border: 1px solid #2e3545;
-    border-radius: 0.52rem;
-    padding: 0.5rem 0.56rem;
-    display: flex;
-    flex-direction: column;
-    gap: 0.45rem;
-}
-
-.chat-scope-head {
-    display: flex;
-    justify-content: space-between;
-    align-items: flex-start;
-    gap: 0.5rem;
-}
-
-.chat-scope-sub {
-    font-size: 0.72rem;
-    color: #93a6be;
-    margin-top: 0.12rem;
-}
-
-.scope-pin-restore {
-    align-self: flex-start;
-    border: 1px dashed #4b556a;
-    background: #171d27;
-    color: #cbd5e1;
-    border-radius: 0.55rem;
-    padding: 0.35rem 0.55rem;
-    font-size: 0.74rem;
-    cursor: pointer;
-}
-
-.observability-title {
-    font-size: 0.78rem;
-    font-weight: 700;
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
-    color: #93c5fd;
-    margin-bottom: 0.55rem;
-}
-
-.observability-grid {
-    display: grid;
-    grid-template-columns: 96px 1fr;
-    gap: 0.3rem 0.6rem;
-    font-size: 0.83rem;
-}
-
-.observability-grid span {
-    color: #94a3b8;
-}
-
-.observability-grid strong {
-    color: #e2e8f0;
-    font-weight: 600;
-}
-
 .chat-bubble {
     padding: 0.62rem 0.74rem;
     border-radius: 0.56rem;
@@ -774,33 +687,12 @@
     padding-bottom: 0.2rem;
 }
 
-.scope-multiselect {
-    margin-top: 0.45rem;
-    border-top: 1px dashed rgba(148, 163, 184, 0.25);
-    padding-top: 0.45rem;
-    display: flex;
-    flex-direction: column;
-    gap: 0.3rem;
-}
-
 .scope-multiselect-title {
     font-size: 0.72rem;
     text-transform: uppercase;
     letter-spacing: 0.03em;
     color: #93c5fd;
     font-weight: 700;
-}
-
-.scope-check-item {
-    display: flex;
-    align-items: center;
-    gap: 0.4rem;
-    font-size: 0.75rem;
-    color: #dbeafe;
-}
-
-.scope-check-item input {
-    accent-color: #3b82f6;
 }
 
 .health-btn {
@@ -812,13 +704,6 @@
     color: #0f172a;
     background: #93c5fd;
     cursor: pointer;
-}
-
-.health-grid {
-    display: grid;
-    grid-template-columns: 90px 1fr;
-    gap: 0.25rem 0.5rem;
-    font-size: 0.78rem;
 }
 
 .health-ok {
@@ -837,81 +722,6 @@
     font-size: 0.76rem;
     color: #cbd5e1;
     line-height: 1.35;
-}
-
-.execution-item {
-    background: #151b24;
-    border: 1px solid #2b3343;
-    border-radius: 0.38rem;
-    padding: 0.38rem;
-    display: flex;
-    flex-direction: column;
-    gap: 0.25rem;
-}
-
-.observability-event-card {
-    background: linear-gradient(155deg, rgba(15, 23, 42, 0.82), rgba(15, 23, 42, 0.56));
-    border: 1px solid rgba(125, 211, 252, 0.2);
-    border-radius: 0.7rem;
-    padding: 0.62rem 0.64rem;
-    display: flex;
-    flex-direction: column;
-    gap: 0.44rem;
-}
-
-.observability-event-type {
-    font-size: 0.8rem;
-    font-weight: 700;
-    letter-spacing: 0.01em;
-    color: #dbeafe;
-}
-
-.observability-event-grid {
-    display: grid;
-    grid-template-columns: 62px 1fr;
-    gap: 0.22rem 0.48rem;
-    font-size: 0.72rem;
-}
-
-.observability-event-grid span {
-    color: #93a6be;
-    text-transform: uppercase;
-    letter-spacing: 0.02em;
-}
-
-.observability-event-grid strong {
-    color: #ecf5ff;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-}
-
-.observability-event-grid a {
-    color: #93c5fd;
-    text-decoration: none;
-}
-
-.observability-event-grid a:hover {
-    text-decoration: underline;
-}
-
-.execution-head {
-    display: flex;
-    justify-content: space-between;
-    font-size: 0.76rem;
-    color: #e2e8f0;
-    font-weight: 600;
-}
-
-.execution-body {
-    display: flex;
-    gap: 0.5rem;
-    font-size: 0.72rem;
-    color: #a5b4fc;
-}
-
-.execution-fallback {
-    color: #fca5a5;
 }
 
 .status-badge {
@@ -948,29 +758,6 @@
     border: 1px solid rgba(148, 163, 184, 0.45);
 }
 
-.execution-msg {
-    font-size: 0.8rem;
-    color: #dbeafe;
-    line-height: 1.35;
-}
-
-.feed-item {
-    background: rgba(30, 41, 59, 0.6);
-    border-left: 3px solid #6366f1;
-    padding: 0.75rem;
-    border-radius: 0.25rem 0.5rem 0.5rem 0.25rem;
-    font-size: 0.85rem;
-    display: flex;
-    flex-direction: column;
-    gap: 0.25rem;
-    animation: slideIn 0.3s ease-out;
-}
-
-@keyframes slideIn {
-    from { opacity: 0; transform: translateX(20px); }
-    to { opacity: 1; transform: translateX(0); }
-}
-
 .feed-header {
     display: flex;
     justify-content: space-between;
@@ -989,46 +776,6 @@
 
 .feed-body a:hover {
     text-decoration: underline;
-}
-
-.agent-status-card {
-    background: #151b24;
-    border: 1px solid #2b3343;
-    border-radius: 0.5rem;
-    padding: 0.52rem;
-    margin-bottom: 0.5rem;
-    display: flex;
-    align-items: center;
-    gap: 0.52rem;
-}
-
-.agent-avatar {
-    width: 2rem;
-    height: 2rem;
-    border-radius: 0.46rem;
-    background: #222b3b;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-weight: bold;
-    font-size: 1.25rem;
-    box-shadow: none;
-}
-
-.agent-info {
-    flex: 1;
-}
-
-.agent-name {
-    font-weight: 600;
-    color: #e1e6ef;
-    margin-bottom: 0.1rem;
-    font-size: 0.82rem;
-}
-
-.agent-activity {
-    font-size: 0.72rem;
-    color: #9aa5bb;
 }
 
 /* Custom Scrollbar */
