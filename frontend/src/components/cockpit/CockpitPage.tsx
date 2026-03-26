@@ -876,22 +876,22 @@ export function CockpitPage() {
     };
 
     return (
-        <div className="cockpit-container">
+        <div className="flex h-screen flex-col overflow-hidden bg-[#111317] font-['IBM_Plex_Sans','Sora','Segoe_UI',sans-serif] text-slate-200">
             {/* Header */}
-            <header className="cockpit-header">
-                <div className="header-title">
+            <header className="flex items-center justify-between border-b border-slate-800 bg-slate-900 px-3 py-2">
+                <div className="flex items-center gap-2 text-base font-semibold text-slate-100">
                     <LayoutDashboard size={24} />
                     Agent Cockpit
                     {providerMessage && <span className="provider-feedback">{providerMessage}</span>}
                 </div>
-                <div className="header-actions">
-                    <IconButton className="header-icon-btn" onClick={() => navigate('/cockpit/settings/general')} title="Settings" aria-label="Settings">
+                <div className="inline-flex items-center gap-1.5">
+                    <IconButton className="h-8 w-8 rounded-md border border-slate-600 bg-slate-800 text-slate-200 hover:bg-slate-700" onClick={() => navigate('/cockpit/settings/general')} title="Settings" aria-label="Settings">
                         <Settings size={15} />
                     </IconButton>
                 </div>
             </header>
 
-            <main className="cockpit-main">
+            <main className="flex flex-1 overflow-hidden">
                 <aside className={`rail-panel ${railCollapsed ? 'collapsed' : ''}`}>
                     <div className="rail-head">
                         <span>{railCollapsed ? 'AC' : 'Agent Cockpit'}</span>
@@ -960,13 +960,13 @@ export function CockpitPage() {
                     )}
                 </aside>
                 {/* Left Panel: Chat Input */}
-                <section className="left-panel">
-                    <div className="panel-title">
+                <section className="flex min-w-0 flex-1 flex-col border-r border-slate-800 bg-slate-950">
+                    <div className="flex items-center gap-2 border-b border-slate-800 px-4 py-3 text-2xl font-semibold text-slate-200">
                         <Terminal size={20} />
                         Command Interface
                     </div>
 
-                    <div className="chat-container">
+                    <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto p-4">
                         {observability && (
                             <div className="observability-card">
                                 <div className="observability-title">Pipeline Observability</div>
@@ -1436,8 +1436,8 @@ export function CockpitPage() {
                 </section>
 
                 {/* Right Panel: Event Feed & Active Agent */}
-                <section className="right-panel">
-                    <div className="panel-title">
+                <section className="flex w-[320px] flex-none flex-col bg-slate-950">
+                    <div className="flex items-center gap-2 border-b border-slate-800 px-4 py-3 text-2xl font-semibold text-slate-200">
                         <Activity size={20} />
                         Live Hive State
                     </div>
@@ -1456,7 +1456,7 @@ export function CockpitPage() {
                         </div>
                     </div>
 
-                    <div className="feed-container">
+                    <div className="min-h-0 flex-1 overflow-y-auto p-3">
                             <>
                                 {executionFeed.length > 0 && (
                                     <div className="catalog-card">
