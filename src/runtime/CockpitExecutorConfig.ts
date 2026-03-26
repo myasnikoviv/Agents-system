@@ -64,6 +64,11 @@ export function loadConfig(projectRoot: string): CockpitExecutorConfig {
   if (fs.existsSync(configPath)) {
     try {
       const stored = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+      const normalizeBackend = (value: unknown): CockpitExecutorBackend => {
+        const raw = String(value || '').trim();
+        if (raw === 'claude-cli' || raw === 'codex-cli' || raw === 'openhands-sdk') return raw;
+        return defaults.backend;
+      };
       const openhandsConfigRaw = {
         ...defaults.openhands,
         ...(stored.openhands || {}),
@@ -73,6 +78,7 @@ export function loadConfig(projectRoot: string): CockpitExecutorConfig {
       return {
         ...defaults,
         ...stored,
+        backend: normalizeBackend(stored.backend),
         claude: { ...defaults.claude, ...(stored.claude || {}) },
         codex: { ...defaults.codex, ...(stored.codex || {}) },
         openhands: openhandsConfig,

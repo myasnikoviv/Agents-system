@@ -6,6 +6,8 @@ import path from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import { executeQuasiLinearRun } from '../runtime/graphs/PilotQuasiLinearGraph';
 import { fetchRecentEvents } from '../runtime/events/EventBus';
+import { updateCockpitExecutorConfig, getCockpitExecutorConfig } from '../runtime/CockpitExecutorConfig';
+import { DynamicDiscoveryService, AgentRegistry, PipelineRegistry, SkillRegistry } from '../runtime/DynamicDiscoveryService';
 
 dotenv.config();
 
@@ -25,7 +27,7 @@ process.on('unhandledRejection', (reason) => {
 });
 
 const settingsStore = new Map<string, unknown>();
-const projectStore = new Map<string, { id: string; label: string }>();
+const projectStore = new Map<string, { id: string; label: string; worktreePath?: string }>();
 const threadStore = new Map<string, Array<{ id: string; label: string; updatedAt: string }>>();
 const planeBindingStore = new Map<string, {
   cockpitProjectId: string;
@@ -185,6 +187,34 @@ const restoreSettingsStore = () => {
   }
 };
 
+const syncExecutorSettingsToRuntimeConfig = (executorSettings: Record<string, any>) => {
+  try {
+    const current = getCockpitExecutorConfig();
+    const backend = String(executorSettings.backend || current.backend) as 'claude-cli' | 'codex-cli' | 'openhands-sdk';
+    updateCockpitExecutorConfig({
+      backend,
+      claude: {
+        ...current.claude,
+        ...(executorSettings.claude || {}),
+      },
+      codex: {
+        ...current.codex,
+        ...(executorSettings.codex || {}),
+      },
+      openhands: {
+        ...current.openhands,
+        ...(executorSettings.openhands || {}),
+        apiKeys: {
+          ...current.openhands.apiKeys,
+          ...(executorSettings.openhands?.apiKeys || {}),
+        },
+      },
+    });
+  } catch (error) {
+    console.error('[agent-system-backend] failed to sync executor settings to cockpit_config.json:', error);
+  }
+};
+
 const syncPlaneBindingForProject = async (project: { id: string; label: string }) => {
   const checkedAt = new Date().toISOString();
   if (project.id === '__unbound__') {
@@ -314,20 +344,32 @@ const syncPlaneBindingForProject = async (project: { id: string; label: string }
   }
 };
 
-const ensureProject = (id: string, label: string) => {
+const ensureProject = (id: string, label: string, worktreePath?: string) => {
   const existing = projectStore.get(id);
   if (!existing) {
-    projectStore.set(id, { id, label });
+    projectStore.set(id, { id, label, ...(worktreePath ? { worktreePath } : {}) });
     threadStore.set(id, []);
     return;
   }
   existing.label = label;
+  if (worktreePath && worktreePath.trim()) {
+    existing.worktreePath = worktreePath.trim();
+  }
   projectStore.set(id, existing);
+};
+
+const refreshCatalog = async () => {
+  try {
+    await DynamicDiscoveryService.discoverAll(process.cwd());
+  } catch (error) {
+    console.error('[agent-system-backend] catalog discovery error:', error);
+  }
 };
 
 ensureProject('default', 'Default');
 void syncPlaneBindingForProject({ id: 'default', label: 'Default' });
 restoreSettingsStore();
+void refreshCatalog();
 const runtimeFromSettingsAtBoot = getRuntimeSelectionFromExecutorSettings();
 if (runtimeFromSettingsAtBoot) {
   runtimeSelection = runtimeFromSettingsAtBoot;
@@ -358,12 +400,16 @@ app.get('/api/contracts/context_types', (_req, res) => {
   });
 });
 
-app.get('/api/cockpit/catalog', (_req, res) => {
+app.get('/api/cockpit/catalog', async (_req, res) => {
+  await refreshCatalog();
+  const agents = AgentRegistry.getAllAgents().map((agent) => agent.slug).sort();
+  const pipelines = PipelineRegistry.getAllPipelines().map((pipeline) => pipeline.slug).sort();
+  const skills = SkillRegistry.getAllSkills().map((skill) => skill.id).sort();
   res.json({
     success: true,
-    agents: [],
-    pipelines: [],
-    skills: [],
+    agents,
+    pipelines,
+    skills,
   });
 });
 
@@ -413,6 +459,8 @@ app.get('/api/cockpit/chains', (_req, res) => {
 
 app.post('/api/cockpit/chains', (req, res) => {
   const projectId = String(req.body?.projectId || '').trim();
+  const projectLabel = String(req.body?.projectLabel || '').trim();
+  const worktreePath = String(req.body?.worktreePath || '').trim();
   const label = String(req.body?.label || '').trim() || `New chat ${new Date().toLocaleTimeString()}`;
   if (!projectId) {
     res.status(400).json({ success: false, error: 'project_id_required' });
@@ -420,8 +468,11 @@ app.post('/api/cockpit/chains', (req, res) => {
   }
 
   if (!projectStore.has(projectId)) {
-    const derivedLabel = projectId === '__unbound__' ? 'Unbound' : projectId;
-    ensureProject(projectId, derivedLabel);
+    const derivedLabel = projectId === '__unbound__' ? 'Unbound' : (projectLabel || projectId);
+    ensureProject(projectId, derivedLabel, worktreePath || undefined);
+  } else if (projectLabel || worktreePath) {
+    const existing = projectStore.get(projectId)!;
+    ensureProject(projectId, projectLabel || existing.label, worktreePath || existing.worktreePath);
   }
   const project = projectStore.get(projectId);
   if (project) {
@@ -449,6 +500,28 @@ app.post('/api/cockpit/chains', (req, res) => {
     return acc;
   }, {});
   res.json({ success: true, projects, threadsByProject, thread: nextThread, planeBindings });
+});
+
+app.post('/api/cockpit/projects/select', (req, res) => {
+  const projectId = String(req.body?.projectId || '').trim();
+  if (!projectId) {
+    res.status(400).json({ success: false, error: 'project_id_required' });
+    return;
+  }
+  const project = projectStore.get(projectId);
+  if (!project) {
+    res.status(404).json({ success: false, error: 'project_not_found' });
+    return;
+  }
+
+  if (project.worktreePath && project.worktreePath.trim()) {
+    runtimeFooter = {
+      ...runtimeFooter,
+      worktreePath: project.worktreePath.trim(),
+    };
+  }
+
+  res.json({ success: true, project, runtimeFooter });
 });
 
 app.post('/api/cockpit/plane/sync', async (req, res) => {
@@ -564,15 +637,14 @@ app.post('/api/cockpit/providers/select', (req, res) => {
   runtimeSelection = { provider, model };
 
   const raw = settingsStore.get('executor');
-  if (raw && typeof raw === 'object') {
-    const executor = raw as Record<string, any>;
-    executor.backend = provider;
-    if (provider === 'claude-cli') executor.claude = { ...(executor.claude || {}), model };
-    if (provider === 'codex-cli') executor.codex = { ...(executor.codex || {}), model };
-    if (provider === 'openhands-sdk') executor.openhands = { ...(executor.openhands || {}), model };
-    settingsStore.set('executor', executor);
-    persistSettingsStore();
-  }
+  const executor = (raw && typeof raw === 'object' ? raw : {}) as Record<string, any>;
+  executor.backend = provider;
+  if (provider === 'claude-cli') executor.claude = { ...(executor.claude || {}), model };
+  if (provider === 'codex-cli') executor.codex = { ...(executor.codex || {}), model };
+  if (provider === 'openhands-sdk') executor.openhands = { ...(executor.openhands || {}), model };
+  settingsStore.set('executor', executor);
+  persistSettingsStore();
+  syncExecutorSettingsToRuntimeConfig(executor);
 
   res.json({ success: true, runtimeSelection });
 });
@@ -595,6 +667,9 @@ app.post('/api/cockpit/settings/:section', (req, res) => {
     const runtimeFromSettings = getRuntimeSelectionFromExecutorSettings();
     if (runtimeFromSettings) {
       runtimeSelection = runtimeFromSettings;
+    }
+    if (settings && typeof settings === 'object') {
+      syncExecutorSettingsToRuntimeConfig(settings as Record<string, any>);
     }
   }
 

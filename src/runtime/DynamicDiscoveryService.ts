@@ -150,7 +150,39 @@ export class DynamicDiscoveryService {
   }
 
   private static normalizeRoleToSlug(role: string): string {
-    // Basic normalization: "PM Orchestrator" -> "pm-orchestrator"
-    return role.toLowerCase().replace(/\s+/g, '-').replace(/[^\w-]/g, '');
+    const normalized = role.toLowerCase().replace(/\s+/g, ' ').trim();
+    const aliasMap: Record<string, string> = {
+      'pm': 'pm-orchestrator',
+      'pm orchestrator': 'pm-orchestrator',
+      'pm orchestrator / supervisor': 'pm-orchestrator',
+      'supervisor': 'pm-orchestrator',
+      'research': 'research-agent',
+      'research agent': 'research-agent',
+      'trader': 'trader-analyst',
+      'trader analyst': 'trader-analyst',
+      'solution architect': 'solution-architect',
+      'architect': 'solution-architect',
+      'tdd qa': 'tdd-qa',
+      'qa': 'tdd-qa',
+      'developer': 'developer',
+      'code reviewer': 'code-reviewer',
+      'reviewer': 'code-reviewer',
+      'runner': 'runner-backtest',
+      'runner backtest': 'runner-backtest',
+      'knowledge curator': 'knowledge-curator',
+      'learning agent': 'knowledge-curator',
+      'domain validator': 'domain-validator',
+      'git flow manager': 'git-flow-manager',
+      'git': 'git-flow-manager',
+      'documentation owner': 'documentation-owner',
+      'docs': 'documentation-owner',
+      'devops engineer': 'devops-engineer',
+      'devops': 'devops-engineer',
+      'design lead': 'design-lead',
+      'ui ux authority': 'design-lead',
+    };
+
+    if (aliasMap[normalized]) return aliasMap[normalized];
+    return normalized.replace(/\s+/g, '-').replace(/[^\w-]/g, '');
   }
 }

@@ -220,13 +220,13 @@ function fastClassify(message: string): ClassificationResult | null {
  */
 async function llmClassify(message: string): Promise<ClassificationResult> {
   const cfg = getCockpitExecutorConfig();
-  const hasKey =
-    !!cfg.openhands.apiKeys.openai ||
-    !!cfg.openhands.apiKeys.anthropic ||
-    !!cfg.openhands.apiKeys.google ||
-    !!process.env.OPENAI_API_KEY;
+  const hasOpenAIKey = !!(cfg.openhands.apiKeys.openai || process.env.OPENAI_API_KEY);
+  const hasGoogleKey = !!(cfg.openhands.apiKeys.google || process.env.GOOGLE_API_KEY);
+  const prefersGoogle =
+    cfg.backend === 'openhands-sdk' &&
+    String(cfg.openhands.model || '').toLowerCase().startsWith('google/');
 
-  if (!hasKey) {
+  if (!hasOpenAIKey && !hasGoogleKey) {
     // No LLM available — default to new-feature for longer messages
     return {
       intent: 'new-feature',
@@ -238,18 +238,7 @@ async function llmClassify(message: string): Promise<ClassificationResult> {
     };
   }
 
-  try {
-    // Use langchain directly for the classification call (lightweight, no agent overhead)
-    const { ChatOpenAI } = await import('@langchain/openai');
-    const openaiKey = cfg.openhands.apiKeys.openai || process.env.OPENAI_API_KEY || '';
-    const model = new ChatOpenAI({
-      openAIApiKey: openaiKey,
-      modelName: 'gpt-4o-mini', // Fast and cheap for classification
-      temperature: 0,
-      maxTokens: 300,
-    });
-
-    const classifyPrompt = `You are a request router for an AI-powered software development system.
+  const classifyPrompt = `You are a request router for an AI-powered software development system.
 Analyze the user message and classify it into exactly one intent.
 
 Available intents:
@@ -266,6 +255,48 @@ Respond ONLY with a JSON object, no markdown:
 {"intent": "<one of the intents above>", "confidence": 0.0-1.0, "reason": "<brief explanation>"}
 
 User message: "${message.replace(/"/g, "'")}"`;
+
+  try {
+    // Prefer Gemini for classification when OpenHands+Google is active, to avoid OpenAI quota fallback.
+    if (prefersGoogle && hasGoogleKey) {
+      const apiKey = cfg.openhands.apiKeys.google || process.env.GOOGLE_API_KEY || '';
+      const model = (cfg.openhands.model || 'google/gemini-2.5-flash').replace(/^google\//, '');
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(apiKey)}`;
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          generationConfig: { temperature: 0, maxOutputTokens: 300 },
+          contents: [{ role: 'user', parts: [{ text: classifyPrompt }] }],
+        }),
+      });
+      if (!response.ok) {
+        const raw = await response.text();
+        throw new Error(`Gemini HTTP ${response.status}: ${raw.slice(0, 200)}`);
+      }
+      const payload = await response.json() as any;
+      const content = String(payload?.candidates?.[0]?.content?.parts?.[0]?.text || '').trim();
+      const parsed = JSON.parse(content.replace(/```json|```/g, '').trim());
+      const intent = (parsed.intent || 'new-feature') as IntentType;
+      return {
+        intent,
+        pipeline: INTENT_TO_PIPELINE[intent] || 'unified-task-intake',
+        customAgents: [],
+        confidence: Number(parsed.confidence || 0.7),
+        reason: String(parsed.reason || 'Gemini classification'),
+        isExplicit: false,
+      };
+    }
+
+    // OpenAI fallback classifier path.
+    const { ChatOpenAI } = await import('@langchain/openai');
+    const openaiKey = cfg.openhands.apiKeys.openai || process.env.OPENAI_API_KEY || '';
+    const model = new ChatOpenAI({
+      openAIApiKey: openaiKey,
+      modelName: 'gpt-4o-mini',
+      temperature: 0,
+      maxTokens: 300,
+    });
 
     const response = await model.invoke(classifyPrompt);
     const content = String(response.content || '').trim();

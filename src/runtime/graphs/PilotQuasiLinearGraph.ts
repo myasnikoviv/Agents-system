@@ -292,10 +292,15 @@ async function swarmNode(state: PilotState): Promise<Partial<PilotState>> {
   }
 
   // Assemble the execution context
-  const history = state.messages || [];
-  const agent = AgentRegistry.getAgent(nextStage.agent);
+  const history = (state.messages || [])
+    .slice(-8)
+    .map((m) => ({
+      role: m.role,
+      content: String(m.content || '').slice(0, 3000),
+    }));
+  const agent = AgentRegistry.getAgent(nextStage.agent) || AgentRegistry.getAllAgents()[0];
   if (!agent) {
-    console.warn(`[PilotGraph:Swarm] Agent ${nextStage.agent} not found. Terminating.`);
+    console.warn(`[PilotGraph:Swarm] Agent ${nextStage.agent} not found and no fallback agents available. Terminating.`);
     return { status: 'pipeline_completed' };
   }
 
@@ -309,7 +314,30 @@ async function swarmNode(state: PilotState): Promise<Partial<PilotState>> {
   );
 
   const executor = new AgentExecutor();
-  const result = await executor.run(runContext);
+  let result: { content: string };
+  try {
+    result = await executor.run(runContext);
+  } catch (error: any) {
+    const errMsg = error?.message || 'Unknown execution error';
+    console.error(`[PilotGraph:Swarm] Stage ${nextStage.id} failed for agent ${runContext.agent.slug}:`, errMsg);
+    return {
+      status: `${nextStage.id}_completed`,
+      messages: [{
+        role: 'assistant',
+        content: `[${runContext.agent.title}] Stage ${nextStage.id} failed; continuing pipeline with fallback. Error: ${errMsg}`,
+      }],
+      artifactLogs: [
+        buildArtifactLog({
+          stage: nextStage.id,
+          role: runContext.agent.title,
+          status: 'fallback',
+          source: 'fallback',
+          fallbackCategory: 'execution_error',
+          message: `Stage failed: ${errMsg}`,
+        }),
+      ],
+    };
+  }
 
   // Check for intent drift (Phase 5)
   const drift = await ReclassificationCheckpoint.detectDrift(runContext, result.content);
