@@ -53,7 +53,7 @@ if [[ "$STANDALONE_MODE" != "true" ]]; then
     # 5. Start OpenHands Sidecar (Port 8000)
     if ! lsof -i :8000 > /dev/null; then
         echo "Starting OpenHands Sidecar Server..."
-        ./scripts/openhands/server_ctl.sh start
+        ./scripts/openhands/server_ctl.sh start || echo -e "${YELLOW}OpenHands start failed; continuing bootstrap.${NC}"
     fi
 else
     echo "Standalone mode active: skipping Docker/Plane/Redis/LangGraph/OpenHands startup."
