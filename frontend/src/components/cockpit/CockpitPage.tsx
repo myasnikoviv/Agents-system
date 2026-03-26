@@ -7,7 +7,6 @@ import { Input } from '../ui/Input';
 import { Modal } from '../ui/Modal';
 import { IconButton } from '../ui/IconButton';
 import { Dropdown } from '../ui/Dropdown';
-import './CockpitPage.css';
 const RUNTIME_MODE_KEY = 'cockpit.runtime.mode.v1';
 
 interface ChatMessage {
@@ -813,10 +812,11 @@ export function CockpitPage() {
 
     const statusBadgeClass = (status?: string): string => {
         const s = (status || '').toLowerCase();
-        if (s.includes('success') || s.includes('done') || s.includes('completed')) return 'status-badge ok';
-        if (s.includes('fail') || s.includes('error') || s.includes('blocked')) return 'status-badge fail';
-        if (s.includes('progress') || s.includes('running') || s.includes('started')) return 'status-badge progress';
-        return 'status-badge neutral';
+        const base = 'inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold tracking-wide';
+        if (s.includes('success') || s.includes('done') || s.includes('completed')) return `${base} border-emerald-500/50 bg-emerald-500/15 text-emerald-200`;
+        if (s.includes('fail') || s.includes('error') || s.includes('blocked')) return `${base} border-red-500/50 bg-red-500/15 text-red-200`;
+        if (s.includes('progress') || s.includes('running') || s.includes('started')) return `${base} border-blue-500/50 bg-blue-500/15 text-blue-200`;
+        return `${base} border-slate-500/50 bg-slate-500/15 text-slate-200`;
     };
 
     const prettyStage = (value?: string) => {

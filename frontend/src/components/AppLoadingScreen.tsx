@@ -1,9 +1,9 @@
 export function AppLoadingScreen() {
   return (
-    <div style={{ height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#0A0A0F', color: '#fff', fontFamily: 'Inter, system-ui, sans-serif' }}>
-      <div style={{ textAlign: 'center' }}>
-        <div style={{ fontSize: '2rem', marginBottom: 12 }}>⏳</div>
-        <div style={{ color: '#6B7280' }}>Loading Contract Registry…</div>
+    <div className="flex h-screen items-center justify-center bg-slate-950 font-['IBM_Plex_Sans','Sora','Segoe_UI',sans-serif] text-slate-100">
+      <div className="text-center">
+        <div className="mb-3 text-3xl">⏳</div>
+        <div className="text-sm text-slate-400">Starting Agent Cockpit…</div>
       </div>
     </div>
   );
