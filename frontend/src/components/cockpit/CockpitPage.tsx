@@ -882,7 +882,7 @@ export function CockpitPage() {
                 <div className="flex items-center gap-2 text-base font-semibold text-slate-100">
                     <LayoutDashboard size={24} />
                     Agent Cockpit
-                    {providerMessage && <span className="provider-feedback">{providerMessage}</span>}
+                    {providerMessage && <span className="rounded-md border border-amber-400/40 bg-amber-900/20 px-2 py-0.5 text-xs text-amber-200">{providerMessage}</span>}
                 </div>
                 <div className="inline-flex items-center gap-1.5">
                     <IconButton className="h-8 w-8 rounded-md border border-slate-600 bg-slate-800 text-slate-200 hover:bg-slate-700" onClick={() => navigate('/cockpit/settings/general')} title="Settings" aria-label="Settings">
@@ -1035,7 +1035,7 @@ export function CockpitPage() {
                                 </div>
                                 <div className="grid grid-cols-[auto_auto] gap-x-3 gap-y-1 text-xs">
                                     <span>Total</span><strong>{workScope.statusSummary.total}</strong>
-                                    <span>Done</span><strong className="health-ok">{workScope.statusSummary.done}</strong>
+                                    <span>Done</span><strong className="text-emerald-300">{workScope.statusSummary.done}</strong>
                                     <span>In Progress</span><strong>{workScope.statusSummary.inProgress}</strong>
                                     <span>Todo</span><strong>{workScope.statusSummary.todo}</strong>
                                 </div>
@@ -1077,8 +1077,15 @@ export function CockpitPage() {
                         ) : null}
                         
                         {messages.map((m) => (
-                            <div key={m.id} className={`chat-bubble ${m.role}`}>
-                                <div className="chat-meta">
+                            <div
+                                key={m.id}
+                                className={
+                                    m.role === 'user'
+                                        ? 'max-w-[80%] self-end rounded-lg rounded-br-sm border border-slate-600 bg-slate-800 px-3 py-2 text-sm text-slate-100'
+                                        : 'max-w-[80%] self-start rounded-lg rounded-bl-sm border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-200'
+                                }
+                            >
+                                <div className="mb-2 flex justify-between text-[11px] opacity-70">
                                     <span>{m.role === 'user' ? 'Me' : 'Agent'}</span>
                                     <span>{m.timestamp.toLocaleTimeString()}</span>
                                 </div>
@@ -1087,10 +1094,10 @@ export function CockpitPage() {
                         ))}
                         
                         {status === 'awaiting_approval' && (
-                            <div className="approval-card">
-                                <p>Agent is waiting for your approval to proceed to the next stage.</p>
+                            <div className="rounded-lg border border-amber-400/40 bg-amber-900/20 p-3">
+                                <p className="mb-2 text-sm text-amber-100">Agent is waiting for your approval to proceed to the next stage.</p>
                                 <button 
-                                    className="approve-btn" 
+                                    className="rounded-md border border-amber-300 bg-amber-200 px-3 py-1.5 text-sm font-semibold text-slate-900 disabled:cursor-not-allowed disabled:opacity-60" 
                                     onClick={handleApprove}
                                     disabled={isProcessing}
                                 >
@@ -1344,7 +1351,7 @@ export function CockpitPage() {
                             <div className="flex justify-end gap-1">
                                 <IconButton
                                     active={isRecording}
-                                    className={`icon-btn icon-btn-codex-mic ${isRecording ? 'recording' : ''}`}
+                                    className={`h-7 w-7 rounded-full border border-slate-600 bg-slate-800 text-slate-300 hover:bg-slate-700 ${isRecording ? 'bg-red-500 text-white' : ''}`}
                                     onClick={toggleRecording}
                                     disabled={isProcessing}
                                     title="Use Voice Input"
@@ -1352,7 +1359,7 @@ export function CockpitPage() {
                                     <Mic size={15} />
                                 </IconButton>
                                 <IconButton
-                                    className="icon-btn icon-btn-codex-send"
+                                    className="h-7 w-7 rounded-full border border-slate-300 bg-slate-100 text-slate-900 hover:bg-white"
                                     onClick={handleSend}
                                     disabled={(!input.trim() && promptTokens.length === 0) || isProcessing || isRecording}
                                     aria-label="Send task"
@@ -1529,7 +1536,7 @@ export function CockpitPage() {
                                 
                                 {events.slice().reverse().map((ev, idx) => (
                                     <div key={ev.event_id || idx} className="mb-2 rounded-lg border border-slate-700 bg-slate-900 p-2.5">
-                                        <div className="feed-header">
+                                        <div className="flex items-center justify-between text-[11px] opacity-70">
                                             <span>{ev.agent_role || 'System'}</span>
                                             <span>{new Date(ev.timestamp).toLocaleTimeString()}</span>
                                         </div>
