@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Mic, Send, Cpu, Activity, LayoutDashboard, Terminal, Settings, PanelLeftClose, PanelLeftOpen, Globe2, ChevronDown, Plus, PencilLine, Folder, FolderPlus, Laptop, ShieldCheck, GitBranch, RefreshCw } from 'lucide-react';
+import { Mic, Send, Cpu, Activity, LayoutDashboard, Terminal, Settings, PanelLeftClose, PanelLeftOpen, Globe2, Plus, PencilLine, Folder, FolderPlus, Laptop, ShieldCheck, GitBranch, RefreshCw } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { apiUrl, fetchJsonSafe } from '../../lib/http';
 import { Button } from '../ui/Button';
@@ -178,9 +178,8 @@ export function CockpitPage() {
     });
     const [providerMessage, setProviderMessage] = useState<string | null>(null);
 
-    const [runtimePickerOpen, setRuntimePickerOpen] = useState<'provider' | 'model' | 'voice' | 'target' | 'access' | 'branch' | null>(null);
+    const [runtimePickerOpen, setRuntimePickerOpen] = useState<'provider' | 'model' | 'voice' | 'target' | 'access' | 'branch' | 'plus' | null>(null);
     const [showCatalogPicker, setShowCatalogPicker] = useState(false);
-    const [showPlusMenu, setShowPlusMenu] = useState(false);
     const [promptTokens, setPromptTokens] = useState<PromptToken[]>([]);
     const [metaAutocomplete, setMetaAutocomplete] = useState<MetaAutocompleteState>({
         open: false,
@@ -329,7 +328,6 @@ export function CockpitPage() {
     useEffect(() => {
         const handleClickOutside = () => {
             setRuntimePickerOpen(null);
-            setShowPlusMenu(false);
         };
         window.addEventListener('click', handleClickOutside);
         return () => window.removeEventListener('click', handleClickOutside);
@@ -1279,44 +1277,33 @@ export function CockpitPage() {
                                         },
                                     }))}
                                 />
-                                <div className="runtime-picker">
-                                    <button
-                                        type="button"
-                                        className={`runtime-picker-btn runtime-inline-btn icon-only ${showPlusMenu ? 'active' : ''}`}
-                                        onClick={(event) => {
-                                            event.stopPropagation();
-                                            setShowPlusMenu((prev) => !prev);
-                                        }}
-                                        title="Add action"
-                                        aria-label="Add action"
-                                    >
-                                        <Plus size={13} />
-                                    </button>
-                                    {showPlusMenu && (
-                                        <div className="runtime-picker-menu" onClick={(event) => event.stopPropagation()}>
-                                            <button
-                                                type="button"
-                                                className={`runtime-picker-option ${showCatalogPicker ? 'active' : ''}`}
-                                                onClick={() => {
-                                                    setShowCatalogPicker((prev) => !prev);
-                                                    setShowPlusMenu(false);
-                                                }}
-                                            >
-                                                Toggle catalog
-                                            </button>
-                                            <button
-                                                type="button"
-                                                className="runtime-picker-option"
-                                                onClick={() => {
-                                                    fileInputRef.current?.click();
-                                                    setShowPlusMenu(false);
-                                                }}
-                                            >
-                                                Attach file token
-                                            </button>
-                                        </div>
-                                    )}
-                                </div>
+                                <Dropdown
+                                    label={<Plus size={13} />}
+                                    title="Add action"
+                                    open={runtimePickerOpen === 'plus'}
+                                    onToggle={() => setRuntimePickerOpen((prev) => (prev === 'plus' ? null : 'plus'))}
+                                    align="right"
+                                    compact
+                                    options={[
+                                        {
+                                            key: 'plus-catalog',
+                                            label: 'Toggle catalog',
+                                            active: showCatalogPicker,
+                                            onClick: () => {
+                                                setShowCatalogPicker((prev) => !prev);
+                                                setRuntimePickerOpen(null);
+                                            },
+                                        },
+                                        {
+                                            key: 'plus-attach',
+                                            label: 'Attach file token',
+                                            onClick: () => {
+                                                fileInputRef.current?.click();
+                                                setRuntimePickerOpen(null);
+                                            },
+                                        },
+                                    ]}
+                                />
                             </div>
                             <div className="input-actions">
                                 <IconButton
@@ -1404,50 +1391,39 @@ export function CockpitPage() {
                                     },
                                 ]}
                             />
-                            <div className="runtime-picker">
-                                <button
-                                    type="button"
-                                    className="runtime-footer-item runtime-footer-item-branch"
-                                    title="Git branch"
-                                    onClick={(event) => {
-                                        event.stopPropagation();
-                                        setRuntimePickerOpen((prev) => (prev === 'branch' ? null : 'branch'));
-                                    }}
-                                >
-                                    <GitBranch size={12} />
-                                    <span>{runtimeFooter.activeBranch || gitContext?.activeBranch || 'main'}</span>
-                                    <ChevronDown size={11} />
-                                </button>
-                                {runtimePickerOpen === 'branch' && (
-                                    <div className="runtime-picker-menu" onClick={(event) => event.stopPropagation()}>
-                                        <button type="button" className="runtime-picker-option">
-                                            Branch: {runtimeFooter.activeBranch || gitContext?.activeBranch || 'main'}
-                                        </button>
-                                        <button
-                                            type="button"
-                                            className="runtime-picker-option"
-                                            onClick={() => {
-                                                const value = runtimeFooter.worktreePath || gitContext?.worktreePath || '';
-                                                if (value) void navigator.clipboard?.writeText(value);
-                                                setRuntimePickerOpen(null);
-                                            }}
-                                        >
-                                            {runtimeFooter.worktreePath || gitContext?.worktreePath ? 'Copy worktree path' : 'Worktree path unavailable'}
-                                        </button>
-                                        <button
-                                            type="button"
-                                            className="runtime-picker-option"
-                                            onClick={() => {
-                                                const value = runtimeFooter.preflightToken || gitContext?.preflightToken || '';
-                                                if (value) void navigator.clipboard?.writeText(value);
-                                                setRuntimePickerOpen(null);
-                                            }}
-                                        >
-                                            {runtimeFooter.preflightToken || gitContext?.preflightToken ? 'Copy preflight token path' : 'Preflight token unavailable'}
-                                        </button>
-                                    </div>
-                                )}
-                            </div>
+                            <Dropdown
+                                label={runtimeFooter.activeBranch || gitContext?.activeBranch || 'main'}
+                                icon={<GitBranch size={12} />}
+                                title="Git branch"
+                                open={runtimePickerOpen === 'branch'}
+                                onToggle={() => setRuntimePickerOpen((prev) => (prev === 'branch' ? null : 'branch'))}
+                                options={[
+                                    {
+                                        key: 'branch-current',
+                                        label: <>Branch: {runtimeFooter.activeBranch || gitContext?.activeBranch || 'main'}</>,
+                                        active: true,
+                                        onClick: () => setRuntimePickerOpen(null),
+                                    },
+                                    {
+                                        key: 'branch-copy-worktree',
+                                        label: runtimeFooter.worktreePath || gitContext?.worktreePath ? 'Copy worktree path' : 'Worktree path unavailable',
+                                        onClick: () => {
+                                            const value = runtimeFooter.worktreePath || gitContext?.worktreePath || '';
+                                            if (value) void navigator.clipboard?.writeText(value);
+                                            setRuntimePickerOpen(null);
+                                        },
+                                    },
+                                    {
+                                        key: 'branch-copy-preflight',
+                                        label: runtimeFooter.preflightToken || gitContext?.preflightToken ? 'Copy preflight token path' : 'Preflight token unavailable',
+                                        onClick: () => {
+                                            const value = runtimeFooter.preflightToken || gitContext?.preflightToken || '';
+                                            if (value) void navigator.clipboard?.writeText(value);
+                                            setRuntimePickerOpen(null);
+                                        },
+                                    },
+                                ]}
+                            />
                             <button type="button" className="runtime-footer-item runtime-footer-item-mode" title="Runtime mode">
                                 <span>{runtimeModeLabel}</span>
                             </button>
