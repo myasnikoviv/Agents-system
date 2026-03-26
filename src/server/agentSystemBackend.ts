@@ -11,6 +11,14 @@ const app = express();
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
 
+process.on('uncaughtException', (error) => {
+  console.error('[agent-system-backend] uncaughtException:', error);
+});
+
+process.on('unhandledRejection', (reason) => {
+  console.error('[agent-system-backend] unhandledRejection:', reason);
+});
+
 const settingsStore = new Map<string, unknown>();
 const projectStore = new Map<string, { id: string; label: string }>();
 const threadStore = new Map<string, Array<{ id: string; label: string; updatedAt: string }>>();
@@ -573,6 +581,15 @@ app.get('/api/events/stream', (req, res) => {
 
 app.post('/api/cockpit/attachments/upload', (_req, res) => {
   res.json({ success: true, uploaded: [] });
+});
+
+app.use((error: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+  console.error('[agent-system-backend] request error:', error);
+  res.status(500).json({
+    success: false,
+    error: 'internal_server_error',
+    message: error?.message || 'Unexpected backend error',
+  });
 });
 
 app.use('/api', (_req, res) => {
