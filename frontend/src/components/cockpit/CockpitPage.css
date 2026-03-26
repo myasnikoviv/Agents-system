@@ -94,7 +94,8 @@
 }
 
 .rail-panel {
-    width: 268px;
+    width: 272px;
+    flex: 0 0 272px;
     border-right: 1px solid #242a36;
     background: #1a1d23;
     display: flex;
@@ -136,6 +137,12 @@
 
 .rail-project-list,
 .rail-thread-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.22rem;
+}
+
+.rail-project-node {
     display: flex;
     flex-direction: column;
     gap: 0.22rem;
@@ -237,6 +244,12 @@
     color: #b9c2d3;
     justify-content: space-between;
     gap: 0.5rem;
+    margin-left: 1rem;
+    width: calc(100% - 1rem);
+}
+
+.rail-thread-list.nested {
+    margin-bottom: 0.18rem;
 }
 
 .rail-thread-label {
@@ -261,12 +274,16 @@
 }
 
 .left-panel {
-    flex: 2;
+    flex: 1;
+    min-width: 0;
     border-right: 1px solid #242a36;
 }
 
 .right-panel {
-    flex: 0.88;
+    width: 272px;
+    flex: 0 0 272px;
+    min-width: 272px;
+    border-left: 1px solid #242a36;
     background: #12151d;
 }
 

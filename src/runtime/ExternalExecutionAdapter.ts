@@ -102,7 +102,7 @@ export async function runExternalExecutor(input: ExternalExecutionInput): Promis
     return await provider.runTask({
       ...input,
       model: input.model || cfg.openhands.model,
-      cwd: input.cwd || cfg.openhands.workspacePath
+      cwd
     });
   }
 

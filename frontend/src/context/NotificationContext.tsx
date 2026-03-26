@@ -76,24 +76,40 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
             {children}
 
             {/* Toasts */}
-            <div className="toast-container">
+            <div className="fixed bottom-5 right-5 z-[10000] flex max-w-[420px] flex-col gap-2.5">
                 {toasts.map(toast => (
-                    <div key={toast.id} className={`toast toast-${toast.type}`}>
-                        {toast.message}
-                        <button onClick={() => setToasts(prev => prev.filter(t => t.id !== toast.id))}>×</button>
+                    <div
+                        key={toast.id}
+                        className={`flex min-w-[260px] items-center justify-between gap-3 rounded-md border-l-4 bg-slate-800 px-4 py-3 text-sm text-slate-100 shadow-xl transition-all ${
+                            toast.type === 'success'
+                                ? 'border-emerald-500'
+                                : toast.type === 'error'
+                                    ? 'border-rose-500'
+                                    : toast.type === 'warning'
+                                        ? 'border-amber-500'
+                                        : 'border-sky-500'
+                        }`}
+                    >
+                        <span>{toast.message}</span>
+                        <button
+                            className="text-lg leading-none text-slate-400 hover:text-white"
+                            onClick={() => setToasts(prev => prev.filter(t => t.id !== toast.id))}
+                        >
+                            ×
+                        </button>
                     </div>
                 ))}
             </div>
 
             {/* Confirm Modal */}
             {confirmState && (
-                <div className="modal-overlay" onClick={() => handleConfirm(false)}>
-                    <div className="modal-content" onClick={e => e.stopPropagation()} style={{ minWidth: 350 }}>
-                        <h3 style={{ marginTop: 0 }}>Confirmation</h3>
-                        <p style={{ margin: '20px 0', color: '#CCC' }}>{confirmState.message}</p>
-                        <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-                            <button className="btn-secondary" onClick={() => handleConfirm(false)}>Cancel</button>
-                            <button className="btn-primary" onClick={() => handleConfirm(true)}>Confirm</button>
+                <div className="fixed inset-0 z-[10020] flex items-center justify-center bg-slate-950/75 p-4 backdrop-blur-sm" onClick={() => handleConfirm(false)}>
+                    <div className="w-full max-w-md rounded-xl border border-slate-700 bg-slate-900 p-5 shadow-2xl" onClick={e => e.stopPropagation()}>
+                        <h3 className="m-0 text-lg font-semibold text-slate-100">Confirmation</h3>
+                        <p className="my-5 text-sm text-slate-300">{confirmState.message}</p>
+                        <div className="flex justify-end gap-2">
+                            <button className="h-9 rounded-md border border-slate-600 bg-slate-800 px-3 text-sm font-semibold text-slate-200 hover:bg-slate-700" onClick={() => handleConfirm(false)}>Cancel</button>
+                            <button className="h-9 rounded-md border border-blue-600 bg-blue-700 px-3 text-sm font-semibold text-white hover:bg-blue-600" onClick={() => handleConfirm(true)}>Confirm</button>
                         </div>
                     </div>
                 </div>
@@ -101,10 +117,10 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
 
             {/* Prompt Modal */}
             {promptState && (
-                <div className="modal-overlay" onClick={() => handlePrompt(null)}>
-                    <div className="modal-content" onClick={e => e.stopPropagation()} style={{ minWidth: 350 }}>
-                        <h3 style={{ marginTop: 0 }}>Input Required</h3>
-                        <p style={{ margin: '10px 0', color: '#AAA', fontSize: '0.9em' }}>{promptState.message}</p>
+                <div className="fixed inset-0 z-[10020] flex items-center justify-center bg-slate-950/75 p-4 backdrop-blur-sm" onClick={() => handlePrompt(null)}>
+                    <div className="w-full max-w-md rounded-xl border border-slate-700 bg-slate-900 p-5 shadow-2xl" onClick={e => e.stopPropagation()}>
+                        <h3 className="m-0 text-lg font-semibold text-slate-100">Input Required</h3>
+                        <p className="my-3 text-sm text-slate-400">{promptState.message}</p>
                         <input
                             autoFocus
                             value={promptValue}
@@ -113,19 +129,11 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
                                 if (e.key === 'Enter') handlePrompt(promptValue);
                                 if (e.key === 'Escape') handlePrompt(null);
                             }}
-                            style={{
-                                width: '100%',
-                                padding: 10,
-                                background: '#252525',
-                                color: 'white',
-                                border: '1px solid #444',
-                                borderRadius: 4,
-                                marginBottom: 20
-                            }}
+                            className="mb-5 h-10 w-full rounded-md border border-slate-600 bg-slate-800 px-3 text-sm text-white outline-none focus:border-sky-500"
                         />
-                        <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-                            <button className="btn-secondary" onClick={() => handlePrompt(null)}>Cancel</button>
-                            <button className="btn-primary" onClick={() => handlePrompt(promptValue)}>OK</button>
+                        <div className="flex justify-end gap-2">
+                            <button className="h-9 rounded-md border border-slate-600 bg-slate-800 px-3 text-sm font-semibold text-slate-200 hover:bg-slate-700" onClick={() => handlePrompt(null)}>Cancel</button>
+                            <button className="h-9 rounded-md border border-blue-600 bg-blue-700 px-3 text-sm font-semibold text-white hover:bg-blue-600" onClick={() => handlePrompt(promptValue)}>OK</button>
                         </div>
                     </div>
                 </div>

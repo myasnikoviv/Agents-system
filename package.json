@@ -7,6 +7,8 @@
     "test": "npm run verify",
     "verify": "tsx scripts/final_agentic_proof.ts",
     "proof": "tsx scripts/final_agentic_proof.ts",
+    "backend:start": "tsx src/server/agentSystemBackend.ts",
+    "dev:standalone": "bash scripts/infra/start_all.sh --standalone",
     "infra:start": "bash scripts/infra/start_all.sh"
   },
   "repository": {
@@ -43,7 +45,10 @@
     "js-yaml": "^4.1.1",
     "openai": "^6.32.0",
     "tsx": "^4.21.0",
-    "typescript": "^6.0.2",
+    "typescript": "^5.9.3",
     "uuid": "^13.0.0"
+  },
+  "devDependencies": {
+    "@langchain/langgraph-cli": "^1.1.16"
   }
 }

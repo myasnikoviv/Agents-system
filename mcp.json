@@ -7,7 +7,7 @@
     },
     "filesystem": {
       "command": "npx",
-      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/Users/myasnikoviv/development/trade_bot"],
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/Users/myasnikoviv/development/agent-system"],
       "purpose": "Read/write project files with path access controls"
     },
     "terminal": {
@@ -17,7 +17,7 @@
     },
     "git": {
       "command": "npx",
-      "args": ["-y", "@modelcontextprotocol/server-git", "--repository", "/Users/myasnikoviv/development/trade_bot"],
+      "args": ["-y", "@modelcontextprotocol/server-git", "--repository", "/Users/myasnikoviv/development/agent-system"],
       "purpose": "Git log, diff, branch, commit operations on the project repo"
     },
     "redis": {
@@ -38,7 +38,7 @@
       "args": ["-y", "@makeplane/plane-mcp-server@latest"],
       "env": {
         "PLANE_API_KEY": "${PLANE_API_TOKEN}",
-        "PLANE_WORKSPACE_SLUG": "trade-bot",
+        "PLANE_WORKSPACE_SLUG": "agent-system",
         "PLANE_API_HOST_URL": "http://localhost:3000"
       },
       "purpose": "Ticket CRUD, state transitions, handoff comments in local Plane"

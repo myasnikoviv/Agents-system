@@ -1,11 +1,23 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Mic, Send, Cpu, Activity, LayoutDashboard, Terminal, Settings, PanelLeftClose, PanelLeftOpen, Globe2, ChevronDown, Plus, PencilLine, Clock3, Bot, Folder, MessageSquarePlus, SlidersHorizontal, Laptop, ShieldCheck, GitBranch, RefreshCw } from 'lucide-react';
+import { Mic, Send, Cpu, Activity, LayoutDashboard, Terminal, Settings, PanelLeftClose, PanelLeftOpen, Globe2, ChevronDown, Plus, PencilLine, Folder, FolderPlus, Laptop, ShieldCheck, GitBranch, RefreshCw } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import './CockpitPage.css';
 
 const API_BASE = ((import.meta as { env?: Record<string, string | undefined> }).env?.VITE_API_BASE_URL || '').replace(/\/$/, '');
 const apiUrl = (path: string) => `${API_BASE}${path}`;
 const RUNTIME_MODE_KEY = 'cockpit.runtime.mode.v1';
+
+async function fetchJsonSafe<T = any>(path: string, init?: RequestInit): Promise<T | null> {
+    try {
+        const res = await fetch(apiUrl(path), init);
+        if (!res.ok) return null;
+        const text = await res.text();
+        if (!text.trim()) return null;
+        return JSON.parse(text) as T;
+    } catch {
+        return null;
+    }
+}
 
 interface ChatMessage {
     id: string;
@@ -138,6 +150,10 @@ interface SpeechRecognitionInstance {
     stop: () => void;
 }
 
+interface DirectoryPickerWindow extends Window {
+    showDirectoryPicker?: () => Promise<{ name?: string }>;
+}
+
 export function CockpitPage() {
     const navigate = useNavigate();
     const [mode, setMode] = useState<'mock' | 'linear' | 'multiple_agents'>(() => {
@@ -180,8 +196,8 @@ export function CockpitPage() {
     const [selectedScopeItemIds, setSelectedScopeItemIds] = useState<string[]>([]);
     const [scopeCardPinned, setScopeCardPinned] = useState(true);
     const [railCollapsed, setRailCollapsed] = useState(false);
-    const [selectedProject, setSelectedProject] = useState('default');
-    const [selectedThread, setSelectedThread] = useState('current-session');
+    const [selectedProject, setSelectedProject] = useState('');
+    const [selectedThread, setSelectedThread] = useState('');
     const [railProjects, setRailProjects] = useState<RailProject[]>([]);
     const [railThreadsByProject, setRailThreadsByProject] = useState<Record<string, RailThread[]>>({});
     const [runtimeFooter, setRuntimeFooter] = useState<RuntimeFooterState>({
@@ -200,6 +216,11 @@ export function CockpitPage() {
         statusSummary: { total: 0, done: 0, inProgress: 0, todo: 0 },
     });
     const [uploadedAttachments, setUploadedAttachments] = useState<UploadedAttachment[]>([]);
+    const [isProjectModalOpen, setIsProjectModalOpen] = useState(false);
+    const [projectDirectory, setProjectDirectory] = useState('');
+    const [isChainModalOpen, setIsChainModalOpen] = useState(false);
+    const [newChainLabel, setNewChainLabel] = useState('');
+    const [newChainScope, setNewChainScope] = useState<'current' | 'unbound'>('current');
 
     // Auto-scroll refs
     const scrollRef = useRef<HTMLDivElement>(null);
@@ -343,18 +364,13 @@ export function CockpitPage() {
 
     useEffect(() => {
         const loadCatalog = async () => {
-            try {
-                const res = await fetch(apiUrl('/api/cockpit/catalog'));
-                const data = await res.json();
-                if (data.success) {
-                    setCatalog({
-                        agents: data.agents || [],
-                        pipelines: data.pipelines || [],
-                        skills: data.skills || [],
-                    });
-                }
-            } catch (e) {
-                console.error('Catalog load error:', e);
+            const data = await fetchJsonSafe<{ success?: boolean; agents?: string[]; pipelines?: string[]; skills?: string[] }>('/api/cockpit/catalog');
+            if (data?.success) {
+                setCatalog({
+                    agents: data.agents || [],
+                    pipelines: data.pipelines || [],
+                    skills: data.skills || [],
+                });
             }
         };
         void loadCatalog();
@@ -362,20 +378,10 @@ export function CockpitPage() {
 
     useEffect(() => {
         const loadProviders = async () => {
-            try {
-                const res = await fetch(apiUrl('/api/cockpit/providers'));
-                const data = await res.json();
-                if (!data.success) return;
-                
-                if (data.runtimeSelection?.provider) {
-                    setSelectedProvider(data.runtimeSelection.provider);
-                }
-                if (data.runtimeSelection?.model) {
-                    setSelectedModel(data.runtimeSelection.model);
-                }
-            } catch (e) {
-                console.error('Provider load error:', e);
-            }
+            const data = await fetchJsonSafe<{ success?: boolean; runtimeSelection?: { provider?: 'claude-cli' | 'codex-cli' | 'openhands-sdk' | 'google-genai'; model?: string } }>('/api/cockpit/providers');
+            if (!data?.success) return;
+            if (data.runtimeSelection?.provider) setSelectedProvider(data.runtimeSelection.provider);
+            if (data.runtimeSelection?.model) setSelectedModel(data.runtimeSelection.model);
         };
         void loadProviders();
         void loadRuntimeFooter();
@@ -383,27 +389,26 @@ export function CockpitPage() {
 
     useEffect(() => {
         const loadChains = async () => {
-            try {
-                const res = await fetch(apiUrl('/api/cockpit/chains'));
-                const data = await res.json();
-                if (!data.success) return;
-                const projects = (data.projects || []) as RailProject[];
-                const threads = (data.threadsByProject || {}) as Record<string, RailThread[]>;
-                setRailProjects(projects);
-                setRailThreadsByProject(threads);
+            const data = await fetchJsonSafe<{
+                success?: boolean;
+                projects?: RailProject[];
+                threadsByProject?: Record<string, RailThread[]>;
+            }>('/api/cockpit/chains');
+            if (!data?.success) return;
+            const projects = data.projects || [];
+            const threads = data.threadsByProject || {};
+            setRailProjects(projects);
+            setRailThreadsByProject(threads);
 
-                if (!projects.some((p) => p.id === selectedProject)) {
-                    const nextProject = projects[0]?.id || '';
-                    setSelectedProject(nextProject);
-                    setSelectedThread((threads[nextProject] || [])[0]?.id || '');
-                    return;
-                }
+            if (!projects.some((p) => p.id === selectedProject)) {
+                const nextProject = projects[0]?.id || '';
+                setSelectedProject(nextProject);
+                setSelectedThread((threads[nextProject] || [])[0]?.id || '');
+                return;
+            }
 
-                if (!(threads[selectedProject] || []).some((t) => t.id === selectedThread)) {
-                    setSelectedThread((threads[selectedProject] || [])[0]?.id || '');
-                }
-            } catch (e) {
-                console.error('Chains load error:', e);
+            if (!(threads[selectedProject] || []).some((t) => t.id === selectedThread)) {
+                setSelectedThread((threads[selectedProject] || [])[0]?.id || '');
             }
         };
         void loadChains();
@@ -416,33 +421,22 @@ export function CockpitPage() {
                 cycleId: workScope.selected.cycleId || '',
                 storyId: workScope.selected.storyId || '',
             });
-            try {
-                const res = await fetch(apiUrl(`/api/cockpit/work-scope?${params.toString()}`));
-                const data = await res.json();
-                if (!data.success) return;
-                setWorkScope({
-                    cycles: data.cycles || [],
-                    stories: data.stories || [],
-                    tasks: data.tasks || [],
-                    items: data.items || [],
-                    selected: data.selected || { cycleId: '', storyId: '' },
-                    statusSummary: data.statusSummary || { total: 0, done: 0, inProgress: 0, todo: 0 },
-                });
-                setSelectedScopeItemIds((prev) => prev.filter((id) => (data.items || []).some((it: ScopeEntity) => it.id === id)));
-            } catch (e) {
-                console.error('Work scope load error:', e);
-            }
+            const data = await fetchJsonSafe<any>(`/api/cockpit/work-scope?${params.toString()}`);
+            if (!data?.success) return;
+            setWorkScope({
+                cycles: data.cycles || [],
+                stories: data.stories || [],
+                tasks: data.tasks || [],
+                items: data.items || [],
+                selected: data.selected || { cycleId: '', storyId: '' },
+                statusSummary: data.statusSummary || { total: 0, done: 0, inProgress: 0, todo: 0 },
+            });
+            setSelectedScopeItemIds((prev) => prev.filter((id) => (data.items || []).some((it: ScopeEntity) => it.id === id)));
         };
         void loadWorkScope();
     }, [workScope.selected.cycleId, workScope.selected.storyId]);
 
     useEffect(() => {
-        setMessages(prev => [...prev, {
-            id: `mode-change-${Date.now()}`,
-            role: 'agent',
-            content: `Execution mode switched to: ${mode.toUpperCase().replace('_', ' ')}`,
-            timestamp: new Date()
-        }]);
         localStorage.setItem(RUNTIME_MODE_KEY, mode);
     }, [mode]);
 
@@ -799,22 +793,82 @@ export function CockpitPage() {
         ],
     };
 
-    const handleCreateChain = async () => {
-        if (!selectedProject) return;
-        try {
-            const res = await fetch(apiUrl('/api/cockpit/chains'), {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ projectId: selectedProject, label: `Thread ${new Date().toLocaleTimeString()}` }),
-            });
-            const data = await res.json();
-            if (!data.success) return;
-            setRailProjects(data.projects || []);
-            setRailThreadsByProject(data.threadsByProject || {});
-            if (data.thread?.id) setSelectedThread(data.thread.id);
-        } catch (e) {
-            console.error('Create chain error:', e);
+    const slugifyProjectId = (value: string) =>
+        value
+            .trim()
+            .toLowerCase()
+            .replace(/[^a-z0-9]+/g, '-')
+            .replace(/^-+|-+$/g, '') || `project-${Date.now()}`;
+
+    const getFolderNameFromPath = (value: string): string => {
+        const trimmed = value.trim().replace(/[\\/]+$/, '');
+        if (!trimmed) return '';
+        const segments = trimmed.split(/[\\/]/).filter(Boolean);
+        return segments[segments.length - 1] || '';
+    };
+
+    const getUniqueProjectId = (baseId: string): string => {
+        const existing = new Set(railProjects.map((p) => p.id));
+        if (!existing.has(baseId)) return baseId;
+        let idx = 2;
+        while (existing.has(`${baseId}-${idx}`)) idx += 1;
+        return `${baseId}-${idx}`;
+    };
+
+    const handleCreateChain = async (projectIdArg?: string, labelArg?: string) => {
+        const projectId = projectIdArg || selectedProject;
+        if (!projectId) return;
+        const data = await fetchJsonSafe<any>('/api/cockpit/chains', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                projectId,
+                label: labelArg || `New chat ${new Date().toLocaleTimeString()}`,
+            }),
+        });
+        if (!data?.success) {
+            setProviderMessage('Failed to create chain: backend unavailable');
+            return;
         }
+        setRailProjects(data.projects || []);
+        setRailThreadsByProject(data.threadsByProject || {});
+        setSelectedProject(projectId);
+        if (data.thread?.id) setSelectedThread(data.thread.id);
+    };
+
+    const handleChooseDirectory = async () => {
+        const win = window as DirectoryPickerWindow;
+        if (!win.showDirectoryPicker) {
+            setProviderMessage('Directory picker is unavailable in this browser. Paste folder path manually.');
+            return;
+        }
+        try {
+            const handle = await win.showDirectoryPicker();
+            const folderName = String(handle?.name || '').trim();
+            if (folderName) setProjectDirectory(folderName);
+        } catch {
+            // User canceled picker.
+        }
+    };
+
+    const handleAddNewProject = async () => {
+        const folderName = getFolderNameFromPath(projectDirectory);
+        if (!folderName) return;
+        const projectId = getUniqueProjectId(slugifyProjectId(folderName));
+        await handleCreateChain(projectId, 'New chat');
+        setSelectedProject(projectId);
+        setProjectDirectory('');
+        setIsProjectModalOpen(false);
+    };
+
+    const handleAddNewChain = async () => {
+        const chainLabel = (newChainLabel || '').trim() || `New chat ${new Date().toLocaleTimeString()}`;
+        const projectId = newChainScope === 'unbound' ? '__unbound__' : selectedProject;
+        if (!projectId) return;
+        await handleCreateChain(projectId, chainLabel);
+        setIsChainModalOpen(false);
+        setNewChainLabel('');
+        setNewChainScope('current');
     };
 
     const planeTicketUrl = (ticketId: string): string | null => {
@@ -854,51 +908,38 @@ export function CockpitPage() {
     const applyRuntimeSelection = async (provider?: 'claude-cli' | 'codex-cli' | 'openhands-sdk' | 'google-genai', model?: string) => {
         const nextProvider = provider || selectedProvider;
         const nextModel = model || selectedModel;
-        try {
-            const res = await fetch(apiUrl('/api/cockpit/providers/select'), {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ provider: nextProvider, model: nextModel }),
-            });
-            const data = await res.json();
-            setProviderMessage(data.success
-                ? `runtime set: ${nextProvider}/${nextModel}`
-                : `runtime select failed: ${data.error || 'unknown'}`);
-        } catch (e) {
-            setProviderMessage(`runtime select error: ${(e as Error)?.message || 'unknown'}`);
-        }
+        const data = await fetchJsonSafe<any>('/api/cockpit/providers/select', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ provider: nextProvider, model: nextModel }),
+        });
+        setProviderMessage(data?.success
+            ? `runtime set: ${nextProvider}/${nextModel}`
+            : 'runtime select failed: backend unavailable');
     };
 
     const loadRuntimeFooter = async () => {
-        try {
-            const res = await fetch(apiUrl('/api/cockpit/runtime-footer'));
-            const data = await res.json();
-            if (data.success && data.runtimeFooter) {
-                setRuntimeFooter(data.runtimeFooter);
-                setGitContext({
-                    activeBranch: data.runtimeFooter.activeBranch,
-                    worktreePath: data.runtimeFooter.worktreePath,
-                    preflightToken: data.runtimeFooter.preflightToken,
-                });
-            }
-        } catch {
-            // silent refresh fallback
+        const data = await fetchJsonSafe<any>('/api/cockpit/runtime-footer');
+        if (data?.success && data.runtimeFooter) {
+            setRuntimeFooter(data.runtimeFooter);
+            setGitContext({
+                activeBranch: data.runtimeFooter.activeBranch,
+                worktreePath: data.runtimeFooter.worktreePath,
+                preflightToken: data.runtimeFooter.preflightToken,
+            });
         }
     };
 
     const updateRuntimeFooter = async (patch: Partial<Pick<RuntimeFooterState, 'executionTarget' | 'accessPolicy'>>) => {
-        try {
-            const res = await fetch(apiUrl('/api/cockpit/runtime-footer'), {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(patch),
-            });
-            const data = await res.json();
-            if (data.success && data.runtimeFooter) {
-                setRuntimeFooter((prev) => ({ ...prev, ...data.runtimeFooter }));
-            }
-        } catch (e) {
-            setProviderMessage(`runtime footer update error: ${(e as Error)?.message || 'unknown'}`);
+        const data = await fetchJsonSafe<any>('/api/cockpit/runtime-footer', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(patch),
+        });
+        if (data?.success && data.runtimeFooter) {
+            setRuntimeFooter((prev) => ({ ...prev, ...data.runtimeFooter }));
+        } else {
+            setProviderMessage('runtime footer update failed: backend unavailable');
         }
     };
 
@@ -929,57 +970,58 @@ export function CockpitPage() {
                     {!railCollapsed && (
                         <>
                             <div className="rail-top-actions">
-                                <button type="button" className="rail-top-btn" onClick={handleCreateChain}>
+                                <button
+                                    type="button"
+                                    className="rail-top-btn"
+                                    onClick={() => {
+                                        if (!selectedProject) {
+                                            setIsProjectModalOpen(true);
+                                            return;
+                                        }
+                                        setIsChainModalOpen(true);
+                                    }}
+                                >
                                     <PencilLine size={13} />
                                     <span>Новий ланцюжок</span>
                                 </button>
-                                <button type="button" className="rail-top-btn">
-                                    <Clock3 size={13} />
-                                    <span>Автоматизації</span>
-                                </button>
-                                <button type="button" className="rail-top-btn">
-                                    <Bot size={13} />
-                                    <span>Навички</span>
+                                <button type="button" className="rail-top-btn" onClick={() => setIsProjectModalOpen(true)}>
+                                    <FolderPlus size={13} />
+                                    <span>Add new project</span>
                                 </button>
                             </div>
                             <div className="rail-section-head">
-                                <span>Ланцюжки</span>
-                                <div className="rail-section-actions">
-                                    <button type="button" className="rail-mini-btn" title="New thread" aria-label="New thread">
-                                        <MessageSquarePlus size={12} />
-                                    </button>
-                                    <button type="button" className="rail-mini-btn" title="Filter chains" aria-label="Filter chains">
-                                        <SlidersHorizontal size={12} />
-                                    </button>
-                                </div>
+                                <span>Projects</span>
                             </div>
                             <div className="rail-project-list">
                                 {railProjects.map((project) => (
-                                    <button
-                                        key={project.id}
-                                        type="button"
-                                        className={`rail-project-btn ${selectedProject === project.id ? 'active' : ''}`}
-                                        onClick={() => {
-                                            setSelectedProject(project.id);
-                                            setSelectedThread((railThreadsByProject[project.id] || [])[0]?.id || '');
-                                        }}
-                                    >
-                                        <Folder size={13} />
-                                        <span>{project.label}</span>
-                                    </button>
-                                ))}
-                            </div>
-                            <div className="rail-thread-list">
-                                {(railThreadsByProject[selectedProject] || []).map((thread) => (
-                                    <button
-                                        key={thread.id}
-                                        type="button"
-                                        className={`rail-thread-btn ${selectedThread === thread.id ? 'active' : ''}`}
-                                        onClick={() => setSelectedThread(thread.id)}
-                                    >
-                                        <span className="rail-thread-label">{thread.label}</span>
-                                        <span className="rail-thread-age">active</span>
-                                    </button>
+                                    <div key={project.id} className="rail-project-node">
+                                        <button
+                                            type="button"
+                                            className={`rail-project-btn ${selectedProject === project.id ? 'active' : ''}`}
+                                            onClick={() => {
+                                                setSelectedProject(project.id);
+                                                setSelectedThread((railThreadsByProject[project.id] || [])[0]?.id || '');
+                                            }}
+                                        >
+                                            <Folder size={13} />
+                                            <span>{project.label}</span>
+                                        </button>
+                                        {selectedProject === project.id && (
+                                            <div className="rail-thread-list nested">
+                                                {(railThreadsByProject[project.id] || []).map((thread) => (
+                                                    <button
+                                                        key={thread.id}
+                                                        type="button"
+                                                        className={`rail-thread-btn ${selectedThread === thread.id ? 'active' : ''}`}
+                                                        onClick={() => setSelectedThread(thread.id)}
+                                                    >
+                                                        <span className="rail-thread-label">{thread.label}</span>
+                                                        <span className="rail-thread-age">{new Date(thread.updatedAt).toLocaleDateString()}</span>
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        )}
+                                    </div>
                                 ))}
                             </div>
                         </>
@@ -1614,6 +1656,108 @@ export function CockpitPage() {
                     </div>
                 </section>
             </main>
+
+            {isProjectModalOpen && (
+                <div className="fixed inset-0 z-[120] flex items-center justify-center bg-slate-950/65 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="project-modal-title">
+                    <div className="flex w-full max-w-2xl flex-col gap-4 rounded-xl border border-slate-700 bg-gradient-to-b from-slate-900 to-slate-950 p-4 shadow-2xl shadow-slate-950/60">
+                        <div>
+                            <h3 id="project-modal-title" className="m-0 text-base font-semibold text-slate-100">Add Project Directory</h3>
+                            <p className="mt-1 text-sm text-slate-400">Select a working folder. Project name is generated from the folder name.</p>
+                        </div>
+                        <div className="flex flex-col gap-2">
+                            <label htmlFor="project-directory-input" className="text-xs font-semibold text-slate-300">Directory Path</label>
+                            <div className="grid grid-cols-[1fr_auto] gap-2">
+                                <input
+                                    id="project-directory-input"
+                                    value={projectDirectory}
+                                    onChange={(e) => setProjectDirectory(e.target.value)}
+                                    placeholder="/Users/.../your-project"
+                                    className="h-9 rounded-md border border-slate-600 bg-slate-900 px-3 text-sm text-slate-100 outline-none focus:border-sky-500"
+                                />
+                                <button type="button" className="h-9 rounded-md border border-slate-600 bg-slate-800 px-3 text-sm font-semibold text-slate-200 hover:bg-slate-700" onClick={handleChooseDirectory}>
+                                    Choose Folder
+                                </button>
+                            </div>
+                            <div className="text-xs text-slate-400">
+                                Project name: <strong>{getFolderNameFromPath(projectDirectory) || '—'}</strong>
+                            </div>
+                        </div>
+                        <div className="flex justify-end gap-2">
+                            <button
+                                type="button"
+                                className="h-9 rounded-md border border-slate-600 bg-slate-800 px-3 text-sm font-semibold text-slate-200 hover:bg-slate-700"
+                                onClick={() => {
+                                    setIsProjectModalOpen(false);
+                                    setProjectDirectory('');
+                                }}
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                type="button"
+                                className="h-9 rounded-md border border-blue-600 bg-blue-700 px-3 text-sm font-semibold text-white hover:bg-blue-600 disabled:cursor-not-allowed disabled:opacity-50"
+                                disabled={!getFolderNameFromPath(projectDirectory)}
+                                onClick={() => { void handleAddNewProject(); }}
+                            >
+                                Create Project
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {isChainModalOpen && (
+                <div className="fixed inset-0 z-[120] flex items-center justify-center bg-slate-950/65 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="chain-modal-title">
+                    <div className="flex w-full max-w-2xl flex-col gap-4 rounded-xl border border-slate-700 bg-gradient-to-b from-slate-900 to-slate-950 p-4 shadow-2xl shadow-slate-950/60">
+                        <div>
+                            <h3 id="chain-modal-title" className="m-0 text-base font-semibold text-slate-100">Create New Chain</h3>
+                            <p className="mt-1 text-sm text-slate-400">Start a new chat chain in the current project or as unbound context.</p>
+                        </div>
+                        <div className="flex flex-col gap-2">
+                            <label htmlFor="chain-label-input" className="text-xs font-semibold text-slate-300">Chain Name</label>
+                            <input
+                                id="chain-label-input"
+                                value={newChainLabel}
+                                onChange={(e) => setNewChainLabel(e.target.value)}
+                                placeholder="For example: Sprint planning sync"
+                                className="h-9 rounded-md border border-slate-600 bg-slate-900 px-3 text-sm text-slate-100 outline-none focus:border-sky-500"
+                            />
+                            <label htmlFor="chain-scope-select" className="text-xs font-semibold text-slate-300">Scope</label>
+                            <select
+                                id="chain-scope-select"
+                                value={newChainScope}
+                                onChange={(e) => setNewChainScope(e.target.value as 'current' | 'unbound')}
+                                disabled={!selectedProject}
+                                className="h-9 rounded-md border border-slate-600 bg-slate-900 px-3 text-sm text-slate-100 outline-none focus:border-sky-500 disabled:opacity-60"
+                            >
+                                <option value="current">{selectedProject ? `Current project (${selectedProject})` : 'Current project unavailable'}</option>
+                                <option value="unbound">Unbound chain (no project)</option>
+                            </select>
+                        </div>
+                        <div className="flex justify-end gap-2">
+                            <button
+                                type="button"
+                                className="h-9 rounded-md border border-slate-600 bg-slate-800 px-3 text-sm font-semibold text-slate-200 hover:bg-slate-700"
+                                onClick={() => {
+                                    setIsChainModalOpen(false);
+                                    setNewChainLabel('');
+                                    setNewChainScope('current');
+                                }}
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                type="button"
+                                className="h-9 rounded-md border border-blue-600 bg-blue-700 px-3 text-sm font-semibold text-white hover:bg-blue-600 disabled:cursor-not-allowed disabled:opacity-50"
+                                disabled={!selectedProject && newChainScope === 'current'}
+                                onClick={() => { void handleAddNewChain(); }}
+                            >
+                                Create Chain
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }

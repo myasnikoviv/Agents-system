@@ -212,7 +212,6 @@ interface ExecutorSettings {
       anthropic?: string;
       google?: string;
     };
-    workspacePath: string; 
   };
 }
 
@@ -395,7 +394,7 @@ export function CockpitSettingsPage() {
     backend: 'claude-cli',
     claude: { bin: 'claude', model: 'auto' },
     codex: { bin: 'codex', model: 'auto', sandbox: 'workspace-write' },
-    openhands: { serverUrl: 'http://localhost:8000', model: 'anthropic/claude-3-5-sonnet', apiKeys: { anthropic: '', openai: '', google: '' }, workspacePath: '' },
+    openhands: { serverUrl: 'http://localhost:8000', model: 'anthropic/claude-3-5-sonnet', apiKeys: { anthropic: '', openai: '', google: '' } },
   });
 
   const providerModelPresets: Record<'claude-cli' | 'codex-cli' | 'openhands-sdk', string[]> = {
@@ -1417,7 +1416,6 @@ export function CockpitSettingsPage() {
                         onChange={(val) => setExecutorSettings((prev) => ({ ...prev, openhands: { ...prev.openhands, apiKeys: { ...(prev.openhands.apiKeys || {}), google: val } } }))} 
                         placeholder="AIza..." 
                       />
-                      <label>Workspace Path Override<input value={executorSettings.openhands.workspacePath} onChange={(e) => setExecutorSettings((prev) => ({ ...prev, openhands: { ...prev.openhands, workspacePath: e.target.value } }))} placeholder="/abs/path/to/project" /></label>
                     </>
                   )}
                 </div>

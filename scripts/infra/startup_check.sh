@@ -10,6 +10,15 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
+STANDALONE_MODE="false"
+while [[ "$#" -gt 0 ]]; do
+    case $1 in
+        --standalone) STANDALONE_MODE="true" ;;
+        *) ;;
+    esac
+    shift
+done
+
 echo -e "${YELLOW}--- Agent System Infrastructure Check ---${NC}"
 
 # 1. Docker Check
@@ -22,40 +31,51 @@ fi
 
 echo -e "${YELLOW}--- Running Agent System Health Check ---${NC}"
 
-# 1. Plane Check (API Gateway / Port)
-if nc -z localhost 3000 2>/dev/null || curl -s -f http://localhost:3000/health > /dev/null; then
-    echo -e "${GREEN}[PASS] Plane gateway is responsive (localhost:3000)${NC}"
-else
-    echo -e "${RED}[FAIL] Plane gateway is NOT responsive (localhost:3000)${NC}"
-fi
-
-# 2. Redis Check
-if nc -z localhost 6379 2>/dev/null; then
-    echo -e "${GREEN}[PASS] Redis is listening (port 6379)${NC}"
-else
-    echo -e "${RED}[FAIL] Redis is NOT listening on port 6379${NC}"
-fi
-
-# 3. LangGraph Check
-if nc -z localhost 2024 2>/dev/null; then
-    echo -e "${GREEN}[PASS] LangGraph Dev Server is listening (port 2024)${NC}"
-else
-    echo -e "${RED}[FAIL] LangGraph Dev Server is NOT listening on port 2024${NC}"
-fi
-
-# 4. OpenHands Sidecar Check
-if curl -s -f http://localhost:8000/health > /dev/null 2>/dev/null; then
-    echo -e "${GREEN}[PASS] OpenHands Sidecar is responsive (localhost:8000)${NC}"
-else
-    # Some older versions might use a different health path or just port check
-    if nc -z localhost 8000 2>/dev/null; then
-        echo -e "${GREEN}[PASS] OpenHands Sidecar port 8000 is open${NC}"
+if [[ "$STANDALONE_MODE" != "true" ]]; then
+    # 1. Plane Check (API Gateway / Port)
+    if nc -z localhost 3000 2>/dev/null || curl -s -f http://localhost:3000/health > /dev/null; then
+        echo -e "${GREEN}[PASS] Plane gateway is responsive (localhost:3000)${NC}"
     else
-        echo -e "${RED}[FAIL] OpenHands Sidecar is NOT responsive${NC}"
+        echo -e "${RED}[FAIL] Plane gateway is NOT responsive (localhost:3000)${NC}"
     fi
+
+    # 2. Redis Check
+    if nc -z localhost 6379 2>/dev/null; then
+        echo -e "${GREEN}[PASS] Redis is listening (port 6379)${NC}"
+    else
+        echo -e "${RED}[FAIL] Redis is NOT listening on port 6379${NC}"
+    fi
+
+    # 3. LangGraph Check
+    if nc -z localhost 2024 2>/dev/null; then
+        echo -e "${GREEN}[PASS] LangGraph Dev Server is listening (port 2024)${NC}"
+    else
+        echo -e "${RED}[FAIL] LangGraph Dev Server is NOT listening on port 2024${NC}"
+    fi
+
+    # 4. OpenHands Sidecar Check
+    if curl -s -f http://localhost:8000/health > /dev/null 2>/dev/null; then
+        echo -e "${GREEN}[PASS] OpenHands Sidecar is responsive (localhost:8000)${NC}"
+    else
+        # Some older versions might use a different health path or just port check
+        if nc -z localhost 8000 2>/dev/null; then
+            echo -e "${GREEN}[PASS] OpenHands Sidecar port 8000 is open${NC}"
+        else
+            echo -e "${RED}[FAIL] OpenHands Sidecar is NOT responsive${NC}"
+        fi
+    fi
+else
+    echo -e "${YELLOW}[INFO] Standalone check: skipping Plane/Redis/LangGraph/OpenHands probes.${NC}"
 fi
 
-# 5. Cockpit UI Check
+# 5. Agent System Backend Check
+if nc -z localhost 3001 2>/dev/null || curl -s -f http://localhost:3001/api/health > /dev/null; then
+    echo -e "${GREEN}[PASS] Agent System Backend is responsive (localhost:3001)${NC}"
+else
+    echo -e "${RED}[FAIL] Agent System Backend is NOT responsive (localhost:3001)${NC}"
+fi
+
+# 6. Cockpit UI Check
 if nc -z localhost 5174 2>/dev/null; then
     echo -e "${GREEN}[PASS] Cockpit UI is listening (port 5174)${NC}"
 else
@@ -72,9 +92,12 @@ status_text() {
     if $1; then echo -e "${GREEN}UP${NC}"; else echo -e "${RED}DOWN${NC}"; fi
 }
 
-printf "| %-15s | %-5s | %-17s |\n" "Plane" "3000" "$(status_text "nc -z localhost 3000")"
-printf "| %-15s | %-5s | %-17s |\n" "Redis" "6379" "$(status_text "nc -z localhost 6379")"
-printf "| %-15s | %-5s | %-17s |\n" "LangGraph" "2024" "$(status_text "nc -z localhost 2024")"
-printf "| %-15s | %-5s | %-17s |\n" "OpenHands" "8000" "$(status_text "nc -z localhost 8000")"
+if [[ "$STANDALONE_MODE" != "true" ]]; then
+    printf "| %-15s | %-5s | %-17s |\n" "Plane" "3000" "$(status_text "nc -z localhost 3000")"
+    printf "| %-15s | %-5s | %-17s |\n" "Redis" "6379" "$(status_text "nc -z localhost 6379")"
+    printf "| %-15s | %-5s | %-17s |\n" "LangGraph" "2024" "$(status_text "nc -z localhost 2024")"
+    printf "| %-15s | %-5s | %-17s |\n" "OpenHands" "8000" "$(status_text "nc -z localhost 8000")"
+fi
+printf "| %-15s | %-5s | %-17s |\n" "Backend API" "3001" "$(status_text "nc -z localhost 3001")"
 printf "| %-15s | %-5s | %-17s |\n" "Cockpit UI" "5174" "$(status_text "nc -z localhost 5174")"
 echo "-----------------------------------"
