@@ -1025,7 +1025,13 @@ export function CockpitPage() {
                                         <strong>Execution Scope</strong>
                                         <div className="mt-0.5 text-xs text-slate-400">PM checklist: Sprint / Story / Task</div>
                                     </div>
-                                    <button type="button" className="context-pill" onClick={() => setScopeCardPinned(false)}>Unpin</button>
+                                    <button
+                                        type="button"
+                                        className="rounded-full border border-slate-600 bg-slate-800 px-2 py-1 text-xs font-semibold text-slate-200 hover:bg-slate-700"
+                                        onClick={() => setScopeCardPinned(false)}
+                                    >
+                                        Unpin
+                                    </button>
                                 </div>
                                 <div className="grid grid-cols-[auto_auto] gap-x-3 gap-y-1 text-xs">
                                     <span>Total</span><strong>{workScope.statusSummary.total}</strong>
@@ -1096,17 +1102,17 @@ export function CockpitPage() {
                         <div ref={scrollRef} />
                     </div>
 
-                    <div className="task-input-wrapper">
+                    <div className="relative flex flex-col gap-1.5 rounded-lg border border-slate-700 bg-slate-900 px-1.5 py-1.5 focus-within:border-slate-500 focus-within:ring-1 focus-within:ring-slate-500/40">
                         {showCatalogPicker && (
-                            <div className="composer-catalog-popover">
-                                <div className="catalog-section">
+                            <div className="absolute inset-x-2 bottom-[calc(100%+0.5rem)] z-20 flex flex-col gap-2 rounded-md border border-slate-600 bg-slate-900 p-2 shadow-2xl">
+                                <div className="flex flex-col gap-1">
                                     <strong>Agents</strong>
-                                    <div className="catalog-chip-list">
-                                        {catalog.agents.length === 0 && <span className="catalog-list">No data</span>}
+                                    <div className="flex flex-wrap gap-1">
+                                        {catalog.agents.length === 0 && <span className="text-xs text-slate-300">No data</span>}
                                         {catalog.agents.map((item) => (
                                             <button
                                                 key={`agent-pop-${item}`}
-                                                className="catalog-chip"
+                                                className="rounded-full border border-sky-500/50 bg-slate-800 px-2 py-0.5 text-xs text-sky-100 hover:bg-sky-900/40"
                                                 onClick={() => appendCommand('agent', item)}
                                             >
                                                 @{item}
@@ -1114,14 +1120,14 @@ export function CockpitPage() {
                                         ))}
                                     </div>
                                 </div>
-                                <div className="catalog-section">
+                                <div className="flex flex-col gap-1">
                                     <strong>Pipelines</strong>
-                                    <div className="catalog-chip-list">
-                                        {catalog.pipelines.length === 0 && <span className="catalog-list">No data</span>}
+                                    <div className="flex flex-wrap gap-1">
+                                        {catalog.pipelines.length === 0 && <span className="text-xs text-slate-300">No data</span>}
                                         {catalog.pipelines.map((item) => (
                                             <button
                                                 key={`pipeline-pop-${item}`}
-                                                className="catalog-chip"
+                                                className="rounded-full border border-sky-500/50 bg-slate-800 px-2 py-0.5 text-xs text-sky-100 hover:bg-sky-900/40"
                                                 onClick={() => appendCommand('pipeline', item)}
                                             >
                                                 /{item}
@@ -1129,14 +1135,14 @@ export function CockpitPage() {
                                         ))}
                                     </div>
                                 </div>
-                                <div className="catalog-section">
+                                <div className="flex flex-col gap-1">
                                     <strong>Skills</strong>
-                                    <div className="catalog-chip-list">
-                                        {catalog.skills.length === 0 && <span className="catalog-list">No data</span>}
+                                    <div className="flex flex-wrap gap-1">
+                                        {catalog.skills.length === 0 && <span className="text-xs text-slate-300">No data</span>}
                                         {catalog.skills.map((item) => (
                                             <button
                                                 key={`skill-pop-${item}`}
-                                                className="catalog-chip"
+                                                className="rounded-full border border-sky-500/50 bg-slate-800 px-2 py-0.5 text-xs text-sky-100 hover:bg-sky-900/40"
                                                 onClick={() => appendCommand('skill', item)}
                                             >
                                                 #{item}
@@ -1147,11 +1153,11 @@ export function CockpitPage() {
                             </div>
                         )}
                         {promptTokens.length > 0 && (
-                            <div className="composer-chip-strip">
+                            <div className="absolute -top-3 left-3 right-3 z-10 flex flex-wrap gap-1">
                                 {promptTokens.map((token) => (
                                     <button
                                         key={`${token.kind}:${token.value}`}
-                                        className="composer-chip"
+                                        className="rounded-full border border-cyan-500/60 bg-cyan-900/50 px-2 py-0.5 text-xs font-semibold text-cyan-100 hover:bg-cyan-800/70"
                                         onClick={() => removeToken(token.kind, token.value)}
                                         onContextMenu={(e) => {
                                             e.preventDefault();
@@ -1167,7 +1173,7 @@ export function CockpitPage() {
                         )}
                         <textarea 
                             ref={textareaRef}
-                            className="task-textarea"
+                            className="w-full resize-none bg-transparent px-2 py-1.5 text-sm text-slate-100 outline-none placeholder:text-slate-500"
                             placeholder="Describe the feature, issue, or strategy idea..."
                             value={input}
                             onChange={e => {
@@ -1226,16 +1232,20 @@ export function CockpitPage() {
                             rows={2}
                         />
                         {metaAutocomplete.open && (
-                            <div className="meta-autocomplete">
+                            <div className="absolute inset-x-3 bottom-[calc(100%+0.45rem)] z-20 flex flex-col gap-1 rounded-lg border border-sky-500/40 bg-slate-900/95 p-1.5 shadow-2xl">
                                 {metaAutocomplete.suggestions.map((item, idx) => (
                                     <button
                                         key={`${metaAutocomplete.kind}-${item}`}
-                                        className={`meta-option ${idx === metaAutocomplete.selectedIndex ? 'active' : ''}`}
+                                        className={`flex items-center gap-2 rounded-md border px-2 py-1.5 text-left text-sm ${
+                                            idx === metaAutocomplete.selectedIndex
+                                                ? 'border-sky-400 bg-blue-900/50 text-slate-100'
+                                                : 'border-transparent bg-slate-800/80 text-slate-200'
+                                        }`}
                                         type="button"
                                         onMouseDown={(e) => e.preventDefault()}
                                         onClick={() => applyAutocompleteChoice(idx)}
                                     >
-                                        <span className="meta-prefix">{metaAutocomplete.kind === 'agent' ? '@' : metaAutocomplete.kind === 'pipeline' ? '/' : '#'}</span>
+                                        <span className="font-bold text-sky-300">{metaAutocomplete.kind === 'agent' ? '@' : metaAutocomplete.kind === 'pipeline' ? '/' : '#'}</span>
                                         <span>{item}</span>
                                     </button>
                                 ))}
@@ -1243,12 +1253,12 @@ export function CockpitPage() {
                         )}
 
                         {ghostText && (
-                            <div className="ghost-text-overlay">
-                                <span className="ghost-label">Listening:</span> {ghostText}...
+                            <div className="pointer-events-none absolute inset-x-4 bottom-[4.5rem] z-10 rounded-xl border border-sky-500/40 bg-slate-800/95 px-4 py-3 text-sm text-slate-300 shadow-xl backdrop-blur">
+                                <span className="mr-2 text-[11px] font-semibold uppercase text-sky-400">Listening:</span> {ghostText}...
                             </div>
                         )}
-                        <div className="composer-controls-row">
-                            <div className="input-context-selectors">
+                        <div className="flex items-center justify-between gap-2">
+                            <div className="inline-flex items-center gap-1.5 text-xs text-slate-400">
                                 <Dropdown
                                     label={voiceLang === 'auto' ? 'Auto' : voiceLang.toUpperCase()}
                                     icon={<Globe2 size={12} />}
@@ -1331,7 +1341,7 @@ export function CockpitPage() {
                                     ]}
                                 />
                             </div>
-                            <div className="input-actions">
+                            <div className="flex justify-end gap-1">
                                 <IconButton
                                     active={isRecording}
                                     className={`icon-btn icon-btn-codex-mic ${isRecording ? 'recording' : ''}`}
@@ -1359,10 +1369,10 @@ export function CockpitPage() {
                             style={{ display: 'none' }}
                             onChange={handleFileAttach}
                         />
-                        <div className="composer-shortcuts compact">
+                        <div className="px-1 pb-0.5 text-[11px] text-slate-500">
                             <kbd>Ctrl/Cmd</kbd>+<kbd>K</kbd> catalog
                         </div>
-                        <div className="runtime-footer-strip">
+                        <div className="mt-0.5 flex flex-wrap items-center gap-1 border-t border-slate-700 px-1 pt-1.5">
                             <Dropdown
                                 label={runtimeFooter.executionTarget === 'local' ? 'Локально' : 'Віддалено'}
                                 icon={<Laptop size={12} />}
@@ -1450,10 +1460,18 @@ export function CockpitPage() {
                                     },
                                 ]}
                             />
-                            <button type="button" className="runtime-footer-item runtime-footer-item-mode" title="Runtime mode">
+                            <button
+                                type="button"
+                                className="inline-flex min-h-6 items-center gap-1 rounded-md px-1.5 py-0.5 text-xs text-slate-300 hover:bg-slate-800 hover:text-slate-100"
+                                title="Runtime mode"
+                            >
                                 <span>{runtimeModeLabel}</span>
                             </button>
-                            <IconButton className="runtime-footer-item icon-only" title="Refresh runtime state" onClick={() => void loadRuntimeFooter()}>
+                            <IconButton
+                                className="inline-flex h-6 w-6 items-center justify-center rounded-md border border-transparent px-0 text-slate-400 hover:bg-slate-800 hover:text-slate-100"
+                                title="Refresh runtime state"
+                                onClick={() => void loadRuntimeFooter()}
+                            >
                                 <RefreshCw size={12} />
                             </IconButton>
                         </div>
