@@ -138,22 +138,6 @@
   padding: 7px 9px;
 }
 
-.settings-action {
-  border: 1px solid #3a4250;
-  background: #2a2f3a;
-  color: #dde5f1;
-  padding: 7px 11px;
-  border-radius: 8px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: border-color 0.2s, background-color 0.2s;
-}
-
-.settings-action:hover {
-  border-color: #596783;
-  background: #313847;
-}
-
 .settings-meta {
   font-size: 12px;
   color: #9ca8b5;

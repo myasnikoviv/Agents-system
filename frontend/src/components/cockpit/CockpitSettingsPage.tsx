@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { ChevronLeft, Server, SlidersHorizontal, ShieldCheck, Eye, EyeOff, Clipboard, CheckCircle, AlertTriangle, Loader2 } from 'lucide-react';
 import { apiUrl, fetchJsonStrict } from '../../lib/http';
+import { Button } from '../ui/Button';
 import './CockpitSettingsPage.css';
 
 const SECTIONS = [
@@ -1083,7 +1084,7 @@ export function CockpitSettingsPage() {
               <label>Execution Speed<select value={generalSettings.executionSpeed} onChange={(e) => setGeneralSettings((prev) => ({ ...prev, executionSpeed: e.target.value as GeneralSettings['executionSpeed'] }))}><option value="standard">Standard</option><option value="fast">Fast</option><option value="deep">Deep Reasoning</option></select></label>
               <label>Execution Runtime Mode<select value={generalSettings.runtimeMode} onChange={(e) => setGeneralSettings((prev) => ({ ...prev, runtimeMode: e.target.value as GeneralSettings['runtimeMode'] }))}><option value="mock">Mock</option><option value="linear">Quasi-Linear</option><option value="multiple_agents">Multiple Agents</option></select></label>
             </div>
-            <div className="server-actions"><button className="settings-action" type="button" onClick={saveGeneralSettings}>Save General Settings</button></div>
+            <div className="server-actions"><Button variant="secondary" onClick={saveGeneralSettings}>Save General Settings</Button></div>
             <div className="settings-meta">{generalSavedAt}</div>
           </section>
         )}
@@ -1097,7 +1098,7 @@ export function CockpitSettingsPage() {
               <label>Accent<select value={appearanceSettings.accent} onChange={(e) => setAppearanceSettings((prev) => ({ ...prev, accent: e.target.value as AppearanceSettings['accent'] }))}><option value="blue">Blue</option><option value="emerald">Emerald</option><option value="violet">Violet</option></select></label>
               <label>Font Scale<select value={appearanceSettings.fontScale} onChange={(e) => setAppearanceSettings((prev) => ({ ...prev, fontScale: e.target.value as AppearanceSettings['fontScale'] }))}><option value="small">Small</option><option value="medium">Medium</option><option value="large">Large</option></select></label>
             </div>
-            <div className="server-actions"><button className="settings-action" type="button" onClick={saveAppearanceSettings}>Save Appearance</button></div>
+            <div className="server-actions"><Button variant="secondary" onClick={saveAppearanceSettings}>Save Appearance</Button></div>
             <div className="settings-meta">{appearanceSavedAt}</div>
           </section>
         )}
@@ -1111,7 +1112,7 @@ export function CockpitSettingsPage() {
               <label>Show Hints<select value={String(personalizationSettings.showHints)} onChange={(e) => setPersonalizationSettings((prev) => ({ ...prev, showHints: e.target.value === 'true' }))}><option value="true">On</option><option value="false">Off</option></select></label>
               <label>Confirm Long Actions<select value={String(personalizationSettings.confirmLongActions)} onChange={(e) => setPersonalizationSettings((prev) => ({ ...prev, confirmLongActions: e.target.value === 'true' }))}><option value="true">On</option><option value="false">Off</option></select></label>
             </div>
-            <div className="server-actions"><button className="settings-action" type="button" onClick={savePersonalizationSettings}>Save Personalization</button></div>
+            <div className="server-actions"><Button variant="secondary" onClick={savePersonalizationSettings}>Save Personalization</Button></div>
             <div className="settings-meta">{personalizationSavedAt}</div>
           </section>
         )}
@@ -1124,16 +1125,15 @@ export function CockpitSettingsPage() {
               <label>Notify On Completion<select value={String(usageSettings.notifyOnCompletion)} onChange={(e) => setUsageSettings((prev) => ({ ...prev, notifyOnCompletion: e.target.value === 'true' }))}><option value="true">On</option><option value="false">Off</option></select></label>
               <label>Show Token Stats<select value={String(usageSettings.showTokenStats)} onChange={(e) => setUsageSettings((prev) => ({ ...prev, showTokenStats: e.target.value === 'true' }))}><option value="true">On</option><option value="false">Off</option></select></label>
             </div>
-            <div className="server-actions"><button className="settings-action" type="button" onClick={saveUsageSettings}>Save Usage</button></div>
+            <div className="server-actions"><Button variant="secondary" onClick={saveUsageSettings}>Save Usage</Button></div>
             <div className="settings-meta">{usageSavedAt}</div>
 
             <div className="analytics-divider" />
             <h2>Skill Telemetry Analytics</h2>
             <p className="settings-note">Live runtime metrics from the skill telemetry registry.</p>
             <div className="server-actions">
-              <button
-                className="settings-action"
-                type="button"
+              <Button
+                variant="secondary"
                 onClick={async () => {
                   setSkillAnalyticsState('loading');
                   try {
@@ -1154,7 +1154,7 @@ export function CockpitSettingsPage() {
                 }}
               >
                 Refresh Skill Analytics
-              </button>
+              </Button>
             </div>
             <div className="settings-meta">
               {skillAnalyticsState === 'loading' && 'Loading analytics...'}
@@ -1229,7 +1229,7 @@ export function CockpitSettingsPage() {
               <label>Require Worktree Isolation<select value={String(gitSettings.requireWorktreeIsolation)} onChange={(e) => setGitSettings((prev) => ({ ...prev, requireWorktreeIsolation: e.target.value === 'true' }))}><option value="true">On</option><option value="false">Off</option></select></label>
               <label>Auto Cleanup Sweep<select value={String(gitSettings.autoRunCleanupSweep)} onChange={(e) => setGitSettings((prev) => ({ ...prev, autoRunCleanupSweep: e.target.value === 'true' }))}><option value="true">On</option><option value="false">Off</option></select></label>
             </div>
-            <div className="server-actions"><button className="settings-action" type="button" onClick={saveGitSettings}>Save Git Controls</button></div>
+            <div className="server-actions"><Button variant="secondary" onClick={saveGitSettings}>Save Git Controls</Button></div>
             <div className="settings-meta">{gitSavedAt}</div>
           </section>
         )}
@@ -1242,7 +1242,7 @@ export function CockpitSettingsPage() {
               <label>Allow Network<select value={String(environmentSettings.allowNetwork)} onChange={(e) => setEnvironmentSettings((prev) => ({ ...prev, allowNetwork: e.target.value === 'true' }))}><option value="true">On</option><option value="false">Off</option></select></label>
               <label>Default Shell<select value={environmentSettings.defaultShell} onChange={(e) => setEnvironmentSettings((prev) => ({ ...prev, defaultShell: e.target.value as EnvironmentSettings['defaultShell'] }))}><option value="bash">bash</option><option value="zsh">zsh</option></select></label>
             </div>
-            <div className="server-actions"><button className="settings-action" type="button" onClick={saveEnvironmentSettings}>Save Environment</button></div>
+            <div className="server-actions"><Button variant="secondary" onClick={saveEnvironmentSettings}>Save Environment</Button></div>
             <div className="settings-meta">{environmentSavedAt}</div>
           </section>
         )}
@@ -1255,7 +1255,7 @@ export function CockpitSettingsPage() {
               <label>Auto Prune On Done<select value={String(worktreeSettings.autoPruneOnDone)} onChange={(e) => setWorktreeSettings((prev) => ({ ...prev, autoPruneOnDone: e.target.value === 'true' }))}><option value="true">On</option><option value="false">Off</option></select></label>
               <label>Strict One Ticket/Worktree<select value={String(worktreeSettings.strictOneTicketPerWorktree)} onChange={(e) => setWorktreeSettings((prev) => ({ ...prev, strictOneTicketPerWorktree: e.target.value === 'true' }))}><option value="true">On</option><option value="false">Off</option></select></label>
             </div>
-            <div className="server-actions"><button className="settings-action" type="button" onClick={saveWorktreeSettings}>Save Worktree Policy</button></div>
+            <div className="server-actions"><Button variant="secondary" onClick={saveWorktreeSettings}>Save Worktree Policy</Button></div>
             <div className="settings-meta">{worktreesSavedAt}</div>
           </section>
         )}
@@ -1267,7 +1267,7 @@ export function CockpitSettingsPage() {
               <label>Retention<select value={archivedThreadsSettings.retentionDays} onChange={(e) => setArchivedThreadsSettings((prev) => ({ ...prev, retentionDays: e.target.value as ArchivedThreadsSettings['retentionDays'] }))}><option value="30">30 days</option><option value="90">90 days</option><option value="180">180 days</option><option value="365">365 days</option></select></label>
               <label>Include Artifacts<select value={String(archivedThreadsSettings.includeArtifacts)} onChange={(e) => setArchivedThreadsSettings((prev) => ({ ...prev, includeArtifacts: e.target.value === 'true' }))}><option value="true">On</option><option value="false">Off</option></select></label>
             </div>
-            <div className="server-actions"><button className="settings-action" type="button" onClick={saveArchivedSettings}>Save Archive Settings</button></div>
+            <div className="server-actions"><Button variant="secondary" onClick={saveArchivedSettings}>Save Archive Settings</Button></div>
             <div className="settings-meta">{archivedSavedAt}</div>
           </section>
         )}
@@ -1277,7 +1277,7 @@ export function CockpitSettingsPage() {
             <section className="settings-card">
               <h2><Server size={16} />MCP Server Workbench</h2>
               <p className="settings-note">Shared-tool governance preview: isolated, share-safe, and exclusive modes.</p>
-              <button className="settings-action" type="button" onClick={runHealth}>Run MCP Health Report</button>
+              <Button variant="secondary" onClick={runHealth}>Run MCP Health Report</Button>
               <div className="settings-meta">Last check: {lastHealthRun}</div>
               <div className="settings-meta">{healthDetails}</div>
               <div className="settings-meta">Server test result: {testMessage}</div>
@@ -1304,7 +1304,7 @@ export function CockpitSettingsPage() {
                 <label>Transport<select value={serverDraft.transport} onChange={(e) => setServerDraft((p) => ({ ...p, transport: e.target.value }))}><option value="http">http</option><option value="stdio">stdio</option><option value="sse">sse</option></select></label>
                 <label>Mode<select value={serverDraft.mode} onChange={(e) => setServerDraft((p) => ({ ...p, mode: e.target.value }))}><option value="isolated">isolated</option><option value="share-safe">share-safe</option><option value="exclusive">exclusive</option></select></label>
               </div>
-              <div className="server-actions"><button className="settings-action" type="button" onClick={addServer}>Add Server</button></div>
+              <div className="server-actions"><Button variant="secondary" onClick={addServer}>Add Server</Button></div>
               <div className="inventory-list">
                 {inventory.map((server) => (
                   <div className="inventory-item" key={server.id}>
@@ -1335,7 +1335,7 @@ export function CockpitSettingsPage() {
               <label>Execution Target<select value={executorSettings.backend} onChange={(e) => setExecutorSettings((prev) => ({ ...prev, backend: e.target.value as ExecutorSettings['backend'] }))}><option value="claude-cli">Claude Code CLI</option><option value="codex-cli">Codex CLI</option><option value="openhands-sdk">OpenHands SDK (Sidecar Server)</option></select></label>
             </div>
             <div className="server-actions">
-              <button className="settings-action" type="button" onClick={saveExecutorSettings}>Save Execution Target</button>
+              <Button variant="secondary" onClick={saveExecutorSettings}>Save Execution Target</Button>
             </div>
             <div className="settings-meta">{executorSavedAt}</div>
 
@@ -1383,29 +1383,28 @@ export function CockpitSettingsPage() {
                   )}
                 </div>
                 <div className="server-actions">
-                  <button className="settings-action" type="button" onClick={saveExecutorSettings}>Save CLI Config</button>
+                  <Button variant="secondary" onClick={saveExecutorSettings}>Save CLI Config</Button>
                 </div>
 
                 <hr />
                 <h3>Guided CLI Authentication & Health</h3>
                 <p className="settings-note">Verify CLI availability, auth, and test prompt execution.</p>
                 <div className="server-actions">
-                  <button className="settings-action" type="button" onClick={refreshCliStatus}>Refresh CLI Status</button>
-                  {executorSettings.backend === 'claude-cli' && <button className="settings-action" type="button" onClick={() => testCliProvider('claude-cli')}>Test Claude CLI</button>}
-                  {executorSettings.backend === 'codex-cli' && <button className="settings-action" type="button" onClick={() => testCliProvider('codex-cli')}>Test Codex CLI</button>}
+                  <Button variant="secondary" onClick={refreshCliStatus}>Refresh CLI Status</Button>
+                  {executorSettings.backend === 'claude-cli' && <Button variant="secondary" onClick={() => testCliProvider('claude-cli')}>Test Claude CLI</Button>}
+                  {executorSettings.backend === 'codex-cli' && <Button variant="secondary" onClick={() => testCliProvider('codex-cli')}>Test Codex CLI</Button>}
                   {(executorSettings.backend === 'openhands-sdk') && (
                     <>
-                      <button className="settings-action" type="button" onClick={checkOpenHandsHealth}>Check Server Health</button>
-                      <button 
-                        className={`settings-action ${isTestingLlm ? 'loading' : ''}`} 
-                        type="button" 
+                      <Button variant="secondary" onClick={checkOpenHandsHealth}>Check Server Health</Button>
+                      <Button
+                        variant="primary"
+                        className={isTestingLlm ? 'loading' : ''}
                         disabled={isTestingLlm}
                         onClick={testLlmConfig}
-                        style={{ background: 'var(--accent-primary)', color: 'white' }}
                       >
                         {isTestingLlm ? <Loader2 size={16} className="spin" /> : <Server size={16} />}
                         Test End-to-End LLM
-                      </button>
+                      </Button>
                     </>
                   )}
                 </div>
@@ -1439,7 +1438,7 @@ export function CockpitSettingsPage() {
                         </div>
                       )}
                       <label>Codex API Key (for `codex login --with-api-key`)<input type="password" value={codexApiKeyForLogin} onChange={(e) => setCodexApiKeyForLogin(e.target.value)} placeholder="sk-..." /></label>
-                      <label>Codex Login Action<button className="settings-action" type="button" onClick={loginCodexWithApiKey}>Login Codex via API Key</button></label>
+                      <label>Codex Login Action<Button variant="secondary" onClick={loginCodexWithApiKey}>Login Codex via API Key</Button></label>
                     </>
                   )}
                 </div>
