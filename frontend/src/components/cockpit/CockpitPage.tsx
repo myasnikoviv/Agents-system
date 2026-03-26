@@ -5,6 +5,7 @@ import { apiUrl, fetchJsonSafe } from '../../lib/http';
 import { Button } from '../ui/Button';
 import { Input } from '../ui/Input';
 import { Modal } from '../ui/Modal';
+import { IconButton } from '../ui/IconButton';
 import './CockpitPage.css';
 const RUNTIME_MODE_KEY = 'cockpit.runtime.mode.v1';
 
@@ -885,9 +886,9 @@ export function CockpitPage() {
                     {providerMessage && <span className="provider-feedback">{providerMessage}</span>}
                 </div>
                 <div className="header-actions">
-                    <button type="button" className="header-icon-btn" onClick={() => navigate('/cockpit/settings/general')} title="Settings" aria-label="Settings">
+                    <IconButton className="header-icon-btn" onClick={() => navigate('/cockpit/settings/general')} title="Settings" aria-label="Settings">
                         <Settings size={15} />
-                    </button>
+                    </IconButton>
                 </div>
             </header>
 
@@ -1366,15 +1367,16 @@ export function CockpitPage() {
                                 </div>
                             </div>
                             <div className="input-actions">
-                                <button 
+                                <IconButton
+                                    active={isRecording}
                                     className={`icon-btn icon-btn-codex-mic ${isRecording ? 'recording' : ''}`}
                                     onClick={toggleRecording}
                                     disabled={isProcessing}
                                     title="Use Voice Input"
                                 >
                                     <Mic size={15} />
-                                </button>
-                                <button 
+                                </IconButton>
+                                <IconButton
                                     className="icon-btn icon-btn-codex-send"
                                     onClick={handleSend}
                                     disabled={(!input.trim() && promptTokens.length === 0) || isProcessing || isRecording}
@@ -1382,7 +1384,7 @@ export function CockpitPage() {
                                     title="Send task"
                                 >
                                     <Send size={15} />
-                                </button>
+                                </IconButton>
                             </div>
                         </div>
                         <input
@@ -1493,9 +1495,9 @@ export function CockpitPage() {
                             <button type="button" className="runtime-footer-item runtime-footer-item-mode" title="Runtime mode">
                                 <span>{runtimeModeLabel}</span>
                             </button>
-                            <button type="button" className="runtime-footer-item icon-only" title="Refresh runtime state" onClick={() => void loadRuntimeFooter()}>
+                            <IconButton className="runtime-footer-item icon-only" title="Refresh runtime state" onClick={() => void loadRuntimeFooter()}>
                                 <RefreshCw size={12} />
-                            </button>
+                            </IconButton>
                         </div>
                     </div>
 
