@@ -29,7 +29,9 @@ export class MemoryHydrator {
 
     // Get active ticket ID from a mapping if identifier is a thread/runId
     const ticketIdKey = `run_to_ticket:${identifier}`;
-    const activeTicketId = await redis.get(ticketIdKey) || identifier; // fallback to identifier if it looks like a ticketId
+    const mappedTicketId = (await redis.get(ticketIdKey) || '').trim();
+    const explicitTicketPattern = /^[A-Z][A-Z0-9_]+-\d+$/;
+    const activeTicketId = mappedTicketId || (explicitTicketPattern.test(identifier) ? identifier : undefined);
 
     return {
       history,

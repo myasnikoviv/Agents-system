@@ -10,14 +10,51 @@ export class CodexCliAdapter implements ExecutionAdapter {
     const raw = String(stdout || '').trim();
     if (!raw) return '';
 
-    const lines = raw.split('\n').map((line) => line.trim()).filter(Boolean);
-    if (lines.length === 0) return raw;
+    const normalized = raw
+      // Some codex builds can print adjacent JSON objects without newlines.
+      .replace(/}\s*{/g, '}\n{');
+    const lines = normalized.split('\n').map((line) => line.trim()).filter(Boolean);
+    if (lines.length === 0) return normalized;
 
     const extractedMessages: string[] = [];
+    const extractedToolLogs: string[] = [];
 
     for (const line of lines) {
       try {
         const parsed = JSON.parse(line);
+        if (parsed?.type === 'item.completed') {
+          const item = parsed.item || {};
+          if (item?.type === 'agent_message' && typeof item?.text === 'string' && item.text.trim()) {
+            extractedMessages.push(item.text.trim());
+          }
+          continue;
+        }
+
+        if (parsed?.type === 'turn.completed') {
+          continue;
+        }
+
+        if (parsed?.type === 'item.started') {
+          const item = parsed.item || {};
+          if (item?.type === 'tool_call' && typeof item?.tool_name === 'string') {
+            extractedToolLogs.push(`Using tool: ${item.tool_name}`);
+          }
+          continue;
+        }
+
+        if (parsed?.type === 'item.delta') {
+          const item = parsed.item || {};
+          if (item?.type === 'agent_message' && typeof item?.text_delta === 'string') {
+            extractedMessages.push(item.text_delta);
+          }
+          continue;
+        }
+
+        if (typeof parsed?.message === 'string' && parsed.message.trim()) {
+          extractedMessages.push(parsed.message.trim());
+          continue;
+        }
+
         if (parsed?.type === 'item.completed') {
           const item = parsed.item || {};
           if (item?.type === 'agent_message' && typeof item?.text === 'string' && item.text.trim()) {
@@ -30,10 +67,16 @@ export class CodexCliAdapter implements ExecutionAdapter {
     }
 
     if (extractedMessages.length > 0) {
+      const mergedMessage = extractedMessages.join('').trim();
+      if (mergedMessage) return mergedMessage;
       return extractedMessages.join('\n\n').trim();
     }
 
-    return raw;
+    if (extractedToolLogs.length > 0) {
+      return extractedToolLogs.join('\n');
+    }
+
+    return normalized;
   }
 
   compilePayload(context: RunContext): ExecutionPayload {
