@@ -243,7 +243,12 @@ export function CockpitSettingsPage() {
 
   const [cliHealthMessage, setCliHealthMessage] = useState('CLI provider status not checked.');
   const [codexApiKeyForLogin, setCodexApiKeyForLogin] = useState('');
-  const [runtimeCapabilities, setRuntimeCapabilities] = useState<{ effectiveMode: 'cli' | 'direct'; implicitCodexApiKey?: string }>({ effectiveMode: 'direct' });
+  const [runtimeCapabilities, setRuntimeCapabilities] = useState<{
+    effectiveMode: 'cli' | 'direct';
+    implicitCodexApiKey?: string;
+    selectedBackend?: ExecutorSettings['backend'];
+    supportsDirectProviderConfig?: boolean;
+  }>({ effectiveMode: 'cli' });
 
   const [generalSavedAt, setGeneralSavedAt] = useState('Unsaved');
   const [appearanceSavedAt, setAppearanceSavedAt] = useState('Unsaved');
@@ -630,7 +635,7 @@ export function CockpitSettingsPage() {
         const res = await fetch(apiUrl('/api/cockpit/providers'));
         const data = await res.json();
         if (data.success && data.capabilities) {
-          setRuntimeCapabilities(data.capabilities);
+          setRuntimeCapabilities((prev) => ({ ...prev, ...data.capabilities }));
         }
       } catch {
         console.error('Failed to load runtime capabilities');
@@ -638,6 +643,9 @@ export function CockpitSettingsPage() {
     };
     void loadCapabilities();
   }, []);
+
+  const isCliEffectiveMode = runtimeCapabilities.effectiveMode !== 'direct';
+  const selectedBackend = runtimeCapabilities.selectedBackend || executorSettings.backend;
 
   const runHealth = async () => {
     try {
@@ -1305,11 +1313,18 @@ export function CockpitSettingsPage() {
 
         {currentSection === 'configuration' && (
           <section className={settingsCardClass}>
-            <h2><ShieldCheck size={16} />Provider & Executor Configuration</h2>
-            <p className={settingsNoteClass}>Primary configuration for intelligence backend and CLI execution engine.</p>
+            <h2><ShieldCheck size={16} />Execution Configuration</h2>
+            <p className={settingsNoteClass}>
+              Runtime IA is gated by effective mode. Active mode: <strong>{runtimeCapabilities.effectiveMode}</strong>.
+            </p>
+            {!runtimeCapabilities.supportsDirectProviderConfig && (
+              <div className="mb-3 rounded-md border border-amber-800 bg-amber-950/40 px-3 py-2 text-xs text-amber-200">
+                Direct provider configuration is disabled for this runtime. Use executor-based configuration only.
+              </div>
+            )}
             
             <h3>Executor Backend</h3>
-            <p className={settingsNoteClass}>Select primary execution model. (Direct API vs Native CLI).</p>
+            <p className={settingsNoteClass}>Select the backend that executes requests for the Cockpit runtime.</p>
             <div className={settingsGridClass}>
               <label>Execution Target<select value={executorSettings.backend} onChange={(e) => setExecutorSettings((prev) => ({ ...prev, backend: e.target.value as ExecutorSettings['backend'] }))}><option value="claude-cli">Claude Code CLI</option><option value="codex-cli">Codex CLI</option><option value="openhands-sdk">OpenHands SDK (Sidecar Server)</option></select></label>
             </div>
@@ -1320,8 +1335,12 @@ export function CockpitSettingsPage() {
 
             <hr />
 
-                <h3>CLI Agent Configuration</h3>
-                <p className={settingsNoteClass}>Configure paths and models for {executorSettings.backend}.</p>
+                <h3>{isCliEffectiveMode ? 'Executor Configuration' : 'Direct Provider Configuration'}</h3>
+                <p className={settingsNoteClass}>
+                  {isCliEffectiveMode
+                    ? `Configure binary/server and model for ${selectedBackend}.`
+                    : 'Configure direct provider keys and model defaults.'}
+                </p>
                 <div className={settingsGridClass}>
                   {executorSettings.backend === 'claude-cli' && (
                     <>
@@ -1366,8 +1385,12 @@ export function CockpitSettingsPage() {
                 </div>
 
                 <hr />
-                <h3>Guided CLI Authentication & Health</h3>
-                <p className={settingsNoteClass}>Verify CLI availability, auth, and test prompt execution.</p>
+                <h3>{isCliEffectiveMode ? 'Guided Executor Authentication & Health' : 'Provider Health'}</h3>
+                <p className={settingsNoteClass}>
+                  {isCliEffectiveMode
+                    ? 'Verify executor availability, auth state, and test prompt execution.'
+                    : 'Verify provider connectivity and model response.'}
+                </p>
                 <div className="mt-3 flex flex-wrap gap-2">
                   <Button variant="secondary" onClick={refreshCliStatus}>Refresh CLI Status</Button>
                   {executorSettings.backend === 'claude-cli' && <Button variant="secondary" onClick={() => testCliProvider('claude-cli')}>Test Claude CLI</Button>}

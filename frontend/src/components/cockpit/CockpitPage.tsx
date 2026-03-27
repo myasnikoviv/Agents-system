@@ -1794,7 +1794,8 @@ export function CockpitPage() {
                                             event.stopPropagation();
                                             setRuntimePickerOpen((prev) => (prev === 'provider' ? null : 'provider'));
                                         }}
-                                        aria-label="Provider"
+                                        aria-label="Executor"
+                                        title="Executor"
                                     >
                                         <span>{selectedProvider}</span>
                                         <ChevronDown size={12} />

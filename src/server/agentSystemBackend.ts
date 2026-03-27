@@ -863,6 +863,8 @@ app.get('/api/cockpit/agents/registry', async (_req, res) => {
 
 app.get('/api/cockpit/providers', (_req, res) => {
   const runtimeFromSettings = getRuntimeSelectionFromExecutorSettings();
+  const executorConfig = getCockpitExecutorConfig();
+  const effectiveMode: 'cli' | 'direct' = 'cli';
   if (runtimeFromSettings) {
     runtimeSelection = runtimeFromSettings;
     saveRuntimeState('runtime_selection', runtimeSelection);
@@ -878,6 +880,9 @@ app.get('/api/cockpit/providers', (_req, res) => {
     success: true,
     runtimeSelection,
     capabilities: {
+      effectiveMode,
+      selectedBackend: executorConfig.backend,
+      supportsDirectProviderConfig: false,
       providers: Object.keys(providerModelCatalog),
       providerModels: providerModelCatalog,
       executionTargets: ['local'],
