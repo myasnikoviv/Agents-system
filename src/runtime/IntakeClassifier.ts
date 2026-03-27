@@ -149,6 +149,15 @@ function parseExplicitDirectives(message: string): Partial<ClassificationResult>
 }
 
 /**
+ * Returns only explicit user directives (pipeline/agent) without running
+ * heuristic or LLM intent classification.
+ */
+export function resolveExplicitDirectives(message: string): ClassificationResult | null {
+  const explicit = parseExplicitDirectives(message);
+  return explicit ? (explicit as ClassificationResult) : null;
+}
+
+/**
  * Rule-based fast classifier — runs before the LLM to handle obvious cases
  * without burning tokens.
  */

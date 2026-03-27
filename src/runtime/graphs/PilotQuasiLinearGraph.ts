@@ -1,6 +1,6 @@
 import * as path from 'path';
 import { StateGraph, START, END, MemorySaver, Annotation } from '@langchain/langgraph';
-import { classifyRequest } from '../IntakeClassifier';
+import { resolveExplicitDirectives } from '../IntakeClassifier';
 import { DynamicDiscoveryService } from '../DynamicDiscoveryService';
 import { AgentRegistry } from '../registries/AgentRegistry';
 import { PipelineRegistry } from '../registries/PipelineRegistry';
@@ -206,28 +206,46 @@ function skillTelemetryContext(state: PilotState, stage: string) {
 // ---------------------------------------------------------
 
 async function routerNode(state: PilotState): Promise<Partial<PilotState>> {
-  const userMessage = state.artifactLogs[0] || '';
-  console.log(`[PilotGraph:Router] Classifying request: "${userMessage.slice(0, 80)}..."`);
+  const lastUserMessage = [...(state.messages || [])].filter((m) => m.role === 'user').pop();
+  const userMessage =
+    (lastUserMessage?.content || state.artifactLogs[0] || '').replace(/^User Message:\s*/i, '');
+  const explicit = resolveExplicitDirectives(userMessage);
 
-  const classification = await classifyRequest(userMessage);
+  if (explicit) {
+    console.log(
+      `[PilotGraph:Router] Explicit directive -> intent=${explicit.intent} pipeline=${explicit.pipeline}`
+    );
+    return {
+      intent: explicit.intent,
+      selected_pipeline: explicit.pipeline,
+      customAgents: explicit.customAgents,
+      status: `routed:explicit:${explicit.intent}`,
+      artifactLogs: [
+        buildArtifactLog({
+          stage: 'router',
+          role: 'Router',
+          status: 'completed',
+          source: 'llm',
+          message: `[Router] Explicit directive accepted. Pipeline: ${explicit.pipeline}. Reason: ${explicit.reason}`,
+        }),
+      ],
+    };
+  }
 
-  console.log(`[PilotGraph:Router] Intent=${classification.intent} | Pipeline=${classification.pipeline} | Confidence=${classification.confidence} | Explicit=${classification.isExplicit}`);
-  console.log(`[PilotGraph:Router] Reason: ${classification.reason}`);
-
+  console.log('[PilotGraph:Router] Default routing -> unified-task-intake');
   return {
-    intent: classification.intent,
-    selected_pipeline: classification.pipeline,
-    customAgents: classification.customAgents,
-    status: `routed:${classification.intent}`,
+    intent: 'task',
+    selected_pipeline: 'unified-task-intake',
+    customAgents: [],
+    status: 'routed:default-intake',
     artifactLogs: [
       buildArtifactLog({
         stage: 'router',
         role: 'Router',
         status: 'completed',
         source: 'llm',
-        message: classification.intent === 'conversational'
-          ? 'Classified as conversational Q&A.'
-          : `[Router] Intent: ${classification.intent} (confidence: ${(classification.confidence * 100).toFixed(0)}%) | Pipeline: ${classification.pipeline} | ${classification.isExplicit ? 'Explicit directive' : 'Auto-classified'} | Reason: ${classification.reason}`,
+        message:
+          '[Router] Default route to unified-task-intake. PM orchestrator decides whether to answer directly or execute.',
       }),
     ],
   };
@@ -432,11 +450,8 @@ async function finalizeNode(state: PilotState): Promise<Partial<PilotState>> {
  * - 'custom' → customStartNode which begins a dynamic agent sequence
  */
 function routeByIntent(state: PilotState): string {
-  const intent = state.intent || 'unknown';
-
-  if (intent === 'conversational') return 'respond';
-  if (intent === 'custom' && state.customAgents.length > 0) return 'custom_router';
-  // All task intents (new-feature, bug-fix, refactor, research, strategy-tuning, etc.) → full pipeline
+  if (state.selected_pipeline === 'conversational') return 'respond';
+  if (state.selected_pipeline === 'custom' && state.customAgents.length > 0) return 'custom_router';
   return 'intake';
 }
 
