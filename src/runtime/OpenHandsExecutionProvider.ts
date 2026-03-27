@@ -30,94 +30,198 @@ export class OpenHandsExecutionProvider {
     return 'anthropic'; // default fallback
   }
 
+  private parsePositiveInt(value: string | undefined, fallback: number): number {
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
+    return Math.floor(parsed);
+  }
+
+  private sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  private shouldRetry(errorText: string, statusCode?: number): boolean {
+    const text = String(errorText || '').toLowerCase();
+    if (statusCode === 408 || statusCode === 409 || statusCode === 425 || statusCode === 429) return true;
+    if (typeof statusCode === 'number' && statusCode >= 500) return true;
+
+    return [
+      'busy',
+      'overload',
+      'temporarily unavailable',
+      'timeout',
+      'timed out',
+      'rate limit',
+      'too many requests',
+      'connection reset',
+      'econnrefused',
+      'econnreset',
+      'network error',
+      'service unavailable',
+    ].some((needle) => text.includes(needle));
+  }
+
+  private backoffDelayMs(attempt: number, baseMs: number, maxMs: number): number {
+    const exp = Math.min(maxMs, baseMs * (2 ** Math.max(0, attempt - 1)));
+    const jitter = Math.floor(Math.random() * Math.max(100, Math.floor(exp * 0.2)));
+    return Math.min(maxMs, exp + jitter);
+  }
+
   async runTask(input: ExternalExecutionInput): Promise<ExternalExecutionResult> {
     const startedAt = Date.now();
-    try {
-      const cfg = getCockpitExecutorConfig();
-      const model = input.model || cfg.openhands.model || 'anthropic/claude-sonnet-4-6';
-      const provider = this.getProviderFromModel(model);
-      // Priority: explicit config apiKeys > provider env var > generic fallback
-      const apiKey = cfg.openhands.apiKeys[provider]
-        || (provider === 'openai' ? process.env.OPENAI_API_KEY : '')
-        || (provider === 'anthropic' ? process.env.ANTHROPIC_API_KEY : '')
-        || (provider === 'google' ? process.env.GOOGLE_API_KEY : '')
-        || process.env.OPENHANDS_API_KEY
-        || '';
+    const cfg = getCockpitExecutorConfig();
+    const model = input.model || cfg.openhands.model || 'anthropic/claude-sonnet-4-6';
+    const provider = this.getProviderFromModel(model);
+    const apiKey = cfg.openhands.apiKeys[provider]
+      || (provider === 'openai' ? process.env.OPENAI_API_KEY : '')
+      || (provider === 'anthropic' ? process.env.ANTHROPIC_API_KEY : '')
+      || (provider === 'google' ? process.env.GOOGLE_API_KEY : '')
+      || process.env.OPENHANDS_API_KEY
+      || '';
 
-      const keyTeaser = apiKey.length > 8 ? `${apiKey.slice(0, 4)}...${apiKey.slice(-4)}` : '***';
-      console.log(`[OpenHandsExecutionProvider] Running task with provider=${provider}, model=${model}, apiKey=${keyTeaser}`);
+    const maxRunRetries = this.parsePositiveInt(process.env.OPENHANDS_RETRY_MAX_ATTEMPTS, 4);
+    const backoffBaseMs = this.parsePositiveInt(process.env.OPENHANDS_RETRY_BASE_MS, 1500);
+    const backoffMaxMs = this.parsePositiveInt(process.env.OPENHANDS_RETRY_MAX_BACKOFF_MS, 15000);
+    const pollIntervalMs = this.parsePositiveInt(process.env.OPENHANDS_POLL_INTERVAL_MS, 3000);
+    const maxPollAttempts = this.parsePositiveInt(process.env.OPENHANDS_MAX_POLL_ATTEMPTS, 60);
+    const requestTimeoutMs = this.parsePositiveInt(process.env.OPENHANDS_REQUEST_TIMEOUT_MS, 15000);
 
-      // 1. Create a dynamic conversation
-      const convResponse = await axios.post(`${this.serverUrl}/api/conversations`, {
-        agent: {
-          discriminator: 'Agent',
-          llm: {
-            model,
-            api_key: apiKey,
+    const keyTeaser = apiKey.length > 8 ? `${apiKey.slice(0, 4)}...${apiKey.slice(-4)}` : '***';
+    console.log(`[OpenHandsExecutionProvider] Running task with provider=${provider}, model=${model}, apiKey=${keyTeaser}, retries=${maxRunRetries}`);
+
+    let lastError = 'OpenHands execution failed';
+    let lastConversationId = '';
+    for (let runAttempt = 1; runAttempt <= maxRunRetries; runAttempt++) {
+      try {
+        const convResponse = await axios.post(`${this.serverUrl}/api/conversations`, {
+          agent: {
+            discriminator: 'Agent',
+            llm: {
+              model,
+              api_key: apiKey,
+            },
+            tools: [
+              { name: 'TerminalTool' },
+              { name: 'FileEditorTool' }
+            ]
           },
-          tools: [
-            { name: 'TerminalTool' },
-            { name: 'FileEditorTool' }
-          ]
-        },
-        workspace: {
-          working_dir: input.cwd || '/workspace'
-        },
-        initial_message: {
-          role: 'user',
-          content: [{ type: 'text', text: input.prompt }],
-          run: true
+          workspace: {
+            working_dir: input.cwd || '/workspace'
+          },
+          initial_message: {
+            role: 'user',
+            content: [{ type: 'text', text: input.prompt }],
+            run: true
+          }
+        }, { timeout: requestTimeoutMs });
+
+        const conversationId = String(convResponse.data?.conversation_id || '').trim();
+        lastConversationId = conversationId;
+
+        let isRunning = true;
+        let status = 'running';
+        let statusAttempts = 0;
+
+        while (isRunning && statusAttempts < maxPollAttempts) {
+          statusAttempts++;
+          await this.sleep(pollIntervalMs);
+          const statusRes = await axios.get(`${this.serverUrl}/api/conversations/${conversationId}`, { timeout: requestTimeoutMs });
+          status = String(statusRes.data?.execution_status || '').trim() || 'unknown';
+          if (status !== 'running' && status !== 'pending') {
+            isRunning = false;
+          }
         }
-      });
 
-      const conversationId = convResponse.data.conversation_id;
-
-      // 2. Wait for completion (Polling mode for MVP)
-      // Note: In real production, we'd use WebSockets for streaming.
-      let isRunning = true;
-      let status = 'running';
-      let attempts = 0;
-      const MAX_ATTEMPTS = 60; // 3 minutes timeout (3s * 60)
-
-      while (isRunning && attempts < MAX_ATTEMPTS) {
-        attempts++;
-        await new Promise(r => setTimeout(r, 3000));
-        const statusRes = await axios.get(`${this.serverUrl}/api/conversations/${conversationId}`);
-        status = statusRes.data.execution_status;
-        if (status !== 'running' && status !== 'pending') {
-          isRunning = false;
+        if (isRunning) {
+          status = 'timeout';
         }
+
+        const eventsRes = await axios.get(`${this.serverUrl}/api/conversations/${conversationId}/events/search?limit=20`, { timeout: requestTimeoutMs });
+        const events = Array.isArray(eventsRes.data?.events) ? eventsRes.data.events : [];
+        const reversedEvents = [...events].reverse();
+        const lastMessage = reversedEvents.find((e: any) => e.role === 'assistant');
+        const lastErrorEvent = reversedEvents.find((e: any) =>
+          String(e?.role || '').toLowerCase() === 'system' ||
+          String(e?.type || '').toLowerCase().includes('error') ||
+          String(e?.status || '').toLowerCase() === 'error',
+        );
+        const statusErrorText =
+          typeof lastErrorEvent?.content === 'string'
+            ? lastErrorEvent.content
+            : JSON.stringify(lastErrorEvent?.content || '');
+
+        const stdout = typeof lastMessage?.content === 'string'
+          ? lastMessage.content
+          : JSON.stringify(lastMessage?.content || 'Task completed via OpenHands.');
+
+        const ok = status === 'finished' || status === 'completed';
+        if (ok) {
+          return {
+            ok: true,
+            executor: 'openhands-sdk' as any,
+            stdout,
+            stderr: '',
+            exitCode: 0,
+            durationMs: Date.now() - startedAt,
+            command: ['openhands', 'run', conversationId]
+          };
+        }
+
+        const statusFailureText = status === 'timeout'
+          ? `OpenHands timed out after ${maxPollAttempts} polls`
+          : `OpenHands reported execution status=${status}`;
+        const combinedError = `${statusFailureText}${statusErrorText ? ` | details=${statusErrorText}` : ''}`;
+        lastError = combinedError;
+        const retry = runAttempt < maxRunRetries && this.shouldRetry(combinedError);
+        if (!retry) {
+          return {
+            ok: false,
+            executor: 'openhands-sdk' as any,
+            stdout,
+            stderr: combinedError,
+            exitCode: -1,
+            durationMs: Date.now() - startedAt,
+            command: ['openhands', 'run', conversationId]
+          };
+        }
+
+        const delayMs = this.backoffDelayMs(runAttempt, backoffBaseMs, backoffMaxMs);
+        console.warn(`[OpenHandsExecutionProvider] attempt ${runAttempt}/${maxRunRetries} failed; retrying in ${delayMs}ms: ${combinedError}`);
+        await this.sleep(delayMs);
+      } catch (error: any) {
+        const statusCode = Number(error?.response?.status);
+        const errMsg =
+          error?.response?.data?.message ||
+          error?.response?.data?.error ||
+          error?.message ||
+          'OpenHands server communication failed';
+        lastError = String(errMsg);
+        const retry = runAttempt < maxRunRetries && this.shouldRetry(lastError, Number.isFinite(statusCode) ? statusCode : undefined);
+        if (!retry) {
+          return {
+            ok: false,
+            executor: 'openhands-sdk' as any,
+            stdout: '',
+            stderr: lastError,
+            exitCode: -1,
+            durationMs: Date.now() - startedAt,
+            command: lastConversationId ? ['openhands', 'run', lastConversationId] : []
+          };
+        }
+        const delayMs = this.backoffDelayMs(runAttempt, backoffBaseMs, backoffMaxMs);
+        console.warn(`[OpenHandsExecutionProvider] attempt ${runAttempt}/${maxRunRetries} transport error; retrying in ${delayMs}ms (status=${statusCode || 'n/a'}): ${lastError}`);
+        await this.sleep(delayMs);
       }
-
-      // 3. Fetch final events to get the agent's response
-      const eventsRes = await axios.get(`${this.serverUrl}/api/conversations/${conversationId}/events/search?limit=10`);
-      const events = eventsRes.data.events || [];
-      const lastMessage = events.reverse().find((e: any) => e.role === 'assistant');
-      
-      const stdout = typeof lastMessage?.content === 'string' 
-        ? lastMessage.content 
-        : JSON.stringify(lastMessage?.content || 'Task completed via OpenHands.');
-
-      return {
-        ok: status === 'finished' || status === 'completed',
-        executor: 'openhands-sdk' as any,
-        stdout,
-        stderr: status === 'error' ? 'OpenHands reported execution error' : '',
-        exitCode: status === 'finished' ? 0 : -1,
-        durationMs: Date.now() - startedAt,
-        command: ['openhands', 'run', conversationId]
-      };
-
-    } catch (error: any) {
-      return {
-        ok: false,
-        executor: 'openhands-sdk' as any,
-        stdout: '',
-        stderr: error.response?.data?.message || error.message || 'OpenHands server communication failed',
-        exitCode: -1,
-        durationMs: Date.now() - startedAt,
-        command: []
-      };
     }
+
+    return {
+      ok: false,
+      executor: 'openhands-sdk' as any,
+      stdout: '',
+      stderr: lastError,
+      exitCode: -1,
+      durationMs: Date.now() - startedAt,
+      command: lastConversationId ? ['openhands', 'run', lastConversationId] : []
+    };
   }
 }
