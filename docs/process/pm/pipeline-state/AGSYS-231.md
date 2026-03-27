@@ -1,31 +1,23 @@
 # Pipeline State: AGSYS-231
 
-- Pipeline: `sprint-integration`
-- Current stage: `closure`
-- Status: `In Progress` (final user validation pending)
-- Last updated: 2026-03-26
+- Pipeline: `bug-fix`
+- Current stage: `implement-fix`
+- Status: `In Progress`
+- Last updated: 2026-03-27T19:11:00+01:00
 
-## Execution Timeline
-1. `intake`: Bug reports from Cockpit runtime (`502`, wrong runtime context, modal regression).
-2. `diagnose`: Verified backend down/proxy failures and stale runtime config paths.
-3. `act`: Applied iterative hotfixes across backend runtime API, infra scripts, and Cockpit UI.
-4. `verify`: Repeated curl checks on `3001` and `5174` endpoints; frontend build passed.
-5. `reconcile`: Added missing governance artifacts and commit-to-scope mapping.
+## Scope
+Fix Cockpit right column (`Live Hive State`) so it is independently scrollable and does not clip content on smaller viewport heights.
 
-## Scope to Commit Mapping
-- Infra/runtime decoupling and stabilization:
-  - `2e9dd0d`, `7576d24`, `904d23c`, `00d63cc`
-- Provider/model source-of-truth:
-  - `43c2892`, `95a4c04`
-- Env tracking hygiene:
-  - `924dc62`
-- Cockpit modal rendering regression fix:
-  - `910bbc7`
+## Gate Traceability
+1. `pm-entry` completed.
+2. `requirements-pack` approved by owner.
+3. `assumptions-review` approved by owner.
+4. Git preflight token confirmed (`docs/process/git/preflights/AGSYS-231.env`).
 
-## Residual Risks
-- Launchctl behavior may differ between shell/session contexts on host OS.
-- OpenHands sidecar still depends on local Python environment correctness.
+## Current Execution Plan
+1. Apply minimal Tailwind layout fix in Cockpit page right panel containers.
+2. Run frontend build for regression check.
+3. Attach evidence summary and mark ready for user smoke.
 
 ## Next Gate
-- User smoke validation on cockpit runtime + modal flows.
-- If passed: mark `Done` and run closure sweep.
+- User validates right-panel scroll in Cockpit runtime page.

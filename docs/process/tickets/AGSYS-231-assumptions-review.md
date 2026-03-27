@@ -5,24 +5,20 @@
 - Pipeline: `bug-fix`
 
 ## Assumptions
-1. Primary production blocker is local backend availability (`3001`) behind Vite proxy (`5174`).
-2. UI drift (wrong provider/model) is caused by hardcoded frontend presets and non-persistent backend runtime state.
-3. OpenHands "unreachable" can be caused by hardcoded backend health response and/or sidecar startup issues.
-4. Modal rendering regression is caused by relying on Tailwind utility classes in a screen not guaranteed to apply them.
+1. Right panel non-scroll behavior is caused by flex/min-height container constraints rather than data volume logic.
+2. A layout-only change in Cockpit page classes is sufficient to restore expected scroll.
+3. No backend changes are required for this fix.
 
-## Validation
-- Confirmed repeated `502` only when backend unavailable.
-- Confirmed stale provider/model UI from hardcoded presets.
-- Confirmed OpenHands health endpoint was previously hardcoded to negative response.
-- Confirmed modal was rendered as plain block text due to missing effective utility styles.
+## Validation Plan
+- Adjust right panel container constraints (`min-h-0`, `overflow-hidden`) and keep inner content wrapper as `overflow-y-auto`.
+- Verify by adding enough event cards and checking vertical scroll in the right panel only.
+- Verify center chat panel behavior remains unaffected.
 
-## Corrections Applied
-- Backend lifecycle hardened and launchctl domain handling fixed.
-- Runtime provider/model moved to backend source-of-truth with persisted settings.
-- OpenHands health wired to actual sidecar `/health`.
-- Modals converted to explicit Cockpit CSS classes.
+## Risks
+- Wrong placement of `min-h-0` can break sibling layout or cause nested double-scroll.
+- Tailwind utility regression risk if class change is applied to wrong container.
 
 ## Approval Traceability
 - Approver: Owner (chat)
 - Approval status: Approved
-- Approved at: 2026-03-26
+- Approved at: 2026-03-27T19:09:00+01:00
