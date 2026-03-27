@@ -1,0 +1,18 @@
+# Pipeline State: AGSYS-214
+- Pipeline: feature-change
+- Mode: full
+- Current Stage: reviewer-gate
+- Completed Stages: pm-entry, requirements-pack, assumptions-review, git-preflight, architect-impact-scan, implementation-delta, postflight-smoke
+- Next Stage: reviewer-and-acceptance
+- Current Owner: Вартовий Якості (Code Reviewer)
+- Next Owner: Сокіл-Координатор (PM Orchestrator)
+- Ticket: AGSYS-214
+- Thread: cockpit-runtime-thread
+- Last Updated: 2026-03-27T21:41:10+01:00
+- Blocking Gates: none
+- Evidence Links: docs/process/tickets/AGSYS-214-requirements-pack.md; docs/process/tickets/AGSYS-214-assumptions-review.md; docs/process/tests/AGSYS-214.md
+- Plane Status: In Progress
+- Branch: codex/AGSYS-214-runtime-capability-contract
+- Worktree: /Users/myasnikoviv/development/agent-system
+- Preflight Token: docs/process/git/preflights/AGSYS-214.env
+- Acceptance Lock: YES

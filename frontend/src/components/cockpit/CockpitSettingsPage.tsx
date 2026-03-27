@@ -243,7 +243,12 @@ export function CockpitSettingsPage() {
 
   const [cliHealthMessage, setCliHealthMessage] = useState('CLI provider status not checked.');
   const [codexApiKeyForLogin, setCodexApiKeyForLogin] = useState('');
-  const [runtimeCapabilities, setRuntimeCapabilities] = useState<{ effectiveMode: 'cli' | 'direct'; implicitCodexApiKey?: string }>({ effectiveMode: 'direct' });
+  const [runtimeCapabilities, setRuntimeCapabilities] = useState<{
+    effectiveMode: 'cli' | 'direct';
+    implicitCodexApiKey?: string;
+    selectedBackend?: ExecutorSettings['backend'];
+    supportsDirectProviderConfig?: boolean;
+  }>({ effectiveMode: 'cli' });
 
   const [generalSavedAt, setGeneralSavedAt] = useState('Unsaved');
   const [appearanceSavedAt, setAppearanceSavedAt] = useState('Unsaved');
@@ -630,7 +635,7 @@ export function CockpitSettingsPage() {
         const res = await fetch(apiUrl('/api/cockpit/providers'));
         const data = await res.json();
         if (data.success && data.capabilities) {
-          setRuntimeCapabilities(data.capabilities);
+          setRuntimeCapabilities((prev) => ({ ...prev, ...data.capabilities }));
         }
       } catch {
         console.error('Failed to load runtime capabilities');
