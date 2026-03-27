@@ -1487,7 +1487,7 @@ export function CockpitPage() {
                 </section>
 
                 {/* Right Panel: Event Feed & Active Agent */}
-                <section className="flex w-[320px] flex-none flex-col bg-slate-950">
+                <section className="flex min-h-0 w-[320px] flex-none flex-col overflow-hidden bg-slate-950">
                     <div className="flex items-center gap-2 border-b border-slate-800 px-4 py-3 text-2xl font-semibold text-slate-200">
                         <Activity size={20} />
                         Live Hive State
