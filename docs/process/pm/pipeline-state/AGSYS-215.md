@@ -1,0 +1,18 @@
+# Pipeline State: AGSYS-215
+- Pipeline: feature-change
+- Mode: full
+- Current Stage: implementation-delta
+- Completed Stages: pm-entry, requirements-pack, assumptions-review, git-preflight, architect-impact-scan
+- Next Stage: postflight-smoke
+- Current Owner: Кодоковаль (Developer)
+- Next Owner: Вартовий Якості (Code Reviewer)
+- Ticket: AGSYS-215
+- Thread: cockpit-runtime-thread
+- Last Updated: 2026-03-27T21:41:50+01:00
+- Blocking Gates: none
+- Evidence Links: docs/process/tickets/AGSYS-215-requirements-pack.md; docs/process/tickets/AGSYS-215-assumptions-review.md
+- Plane Status: In Progress
+- Branch: codex/AGSYS-215-configuration-ia-refactor
+- Worktree: /Users/myasnikoviv/development/agent-system
+- Preflight Token: docs/process/git/preflights/AGSYS-215.env
+- Acceptance Lock: YES
