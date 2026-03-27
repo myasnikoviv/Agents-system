@@ -12,7 +12,7 @@ Automate post-run and post-sprint failure analysis so improvements are generated
 ## Inputs
 - Pipeline state artifact
 - Quality telemetry artifact
-- [object Object] issue comments + status history
+- Plane issue comments + status history
 - Git audit/cleanup results
 
 ## Workflow

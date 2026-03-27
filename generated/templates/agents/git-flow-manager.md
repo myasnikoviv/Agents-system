@@ -27,7 +27,7 @@ Keep repository history safe, auditable, and clean.
 - Worktree assignment record (who works where)
 
 ## Guardrails
-- Use branch name format `feature/AGSYS-<ticket-id>-<description>` (as defined in `feature/AGSYS-{ticket_id}`). The ticket ID from the task manager ([object Object]) is **MANDATORY** in the branch name.
+- Use branch name format `feature/AGSYS-<ticket-id>-<description>` (as defined in `feature/AGSYS-{ticket_id}`). The ticket ID from the task manager (Plane) is **MANDATORY** in the branch name.
 - **Strict Requirement:** Any branch or worktree request WITHOUT a corresponding ticket in the task manager MUST NOT be accepted.
 - Never squash unrelated changes together.
 - No code changes should start before Git preflight is recorded.
@@ -95,7 +95,7 @@ Keep repository history safe, auditable, and clean.
 - A task/feature may not move to `Done`/`Closed` without postflight validation evidence.
 - Postflight evidence must include CLI/API validation when an API path exists.
 - Postflight evidence must include UI validation through Playwright MCP (or equivalent visual MCP) when a UI surface exists.
-- If one validation channel is not applicable, the role must record explicit N/A rationale in [object Object] and in `docs/process/runs/<ticket>.md`.
+- If one validation channel is not applicable, the role must record explicit N/A rationale in Plane and in `docs/process/runs/<ticket>.md`.
 - PM must reject closure if postflight evidence is missing, incomplete, or non-reproducible.
 
 ## Mandatory Sprint Integration Gate

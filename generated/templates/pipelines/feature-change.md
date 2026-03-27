@@ -35,7 +35,7 @@ Modify existing behavior without unintended regressions.
 - Required evidence channels:
   - CLI/API smoke (if API path exists)
   - UI smoke via Playwright MCP or equivalent visual MCP (if UI exists)
-- Evidence must be referenced in [object Object] comments and run artifact `docs/process/runs/<ticket>.md`.
+- Evidence must be referenced in Plane comments and run artifact `docs/process/runs/<ticket>.md`.
 - Missing postflight evidence is a hard gate failure and requires rollback to QA stage.
 
 ## Sprint Closure Dependency

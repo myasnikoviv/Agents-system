@@ -51,7 +51,7 @@ Guarantee that pipeline execution cannot drift, be skipped, or be forgotten acro
 - Last Updated: <ISO datetime>
 - Blocking Gates: <none|list>
 - Evidence Links: <paths>
-- [object Object] Status: <state>
+- Plane Status: <state>
 - Branch: <branch>
 - Worktree: <absolute-path>
 - Preflight Token: <path>

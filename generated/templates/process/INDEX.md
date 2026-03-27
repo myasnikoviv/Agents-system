@@ -6,11 +6,19 @@ Single entry point for process artifacts and state snapshots inside the common l
 - [Git policy and worktree ops](./git)
 - [Ops baseline and incident playbooks](./ops)
 - [PM protocols and contracts](./pm)
+- [Process contracts](./contracts/INDEX.md)
 - [Docs lifecycle policy](./docs-lifecycle-labels.md)
 
 ## Mandatory- Operational Model: `../../../AGENTS.md`
-- [Artifact Taxonomy](file:///Users/myasnikoviv/development/Agentic%20system%20common%20files/templates/process/INDEX.md#artifact-taxonomy) (Linked via registry)
-- [Memory Policy](file:///Users/myasnikoviv/development/Agentic%20system%20common%20files/templates/process/INDEX.md#memory-policy) (Linked via registry)
+- [Source of Truth](./contracts/source-of-truth.md)
+- [Artifact Taxonomy](./contracts/artifact-taxonomy.md)
+- [Approval Gate Policy](./contracts/approval-gate-policy.md)
+- [Mutation Contract](./contracts/mutation.md)
+- [Handoff Contract](./contracts/handoff.md)
+- [Memory Policy](./contracts/memory-policy.md)
+- [Output Placement Policy](./contracts/output-placement-policy.md)
+- [Resume & Checkpoint Policy](./contracts/resume-checkpoint-policy.md)
+- [Whiteboard Policy](./contracts/whiteboard-policy.md)
 
 ## Documentation Hierarchy
 - [Unified intake pipeline](../pipelines/unified-task-intake.md)

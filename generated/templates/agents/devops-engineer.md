@@ -57,7 +57,7 @@ Keep local and runtime infrastructure stable, reproducible, and observable for t
 - A task/feature may not move to `Done`/`Closed` without postflight validation evidence.
 - Postflight evidence must include CLI/API validation when an API path exists.
 - Postflight evidence must include UI validation through Playwright MCP (or equivalent visual MCP) when a UI surface exists.
-- If one validation channel is not applicable, the role must record explicit N/A rationale in [object Object] and in `docs/process/runs/<ticket>.md`.
+- If one validation channel is not applicable, the role must record explicit N/A rationale in Plane and in `docs/process/runs/<ticket>.md`.
 - PM must reject closure if postflight evidence is missing, incomplete, or non-reproducible.
 
 ## Mandatory Startup Verification Gate

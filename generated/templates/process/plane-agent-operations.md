@@ -1,4 +1,4 @@
-# [object Object] Agent Operations
+# Plane Agent Operations
 
 ## Objective
 Allow Codex/agent to operate ticket lifecycle reliably.
@@ -31,7 +31,7 @@ Common operations:
 If API schema differs from examples, use UI operations and keep markdown evidence linked.
 
 ## API Bootstrap
-1. Generate [object Object] API token (user settings).
+1. Generate Plane API token (user settings).
 2. Fill in `.env`:
    - `PLANE_API_BASE`
    - `PLANE_API_TOKEN`
@@ -69,5 +69,5 @@ scripts/plane/seed_kickoff_tickets.sh
 13. Ticket cannot enter implementation without worktree assignment for the assignee (when file mutations are expected).
 
 ## Mapping Recommendation
-- `docs/process/tickets/*.md` <-> [object Object] issues (1:1)
+- `docs/process/tickets/*.md` <-> Plane issues (1:1)
 - `docs/process/tests|runs|reviews/*.md` linked as evidence in issue comments

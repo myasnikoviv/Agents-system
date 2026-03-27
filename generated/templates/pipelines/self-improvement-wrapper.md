@@ -18,7 +18,7 @@ Run this wrapper for every major execution pipeline:
 
 ## Inputs
 - Parent pipeline id and stage history
-- [object Object] ticket ids and status transitions
+- Plane ticket ids and status transitions
 - Test evidence (CLI/API/UI)
 - Review findings and rework loops
 - Git artifacts (branch/worktree/preflight/audit/cleanup)
@@ -48,7 +48,7 @@ Run this wrapper for every major execution pipeline:
 ## Required Artifacts
 - `docs/process/retrospectives/<ticket>.md` with SIW section
 - `docs/process/instructions/<ticket>.md` or `docs/process/skills/<ticket>.md` when improvement is required
-- [object Object] comment with links to all SIW artifacts
+- Plane comment with links to all SIW artifacts
 
 ## Exit Criteria
 - Blockers resolved or explicitly escalated with evidence

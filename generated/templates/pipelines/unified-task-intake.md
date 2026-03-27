@@ -10,12 +10,12 @@ Ensure complex tasks are critically validated before implementation and simpler 
 
 ## Mandatory Global Gate (All Modes)
 1. `Planning-only` mode by default: no mutating work is allowed.
-2. A real ticket must be created in the task manager ([object Object]) via the MCP server for every request. **The ticket MUST explicitly state the Expected Handoff Pipeline.**
+2. A real ticket must be created in the task manager (Plane) via the MCP server for every request. **The ticket MUST explicitly state the Expected Handoff Pipeline.**
 2.1 Ticket body must follow canonical contract: `docs/process/tickets/CANONICAL-TICKET-CONTRACT.md`.
 2.2 PM must validate brief before `In Progress` via `bash scripts/pm/ticket_brief_gate.sh <brief-md>`.
 2.3 If canonical brief gate fails, ticket cannot proceed and must be rewritten in `Backlog`.
 2.4 Ticket title must use role code prefix (`PM/ARCH/DEV/QA/REV/RUN/DOC/OPS/GIT/UX/TRD`).
-2.5 PM must assign ticket to one [object Object] Module (User Story container) before execution.
+2.5 PM must assign ticket to one Plane Module (User Story container) before execution.
 3. PM must create and fill intake requirements pack: `docs/process/tickets/<ticket>-requirements-pack.md`.
 4. Owner approval is mandatory for requirements pack before any research/planning/implementation.
 5. PM must produce assumptions review artifact: `docs/process/tickets/<ticket>-assumptions-review.md` (evidence-backed assumptions + owner corrections).
@@ -35,7 +35,7 @@ Ensure complex tasks are critically validated before implementation and simpler 
    - Before starting any new execution scope, PM must query unresolved `Auto-RCA follow-up` tickets in the same project.
    - If unresolved follow-ups exist, PM must either:
      - route execution to resolve/triage them first, or
-     - explicitly defer them with rationale and owner approval recorded in [object Object] + pipeline state card.
+     - explicitly defer them with rationale and owner approval recorded in Plane + pipeline state card.
    - Starting a new feature/bug/refactor execution while unresolved Auto-RCA follow-ups are ignored is invalid.
 
 ## Decision Gate
@@ -84,7 +84,7 @@ PM/Supervisor chooses mode:
 - Required evidence channels:
   - CLI/API smoke (if API path exists)
   - UI smoke via Playwright MCP or equivalent visual MCP (if UI exists)
-- Evidence must be referenced in [object Object] comments and run artifact `docs/process/runs/<ticket>.md`.
+- Evidence must be referenced in Plane comments and run artifact `docs/process/runs/<ticket>.md`.
 - Missing postflight evidence is a hard gate failure and requires rollback to QA stage.
 
 ## Mandatory Service-Startup Verification Gate

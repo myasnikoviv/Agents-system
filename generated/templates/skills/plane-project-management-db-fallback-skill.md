@@ -17,7 +17,7 @@ Keep project management flow operational when Plane MCP and direct API token pat
 - Use DB fallback only for critical ticket-lifecycle continuity.
 - Apply minimum required mutations only (state, assignee, handoff note pointer, linkage IDs).
 - Record every DB fallback action in:
-  - `[object Object]` comments (when service recovers), and
+  - `Plane` comments (when service recovers), and
   - `docs/process/blockers/<id>.md` with SQL/script evidence.
 - After recovery, reconcile DB-side actions back through official Plane API/MCP.
 - Never use this flow against production DB without explicit human approval.

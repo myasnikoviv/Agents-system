@@ -1,8 +1,5 @@
 # Multi-Agent Operating Model v2 (Cognitive)
 
-
-Ticket: AGSYS-231
-
 This repository uses a role-based agent system for product work, strategy logic updates, testing, and release.
 
 ## Agent Registry
@@ -110,7 +107,7 @@ For medium/high complexity work, key agents run this loop:
 - Mandatory pipeline selection at task entry: every user request must be mapped to exactly one pipeline before any other action.
 - Mandatory intake requirements pack gate: no research/planning/implementation may start until PM creates requirements artifact `docs/process/tickets/<id>-requirements-pack.md` and owner explicitly approves it.
 - Mandatory assumptions review gate: before implementation, PM must create assumptions artifact `docs/process/tickets/<id>-assumptions-review.md` with evidence-backed assumptions and owner corrections/confirmation.
-- Mandatory approval traceability: each gate above must include approver identity, timestamp, and approval status in pipeline state card and [object Object] comments.
+- Mandatory approval traceability: each gate above must include approver identity, timestamp, and approval status in pipeline state card and Plane comments.
 - No free-form execution outside pipeline context. If request is informational-only, it must still be labeled as `pipeline=unified-task-intake` with stage `intake-qna-only`.
 - Pipeline continuity is mandatory: after each meaningful step, PM updates pipeline state artifact `docs/process/pm/pipeline-state/<ticket-or-thread>.md`.
 - Any role response without explicit pipeline context is invalid and must be corrected before continuing.
@@ -129,14 +126,14 @@ For medium/high complexity work, key agents run this loop:
 - Any detected branch/worktree collision (preflight, in-flight, or postflight audit) is a hard stop and must trigger `pipeline=git-conflict-recovery`.
 - Direct pushes to `main` are forbidden for role agents; merge/push flow is coordinated by `Пан Гілка (Git Flow Manager)` via approved branch/worktree path.
 - Git Flow Manager must run periodic drift audit (`scripts/git/worktree_audit.sh`) and PM must reconcile audit result before sprint closure.
-- Any task completion ([object Object] status `Done`/`Closed`) must be followed by `scripts/git/worktree_cleanup_sweep.sh` execution to prune resources.
+- Any task completion (Plane status `Done`/`Closed`) must be followed by `scripts/git/worktree_cleanup_sweep.sh` execution to prune resources.
 - Sprint closure hard gate: PM may declare sprint closed only after `pipeline=sprint-integration` passes with explicit evidence that:
   - all sprint ticket branches are merged into a dedicated integration branch/worktree,
   - integration and regression tests are green on that integration branch,
   - integration branch is merged into `main` (remote),
   - local `main` is synchronized to the merged remote SHA.
 - If any sprint ticket is not merged to `main`, sprint closure is invalid and must remain `In Progress`.
-- Sprint/task closure hard gate: before moving any issue to `Done`/`Closed`, PM must attach reproducible postflight evidence to [object Object] and `docs/process/tests/<ticket>.md` including:
+- Sprint/task closure hard gate: before moving any issue to `Done`/`Closed`, PM must attach reproducible postflight evidence to Plane and `docs/process/tests/<ticket>.md` including:
   - CLI/API smoke command outputs (or explicit N/A rationale),
   - UI smoke via Playwright MCP (or equivalent visual MCP) with concrete observed result (or explicit N/A rationale).
 - If any required postflight channel fails or is missing, PM must revert ticket state from `Done` to `In Progress` and continue execution; “partial pass” closure is forbidden.
@@ -192,8 +189,12 @@ PM intake -> Clarification -> Research -> Challenge -> Architect -> Design Lead 
   - Stage: <current-stage>
   - Next: <next-role-or-gate>
   - Ticket: <active-ticket-id>
+- Branch/worktree status line is mandatory in every reply:
+  - Git: branch=<active-branch> | worktree=<active-worktree-path>
 - Preflight ticket guard is mandatory before any execution step:
   - verify active task exists, is not `cancelled`, has valid acceptance criteria, and matches current pipeline scope.
+  - verify active `ticket -> branch -> worktree` binding is unique and collision-free in worktree registry.
+  - verify current runtime branch/worktree matches approved preflight token.
   - if task is missing/invalid, PM must `find or create` task first, then continue.
 - If pipeline is unknown, PM must stop and run pipeline selection guard first.
 - On `продовжуємо` / `continue`, PM must restore context from `docs/process/pm/pipeline-state/<ticket-or-thread>.md` before any new action.
@@ -201,5 +202,5 @@ PM intake -> Clarification -> Research -> Challenge -> Architect -> Design Lead 
 
 ## Execution Mode
 
-- Role execution policy: `docs/process/pm/ROLE-EXECUTION-MODE.md`
-- Pipeline state contract: `docs/process/pm/PIPELINE-STATE-CONTRACT.md`
+- Role execution policy: `./generated/templates/process/pm/ROLE-EXECUTION-MODE.md`
+- Pipeline state contract: `./generated/templates/process/pm/PIPELINE-STATE-CONTRACT.md`
