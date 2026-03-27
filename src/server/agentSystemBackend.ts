@@ -153,7 +153,7 @@ const defaultContractRegistry = {
 const PLANE_BASE_URL = (process.env.PLANE_BASE_URL || 'http://127.0.0.1:3000').replace(/\/$/, '');
 const PLANE_WORKSPACE = process.env.PLANE_WORKSPACE || 'agent-system';
 const PLANE_API_KEY = process.env.PLANE_API_KEY || process.env.PLANE_API_TOKEN || '';
-const SETTINGS_FILE_PATH = path.resolve(process.cwd(), '.agent-system', 'cockpit-settings.json');
+const SETTINGS_LEGACY_FILE_PATH = path.resolve(process.cwd(), '.agent-system', 'cockpit-settings.json');
 const RUNTIME_STORE_LEGACY_FILE_PATH = path.resolve(process.cwd(), '.agent-system', 'cockpit-runtime-store.json');
 const RUNTIME_DB_FILE_PATH = path.resolve(process.cwd(), '.agent-system', 'cockpit-runtime.db');
 
@@ -182,6 +182,16 @@ runtimeDb.exec(`
     sort_order INTEGER NOT NULL
   );
   CREATE INDEX IF NOT EXISTS idx_cockpit_messages_thread_order ON cockpit_messages(thread_id, sort_order);
+  CREATE TABLE IF NOT EXISTS cockpit_settings (
+    section TEXT PRIMARY KEY,
+    value_json TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS cockpit_state (
+    key TEXT PRIMARY KEY,
+    value_json TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
 `);
 
 const toPlaneIdentifier = (value: string): string =>
@@ -202,11 +212,43 @@ const normalizeProjectKey = (value: string): string =>
 
 const canUsePlane = (): boolean => Boolean(PLANE_API_KEY && PLANE_BASE_URL && PLANE_WORKSPACE);
 
+const saveRuntimeState = (key: string, value: unknown) => {
+  runtimeDb
+    .prepare(
+      `INSERT INTO cockpit_state (key, value_json, updated_at)
+       VALUES (?, ?, ?)
+       ON CONFLICT(key) DO UPDATE SET value_json=excluded.value_json, updated_at=excluded.updated_at`,
+    )
+    .run(key, JSON.stringify(value), new Date().toISOString());
+};
+
+const loadRuntimeState = <T>(key: string, fallback: T): T => {
+  const row = runtimeDb
+    .prepare('SELECT value_json FROM cockpit_state WHERE key = ?')
+    .get(key) as { value_json?: string } | undefined;
+  if (!row?.value_json) return fallback;
+  try {
+    return JSON.parse(row.value_json) as T;
+  } catch {
+    return fallback;
+  }
+};
+
 const persistSettingsStore = () => {
   try {
-    const data = Object.fromEntries(settingsStore.entries());
-    fs.mkdirSync(path.dirname(SETTINGS_FILE_PATH), { recursive: true });
-    fs.writeFileSync(SETTINGS_FILE_PATH, JSON.stringify(data, null, 2), 'utf-8');
+    const tx = runtimeDb.transaction(() => {
+      runtimeDb.prepare('DELETE FROM cockpit_settings').run();
+      const upsert = runtimeDb.prepare(
+        `INSERT INTO cockpit_settings (section, value_json, updated_at)
+         VALUES (?, ?, ?)
+         ON CONFLICT(section) DO UPDATE SET value_json=excluded.value_json, updated_at=excluded.updated_at`,
+      );
+      const now = new Date().toISOString();
+      for (const [section, value] of settingsStore.entries()) {
+        upsert.run(section, JSON.stringify(value), now);
+      }
+    });
+    tx();
   } catch (error) {
     console.error('[agent-system-backend] failed to persist settings store:', error);
   }
@@ -214,11 +256,29 @@ const persistSettingsStore = () => {
 
 const restoreSettingsStore = () => {
   try {
-    if (!fs.existsSync(SETTINGS_FILE_PATH)) return;
-    const raw = fs.readFileSync(SETTINGS_FILE_PATH, 'utf-8');
+    settingsStore.clear();
+    const rows = runtimeDb
+      .prepare('SELECT section, value_json FROM cockpit_settings')
+      .all() as Array<{ section: string; value_json: string }>;
+
+    if (rows.length > 0) {
+      for (const row of rows) {
+        try {
+          settingsStore.set(row.section, JSON.parse(row.value_json));
+        } catch {
+          settingsStore.set(row.section, {});
+        }
+      }
+      return;
+    }
+
+    // One-time migration from legacy JSON settings file.
+    if (!fs.existsSync(SETTINGS_LEGACY_FILE_PATH)) return;
+    const raw = fs.readFileSync(SETTINGS_LEGACY_FILE_PATH, 'utf-8');
     if (!raw.trim()) return;
     const parsed = JSON.parse(raw) as Record<string, unknown>;
     Object.entries(parsed).forEach(([key, value]) => settingsStore.set(key, value));
+    persistSettingsStore();
   } catch (error) {
     console.error('[agent-system-backend] failed to restore settings store:', error);
   }
@@ -579,10 +639,13 @@ for (const project of projectStore.values()) {
   void syncPlaneBindingForProject(project);
 }
 restoreSettingsStore();
+runtimeFooter = loadRuntimeState('runtime_footer', runtimeFooter);
+runtimeSelection = loadRuntimeState('runtime_selection', runtimeSelection);
 void refreshCatalog();
 const runtimeFromSettingsAtBoot = getRuntimeSelectionFromExecutorSettings();
 if (runtimeFromSettingsAtBoot) {
   runtimeSelection = runtimeFromSettingsAtBoot;
+  saveRuntimeState('runtime_selection', runtimeSelection);
 }
 
 app.get('/api/health', (_req, res) => {
@@ -627,11 +690,13 @@ app.get('/api/cockpit/providers', (_req, res) => {
   const runtimeFromSettings = getRuntimeSelectionFromExecutorSettings();
   if (runtimeFromSettings) {
     runtimeSelection = runtimeFromSettings;
+    saveRuntimeState('runtime_selection', runtimeSelection);
   } else if (!isRuntimeProvider(runtimeSelection.provider)) {
     runtimeSelection = {
       provider: 'codex-cli',
       model: providerModelCatalog['codex-cli'][0],
     };
+    saveRuntimeState('runtime_selection', runtimeSelection);
   }
 
   res.json({
@@ -746,6 +811,7 @@ app.post('/api/cockpit/projects/select', (req, res) => {
       ...runtimeFooter,
       worktreePath: project.worktreePath.trim(),
     };
+    saveRuntimeState('runtime_footer', runtimeFooter);
   }
 
   res.json({ success: true, project, runtimeFooter });
@@ -779,6 +845,7 @@ app.post('/api/cockpit/runtime-footer', (req, res) => {
     ...runtimeFooter,
     ...patch,
   };
+  saveRuntimeState('runtime_footer', runtimeFooter);
   res.json({ success: true, runtimeFooter });
 });
 
@@ -862,6 +929,7 @@ app.post('/api/cockpit/providers/select', (req, res) => {
   const model = String(req.body?.model || runtimeSelection.model);
   const provider: RuntimeProvider = isRuntimeProvider(requestedProvider) ? requestedProvider : 'codex-cli';
   runtimeSelection = { provider, model };
+  saveRuntimeState('runtime_selection', runtimeSelection);
 
   const raw = settingsStore.get('executor');
   const executor = (raw && typeof raw === 'object' ? raw : {}) as Record<string, any>;
@@ -894,6 +962,7 @@ app.post('/api/cockpit/settings/:section', (req, res) => {
     const runtimeFromSettings = getRuntimeSelectionFromExecutorSettings();
     if (runtimeFromSettings) {
       runtimeSelection = runtimeFromSettings;
+      saveRuntimeState('runtime_selection', runtimeSelection);
     }
     if (settings && typeof settings === 'object') {
       syncExecutorSettingsToRuntimeConfig(settings as Record<string, any>);
