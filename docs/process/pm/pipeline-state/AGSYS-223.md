@@ -1,0 +1,18 @@
+# Pipeline State: AGSYS-223
+- Pipeline: refactor
+- Mode: full
+- Current Stage: reviewer-handoff
+- Completed Stages: pm-entry, requirements-pack, assumptions-review, git-preflight, implementation-delta, postflight-smoke
+- Next Stage: code-review
+- Current Owner: Сокіл-Координатор (PM Orchestrator)
+- Next Owner: Вартовий Якості (Code Reviewer)
+- Ticket: AGSYS-223
+- Thread: cockpit-runtime-thread
+- Last Updated: 2026-03-28T00:22:13+01:00
+- Blocking Gates: none
+- Evidence Links: docs/process/tickets/AGSYS-223-requirements-pack.md; docs/process/tickets/AGSYS-223-assumptions-review.md; docs/process/tests/AGSYS-223.md
+- Plane Status: In Progress
+- Branch: codex/AGSYS-223-run-bootstrap-closure
+- Worktree: /Users/myasnikoviv/development/agent-system
+- Preflight Token: docs/process/git/preflights/AGSYS-223.env
+- Acceptance Lock: YES
