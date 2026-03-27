@@ -13,3 +13,4 @@ dist
 dist
 *.log
 .agent-system/
+docs/process/runs/ledger/
