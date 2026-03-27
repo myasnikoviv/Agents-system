@@ -155,6 +155,20 @@ function parseExplicitDirectives(message: string): Partial<ClassificationResult>
 function fastClassify(message: string): ClassificationResult | null {
   const text = message.trim().toLowerCase();
 
+  // Operational workspace requests should go through the execution pipeline,
+  // not the lightweight conversational responder.
+  if (/\b(підрахуй|порахуй|count|list|find|show|перевір)\b/.test(text) &&
+      /\b(файл|files?|директор|directory|корен|root|worktree|branch)\b/.test(text)) {
+    return {
+      intent: 'research',
+      pipeline: 'unified-task-intake',
+      customAgents: [],
+      confidence: 0.9,
+      reason: 'Operational workspace command detected',
+      isExplicit: false,
+    };
+  }
+
   // Very short messages → always conversational
   if (text.length < 30) {
     return {
@@ -195,20 +209,6 @@ function fastClassify(message: string): ClassificationResult | null {
       customAgents: [],
       confidence: 0.85,
       reason: 'Question pattern matched',
-      isExplicit: false,
-    };
-  }
-
-  // Operational workspace requests should go through the execution pipeline,
-  // not the lightweight conversational responder.
-  if (/\b(підрахуй|порахуй|count|list|find|show|перевір)\b/.test(text) &&
-      /\b(файл|files?|директор|directory|корен|root|worktree|branch)\b/.test(text)) {
-    return {
-      intent: 'research',
-      pipeline: 'unified-task-intake',
-      customAgents: [],
-      confidence: 0.9,
-      reason: 'Operational workspace command detected',
       isExplicit: false,
     };
   }

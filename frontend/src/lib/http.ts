@@ -8,10 +8,17 @@ const API_FALLBACK_BASE = (
 export const apiUrl = (path: string) => {
   const normalizedPath = path.startsWith('/') ? path : `/${path}`;
   const normalizedBase = API_BASE.endsWith('/') ? API_BASE.slice(0, -1) : API_BASE;
+  const baseEndsWithApi = normalizedBase === '/api' || normalizedBase.endsWith('/api');
 
   // Prevent accidental double prefix such as "/api/api/..."
-  if (normalizedBase === '/api' && normalizedPath.startsWith('/api/')) {
-    return normalizedPath;
+  if (baseEndsWithApi && normalizedPath.startsWith('/api/')) {
+    if (normalizedBase === '/api') return normalizedPath;
+    return `${normalizedBase}${normalizedPath.slice('/api'.length)}`;
+  }
+
+  if (baseEndsWithApi && normalizedPath === '/api') {
+    if (normalizedBase === '/api') return '/api';
+    return normalizedBase;
   }
 
   return `${normalizedBase}${normalizedPath}`;
