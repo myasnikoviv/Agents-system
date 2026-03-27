@@ -22,6 +22,22 @@ export class NativeToolLoopRunner {
 
   constructor(private adapter: ExecutionAdapter) {}
 
+  private summarizeToolContent(content: unknown, fallback: string): string {
+    if (content === null || content === undefined) return fallback;
+    if (typeof content === 'string') {
+      const normalized = content.replace(/\s+/g, ' ').trim();
+      if (!normalized) return fallback;
+      return normalized.length > 260 ? `${normalized.slice(0, 259)}…` : normalized;
+    }
+    try {
+      const json = JSON.stringify(content);
+      if (!json) return fallback;
+      return json.length > 260 ? `${json.slice(0, 259)}…` : json;
+    } catch {
+      return fallback;
+    }
+  }
+
   async run(context: RunContext): Promise<ExecutionResult> {
     let iteration = 0;
     let currentContext = { ...context };
@@ -86,14 +102,14 @@ export class NativeToolLoopRunner {
         tool: name,
         status: 'success',
         content: toolResult,
-        summary: `Successfully called ${name}`
+        summary: this.summarizeToolContent(toolResult, `Successfully called ${name}`)
       };
     } catch (err: any) {
       return {
         tool: name,
         status: 'failed',
         content: null,
-        summary: `Failed to call ${name}`,
+        summary: this.summarizeToolContent(err?.message || '', `Failed to call ${name}`),
         error: err.message
       };
     }

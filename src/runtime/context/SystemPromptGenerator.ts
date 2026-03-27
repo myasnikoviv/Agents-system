@@ -42,8 +42,10 @@ export class SystemPromptGenerator {
       sections.push(`Available Tools:\n${context.tools.map(t => `- ${t.name}: ${t.description}`).join('\n')}`);
     }
 
-    // 6. Output Contract
-    sections.push(`Output Contract:\n- Response Mode: ${context.outputContract.responseMode}\n- Required Sections: ${context.outputContract.requiredSections.join(', ')}`);
+    // 6. Output style contract (avoid forcing rigid headings like summary/findings)
+    sections.push(
+      `Output Contract:\n- Response Mode: ${context.outputContract.responseMode}\n- Style: natural conversational response with actionable detail; do not force fixed section headings unless explicitly requested by the user.`
+    );
 
     // 7. Language policy
     const responseLanguage = languageInstructionTag(context.task.responseLanguage || 'unknown');

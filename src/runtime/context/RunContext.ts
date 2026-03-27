@@ -188,7 +188,7 @@ export class RunContextAssembler {
 
       outputContract: {
         responseMode: 'final',
-        requiredSections: ['summary', 'findings'],
+        requiredSections: [],
         mustWriteArtifactLog: true,
         mustEmitEvent: true
       },

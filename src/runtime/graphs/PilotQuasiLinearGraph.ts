@@ -459,7 +459,13 @@ async function swarmNode(state: PilotState): Promise<Partial<PilotState>> {
     source_stage: nextStage.id,
     status: 'success',
     correlation_id: state.pipeline_run_id || '',
-    payload: { agentId: nextStage.agent, pipelineId, stageId: nextStage.id, outcome: 'success' }
+    payload: {
+      agentId: nextStage.agent,
+      pipelineId,
+      stageId: nextStage.id,
+      outcome: 'success',
+      message: result.content,
+    }
   });
 
   return {
