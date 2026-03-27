@@ -3,6 +3,7 @@ import dotenv from 'dotenv';
 import express from 'express';
 import fs from 'fs';
 import path from 'path';
+import Database from 'better-sqlite3';
 import { v4 as uuidv4 } from 'uuid';
 import { executeQuasiLinearRun } from '../runtime/graphs/PilotQuasiLinearGraph';
 import { fetchRecentEvents } from '../runtime/events/EventBus';
@@ -153,7 +154,35 @@ const PLANE_BASE_URL = (process.env.PLANE_BASE_URL || 'http://127.0.0.1:3000').r
 const PLANE_WORKSPACE = process.env.PLANE_WORKSPACE || 'agent-system';
 const PLANE_API_KEY = process.env.PLANE_API_KEY || process.env.PLANE_API_TOKEN || '';
 const SETTINGS_FILE_PATH = path.resolve(process.cwd(), '.agent-system', 'cockpit-settings.json');
-const RUNTIME_STORE_FILE_PATH = path.resolve(process.cwd(), '.agent-system', 'cockpit-runtime-store.json');
+const RUNTIME_STORE_LEGACY_FILE_PATH = path.resolve(process.cwd(), '.agent-system', 'cockpit-runtime-store.json');
+const RUNTIME_DB_FILE_PATH = path.resolve(process.cwd(), '.agent-system', 'cockpit-runtime.db');
+
+fs.mkdirSync(path.dirname(RUNTIME_DB_FILE_PATH), { recursive: true });
+const runtimeDb = new Database(RUNTIME_DB_FILE_PATH);
+runtimeDb.pragma('journal_mode = WAL');
+runtimeDb.exec(`
+  CREATE TABLE IF NOT EXISTS cockpit_projects (
+    id TEXT PRIMARY KEY,
+    label TEXT NOT NULL,
+    worktree_path TEXT
+  );
+  CREATE TABLE IF NOT EXISTS cockpit_threads (
+    id TEXT PRIMARY KEY,
+    project_id TEXT NOT NULL,
+    label TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_cockpit_threads_project ON cockpit_threads(project_id);
+  CREATE TABLE IF NOT EXISTS cockpit_messages (
+    id TEXT PRIMARY KEY,
+    thread_id TEXT NOT NULL,
+    role TEXT NOT NULL,
+    content TEXT NOT NULL,
+    timestamp TEXT NOT NULL,
+    sort_order INTEGER NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_cockpit_messages_thread_order ON cockpit_messages(thread_id, sort_order);
+`);
 
 const toPlaneIdentifier = (value: string): string =>
   value
@@ -197,27 +226,43 @@ const restoreSettingsStore = () => {
 
 const persistRuntimeStore = () => {
   try {
-    const projects = Array.from(projectStore.values());
-    const threadsByProject = Array.from(threadStore.entries()).reduce<Record<string, Array<{ id: string; label: string; updatedAt: string }>>>(
-      (acc, [key, value]) => {
-        acc[key] = value;
-        return acc;
-      },
-      {},
-    );
-    const messagesByThread = Array.from(threadMessageStore.entries()).reduce<Record<string, PersistedChatMessage[]>>(
-      (acc, [key, value]) => {
-        acc[key] = value;
-        return acc;
-      },
-      {},
-    );
-    fs.mkdirSync(path.dirname(RUNTIME_STORE_FILE_PATH), { recursive: true });
-    fs.writeFileSync(
-      RUNTIME_STORE_FILE_PATH,
-      JSON.stringify({ projects, threadsByProject, messagesByThread }, null, 2),
-      'utf-8',
-    );
+    const tx = runtimeDb.transaction(() => {
+      runtimeDb.prepare('DELETE FROM cockpit_projects').run();
+      runtimeDb.prepare('DELETE FROM cockpit_threads').run();
+      runtimeDb.prepare('DELETE FROM cockpit_messages').run();
+
+      const insertProject = runtimeDb.prepare(
+        'INSERT INTO cockpit_projects (id, label, worktree_path) VALUES (?, ?, ?)',
+      );
+      const insertThread = runtimeDb.prepare(
+        'INSERT INTO cockpit_threads (id, project_id, label, updated_at) VALUES (?, ?, ?, ?)',
+      );
+      const insertMessage = runtimeDb.prepare(
+        'INSERT INTO cockpit_messages (id, thread_id, role, content, timestamp, sort_order) VALUES (?, ?, ?, ?, ?, ?)',
+      );
+
+      for (const project of projectStore.values()) {
+        insertProject.run(project.id, project.label, project.worktreePath || null);
+      }
+      for (const [projectId, threads] of threadStore.entries()) {
+        for (const thread of threads) {
+          insertThread.run(thread.id, projectId, thread.label, thread.updatedAt);
+        }
+      }
+      for (const [threadId, messages] of threadMessageStore.entries()) {
+        messages.forEach((message, index) => {
+          insertMessage.run(
+            message.id,
+            threadId,
+            message.role,
+            message.content,
+            message.timestamp,
+            index,
+          );
+        });
+      }
+    });
+    tx();
   } catch (error) {
     console.error('[agent-system-backend] failed to persist runtime store:', error);
   }
@@ -225,37 +270,85 @@ const persistRuntimeStore = () => {
 
 const restoreRuntimeStore = () => {
   try {
-    if (!fs.existsSync(RUNTIME_STORE_FILE_PATH)) return;
-    const raw = fs.readFileSync(RUNTIME_STORE_FILE_PATH, 'utf-8');
-    if (!raw.trim()) return;
-    const parsed = JSON.parse(raw) as {
-      projects?: Array<{ id: string; label: string; worktreePath?: string }>;
-      threadsByProject?: Record<string, Array<{ id: string; label: string; updatedAt: string }>>;
-      messagesByThread?: Record<string, PersistedChatMessage[]>;
-    };
-    (parsed.projects || []).forEach((project) => {
-      if (!project?.id) return;
+    projectStore.clear();
+    threadStore.clear();
+    threadMessageStore.clear();
+
+    const projects = runtimeDb.prepare(
+      'SELECT id, label, worktree_path FROM cockpit_projects ORDER BY id',
+    ).all() as Array<{ id: string; label: string; worktree_path: string | null }>;
+    const threads = runtimeDb.prepare(
+      'SELECT id, project_id, label, updated_at FROM cockpit_threads ORDER BY updated_at DESC',
+    ).all() as Array<{ id: string; project_id: string; label: string; updated_at: string }>;
+    const messages = runtimeDb.prepare(
+      'SELECT id, thread_id, role, content, timestamp FROM cockpit_messages ORDER BY thread_id, sort_order ASC',
+    ).all() as Array<{ id: string; thread_id: string; role: 'user' | 'agent'; content: string; timestamp: string }>;
+
+    for (const project of projects) {
       projectStore.set(project.id, {
         id: project.id,
         label: project.label || project.id,
-        ...(project.worktreePath ? { worktreePath: project.worktreePath } : {}),
+        ...(project.worktree_path ? { worktreePath: project.worktree_path } : {}),
       });
-    });
-    Object.entries(parsed.threadsByProject || {}).forEach(([projectId, threads]) => {
-      threadStore.set(projectId, Array.isArray(threads) ? threads : []);
-    });
-    Object.entries(parsed.messagesByThread || {}).forEach(([threadId, messages]) => {
-      threadMessageStore.set(
-        threadId,
-        (Array.isArray(messages) ? messages : []).filter(
-          (message) =>
-            Boolean(message?.id) &&
-            (message?.role === 'user' || message?.role === 'agent') &&
-            typeof message?.content === 'string' &&
-            typeof message?.timestamp === 'string',
-        ),
-      );
-    });
+    }
+    for (const thread of threads) {
+      const existing = threadStore.get(thread.project_id) || [];
+      existing.push({
+        id: thread.id,
+        label: thread.label,
+        updatedAt: thread.updated_at,
+      });
+      threadStore.set(thread.project_id, existing);
+    }
+    for (const message of messages) {
+      const existing = threadMessageStore.get(message.thread_id) || [];
+      existing.push({
+        id: message.id,
+        role: message.role,
+        content: message.content,
+        timestamp: message.timestamp,
+      });
+      threadMessageStore.set(message.thread_id, existing);
+    }
+
+    // One-time migration from legacy JSON store if DB is still empty.
+    if (
+      projectStore.size === 0 &&
+      fs.existsSync(RUNTIME_STORE_LEGACY_FILE_PATH)
+    ) {
+      const raw = fs.readFileSync(RUNTIME_STORE_LEGACY_FILE_PATH, 'utf-8');
+      if (raw.trim()) {
+        const parsed = JSON.parse(raw) as {
+          projects?: Array<{ id: string; label: string; worktreePath?: string }>;
+          threadsByProject?: Record<string, Array<{ id: string; label: string; updatedAt: string }>>;
+          messagesByThread?: Record<string, PersistedChatMessage[]>;
+        };
+        (parsed.projects || []).forEach((project) => {
+          if (!project?.id) return;
+          projectStore.set(project.id, {
+            id: project.id,
+            label: project.label || project.id,
+            ...(project.worktreePath ? { worktreePath: project.worktreePath } : {}),
+          });
+        });
+        Object.entries(parsed.threadsByProject || {}).forEach(([projectId, projectThreads]) => {
+          threadStore.set(projectId, Array.isArray(projectThreads) ? projectThreads : []);
+        });
+        Object.entries(parsed.messagesByThread || {}).forEach(([threadId, threadMessages]) => {
+          threadMessageStore.set(
+            threadId,
+            (Array.isArray(threadMessages) ? threadMessages : []).filter(
+              (message) =>
+                Boolean(message?.id) &&
+                (message?.role === 'user' || message?.role === 'agent') &&
+                typeof message?.content === 'string' &&
+                typeof message?.timestamp === 'string',
+            ),
+          );
+        });
+        persistRuntimeStore();
+      }
+    }
   } catch (error) {
     console.error('[agent-system-backend] failed to restore runtime store:', error);
   }
