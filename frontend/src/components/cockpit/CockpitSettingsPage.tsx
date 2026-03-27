@@ -175,6 +175,12 @@ interface ExecutorSettings {
   };
 }
 
+interface DirectProviderSettings {
+  provider: 'openai' | 'anthropic' | 'google';
+  model: string;
+  apiKey: string;
+}
+
 
 interface CliStatus {
   codex?: { loggedIn: boolean };
@@ -215,6 +221,7 @@ const SETTINGS_KEYS = {
   worktrees: 'cockpit.settings.worktrees.v1',
   archivedThreads: 'cockpit.settings.archived-threads.v1',
   executor: 'cockpit.settings.executor.v1',
+  directProvider: 'cockpit.settings.direct-provider.v1',
 } as const;
 const RUNTIME_MODE_KEY = 'cockpit.runtime.mode.v1';
 
@@ -243,7 +250,17 @@ export function CockpitSettingsPage() {
 
   const [cliHealthMessage, setCliHealthMessage] = useState('CLI provider status not checked.');
   const [codexApiKeyForLogin, setCodexApiKeyForLogin] = useState('');
-  const [runtimeCapabilities, setRuntimeCapabilities] = useState<{ effectiveMode: 'cli' | 'direct'; implicitCodexApiKey?: string }>({ effectiveMode: 'direct' });
+  const [runtimeCapabilities, setRuntimeCapabilities] = useState<{
+    effectiveMode: 'cli' | 'direct';
+    implicitCodexApiKey?: string;
+    selectedBackend?: ExecutorSettings['backend'];
+    supportsDirectProviderConfig?: boolean;
+  }>({ effectiveMode: 'cli' });
+  const [directProviderSettings, setDirectProviderSettings] = useState<DirectProviderSettings>({
+    provider: 'openai',
+    model: 'gpt-4.1',
+    apiKey: '',
+  });
 
   const [generalSavedAt, setGeneralSavedAt] = useState('Unsaved');
   const [appearanceSavedAt, setAppearanceSavedAt] = useState('Unsaved');
@@ -322,6 +339,7 @@ export function CockpitSettingsPage() {
     codex: { bin: 'codex', model: 'auto', sandbox: 'workspace-write' },
     openhands: { serverUrl: 'http://localhost:8000', model: 'anthropic/claude-3-5-sonnet', apiKeys: { anthropic: '', openai: '', google: '' } },
   });
+  const [directProviderSavedAt, setDirectProviderSavedAt] = useState('Unsaved');
 
   const providerModelPresets: Record<'claude-cli' | 'codex-cli' | 'openhands-sdk', string[]> = {
     'claude-cli': [
@@ -381,6 +399,7 @@ export function CockpitSettingsPage() {
     const rawWorktrees = localStorage.getItem(SETTINGS_KEYS.worktrees);
     const rawArchived = localStorage.getItem(SETTINGS_KEYS.archivedThreads);
     const rawExecutor = localStorage.getItem(SETTINGS_KEYS.executor);
+    const rawDirectProvider = localStorage.getItem(SETTINGS_KEYS.directProvider);
 
     if (rawGeneral) {
       try {
@@ -450,6 +469,14 @@ export function CockpitSettingsPage() {
       try {
         setExecutorSettings((prev) => ({ ...prev, ...JSON.parse(rawExecutor) }));
         setExecutorSavedAt('Saved');
+      } catch {
+        // use default
+      }
+    }
+    if (rawDirectProvider) {
+      try {
+        setDirectProviderSettings((prev) => ({ ...prev, ...JSON.parse(rawDirectProvider) }));
+        setDirectProviderSavedAt('Saved');
       } catch {
         // use default
       }
@@ -630,7 +657,7 @@ export function CockpitSettingsPage() {
         const res = await fetch(apiUrl('/api/cockpit/providers'));
         const data = await res.json();
         if (data.success && data.capabilities) {
-          setRuntimeCapabilities(data.capabilities);
+          setRuntimeCapabilities((prev) => ({ ...prev, ...data.capabilities }));
         }
       } catch {
         console.error('Failed to load runtime capabilities');
@@ -638,6 +665,9 @@ export function CockpitSettingsPage() {
     };
     void loadCapabilities();
   }, []);
+
+  const isCliEffectiveMode = runtimeCapabilities.effectiveMode !== 'direct';
+  const activeBackend = runtimeCapabilities.selectedBackend || executorSettings.backend;
 
   const runHealth = async () => {
     try {
@@ -722,6 +752,11 @@ export function CockpitSettingsPage() {
       localStorage.setItem(SETTINGS_KEYS.executor, JSON.stringify(executorSettings));
       setExecutorSavedAt(`Saved locally at ${new Date().toLocaleTimeString()}`);
     }
+  };
+
+  const saveDirectProviderSettings = () => {
+    localStorage.setItem(SETTINGS_KEYS.directProvider, JSON.stringify(directProviderSettings));
+    setDirectProviderSavedAt(`Saved locally at ${new Date().toLocaleTimeString()}`);
   };
 
   const checkOpenHandsHealth = async () => {
@@ -1305,82 +1340,61 @@ export function CockpitSettingsPage() {
 
         {currentSection === 'configuration' && (
           <section className={settingsCardClass}>
-            <h2><ShieldCheck size={16} />Provider & Executor Configuration</h2>
-            <p className={settingsNoteClass}>Primary configuration for intelligence backend and CLI execution engine.</p>
-            
-            <h3>Executor Backend</h3>
-            <p className={settingsNoteClass}>Select primary execution model. (Direct API vs Native CLI).</p>
-            <div className={settingsGridClass}>
-              <label>Execution Target<select value={executorSettings.backend} onChange={(e) => setExecutorSettings((prev) => ({ ...prev, backend: e.target.value as ExecutorSettings['backend'] }))}><option value="claude-cli">Claude Code CLI</option><option value="codex-cli">Codex CLI</option><option value="openhands-sdk">OpenHands SDK (Sidecar Server)</option></select></label>
-            </div>
-            <div className="mt-3 flex flex-wrap gap-2">
-              <Button variant="secondary" onClick={saveExecutorSettings}>Save Execution Target</Button>
-            </div>
-            <div className={settingsMetaClass}>{executorSavedAt}</div>
+            <h2><ShieldCheck size={16} />Execution Configuration</h2>
+            <p className={settingsNoteClass}>
+              Active effective mode: <strong>{runtimeCapabilities.effectiveMode}</strong>. This screen shows one primary flow per mode.
+            </p>
 
-            <hr />
+            {isCliEffectiveMode ? (
+              <>
+                <h3>Executor Backend</h3>
+                <p className={settingsNoteClass}>Select runtime executor and configure only its relevant controls.</p>
+                <div className={settingsGridClass}>
+                  <label>Execution Target<select value={executorSettings.backend} onChange={(e) => setExecutorSettings((prev) => ({ ...prev, backend: e.target.value as ExecutorSettings['backend'] }))}><option value="claude-cli">Claude Code CLI</option><option value="codex-cli">Codex CLI</option><option value="openhands-sdk">OpenHands SDK (Sidecar Server)</option></select></label>
+                </div>
 
-                <h3>CLI Agent Configuration</h3>
-                <p className={settingsNoteClass}>Configure paths and models for {executorSettings.backend}.</p>
+                <h3 className="mt-4">Executor Configuration</h3>
+                <p className={settingsNoteClass}>Configure binary/server and model for <strong>{activeBackend}</strong>.</p>
                 <div className={settingsGridClass}>
                   {executorSettings.backend === 'claude-cli' && (
                     <>
                       <label>Claude Binary<input value={executorSettings.claude.bin} onChange={(e) => setExecutorSettings((prev) => ({ ...prev, claude: { ...prev.claude, bin: e.target.value } }))} placeholder="/opt/homebrew/bin/claude" /></label>
-                      <label>Claude Model<select value={executorSettings.claude.model} onChange={(e) => setExecutorSettings((prev) => ({ ...prev, claude: { ...prev.claude, model: e.target.value } }))}>{providerModelPresets['claude-cli'].map(m => <option key={m} value={m}>{m}</option>)}</select></label>
+                      <label>Claude Model<select value={executorSettings.claude.model} onChange={(e) => setExecutorSettings((prev) => ({ ...prev, claude: { ...prev.claude, model: e.target.value } }))}>{providerModelPresets['claude-cli'].map((m) => <option key={m} value={m}>{m}</option>)}</select></label>
                     </>
                   )}
                   {executorSettings.backend === 'codex-cli' && (
                     <>
                       <label>Codex Binary<input value={executorSettings.codex.bin} onChange={(e) => setExecutorSettings((prev) => ({ ...prev, codex: { ...prev.codex, bin: e.target.value } }))} placeholder="/Applications/Codex.app/.../codex" /></label>
-                      <label>Codex Model<select value={executorSettings.codex.model} onChange={(e) => setExecutorSettings((prev) => ({ ...prev, codex: { ...prev.codex, model: e.target.value } }))}>{providerModelPresets['codex-cli'].map(m => <option key={m} value={m}>{m}</option>)}</select></label>
+                      <label>Codex Model<select value={executorSettings.codex.model} onChange={(e) => setExecutorSettings((prev) => ({ ...prev, codex: { ...prev.codex, model: e.target.value } }))}>{providerModelPresets['codex-cli'].map((m) => <option key={m} value={m}>{m}</option>)}</select></label>
                       <label>Codex Sandbox<select value={executorSettings.codex.sandbox} onChange={(e) => setExecutorSettings((prev) => ({ ...prev, codex: { ...prev.codex, sandbox: e.target.value as ExecutorSettings['codex']['sandbox'] } }))}><option value="read-only">read-only</option><option value="workspace-write">workspace-write</option><option value="danger-full-access">danger-full-access</option></select></label>
                     </>
                   )}
                   {executorSettings.backend === 'openhands-sdk' && (
                     <>
                       <label>Server URL<input value={executorSettings.openhands.serverUrl} onChange={(e) => setExecutorSettings((prev) => ({ ...prev, openhands: { ...prev.openhands, serverUrl: e.target.value } }))} placeholder="http://localhost:8000" /></label>
-                      <label>OpenHands Model<select value={executorSettings.openhands.model} onChange={(e) => setExecutorSettings((prev) => ({ ...prev, openhands: { ...prev.openhands, model: e.target.value } }))}>{providerModelPresets['openhands-sdk'].map(m => <option key={m} value={m}>{m}</option>)}</select></label>
-                      <ApiKeyInput 
-                        label="Anthropic API Key"
-                        value={executorSettings.openhands.apiKeys?.anthropic || ''} 
-                        onChange={(val) => setExecutorSettings((prev) => ({ ...prev, openhands: { ...prev.openhands, apiKeys: { ...(prev.openhands.apiKeys || {}), anthropic: val } } }))} 
-                        placeholder="sk-ant-..." 
-                      />
-                      <ApiKeyInput 
-                        label="OpenAI API Key"
-                        value={executorSettings.openhands.apiKeys?.openai || ''} 
-                        onChange={(val) => setExecutorSettings((prev) => ({ ...prev, openhands: { ...prev.openhands, apiKeys: { ...(prev.openhands.apiKeys || {}), openai: val } } }))} 
-                        placeholder="sk-..." 
-                      />
-                      <ApiKeyInput 
-                        label="Google API Key"
-                        value={executorSettings.openhands.apiKeys?.google || ''} 
-                        onChange={(val) => setExecutorSettings((prev) => ({ ...prev, openhands: { ...prev.openhands, apiKeys: { ...(prev.openhands.apiKeys || {}), google: val } } }))} 
-                        placeholder="AIza..." 
-                      />
+                      <label>OpenHands Model<select value={executorSettings.openhands.model} onChange={(e) => setExecutorSettings((prev) => ({ ...prev, openhands: { ...prev.openhands, model: e.target.value } }))}>{providerModelPresets['openhands-sdk'].map((m) => <option key={m} value={m}>{m}</option>)}</select></label>
+                      <ApiKeyInput label="Anthropic API Key" value={executorSettings.openhands.apiKeys?.anthropic || ''} onChange={(val) => setExecutorSettings((prev) => ({ ...prev, openhands: { ...prev.openhands, apiKeys: { ...(prev.openhands.apiKeys || {}), anthropic: val } } }))} placeholder="sk-ant-..." />
+                      <ApiKeyInput label="OpenAI API Key" value={executorSettings.openhands.apiKeys?.openai || ''} onChange={(val) => setExecutorSettings((prev) => ({ ...prev, openhands: { ...prev.openhands, apiKeys: { ...(prev.openhands.apiKeys || {}), openai: val } } }))} placeholder="sk-..." />
+                      <ApiKeyInput label="Google API Key" value={executorSettings.openhands.apiKeys?.google || ''} onChange={(val) => setExecutorSettings((prev) => ({ ...prev, openhands: { ...prev.openhands, apiKeys: { ...(prev.openhands.apiKeys || {}), google: val } } }))} placeholder="AIza..." />
                     </>
                   )}
                 </div>
                 <div className="mt-3 flex flex-wrap gap-2">
-                  <Button variant="secondary" onClick={saveExecutorSettings}>Save CLI Config</Button>
+                  <Button variant="secondary" onClick={saveExecutorSettings}>Save Executor Settings</Button>
                 </div>
+                <div className={settingsMetaClass}>{executorSavedAt}</div>
 
                 <hr />
-                <h3>Guided CLI Authentication & Health</h3>
-                <p className={settingsNoteClass}>Verify CLI availability, auth, and test prompt execution.</p>
+                <h3>Guided Authentication & Health</h3>
+                <p className={settingsNoteClass}>Use these actions to validate auth and runtime readiness.</p>
                 <div className="mt-3 flex flex-wrap gap-2">
                   <Button variant="secondary" onClick={refreshCliStatus}>Refresh CLI Status</Button>
                   {executorSettings.backend === 'claude-cli' && <Button variant="secondary" onClick={() => testCliProvider('claude-cli')}>Test Claude CLI</Button>}
                   {executorSettings.backend === 'codex-cli' && <Button variant="secondary" onClick={() => testCliProvider('codex-cli')}>Test Codex CLI</Button>}
-                  {(executorSettings.backend === 'openhands-sdk') && (
+                  {executorSettings.backend === 'openhands-sdk' && (
                     <>
                       <Button variant="secondary" onClick={checkOpenHandsHealth}>Check Server Health</Button>
-                      <Button
-                        variant="primary"
-                        className={isTestingLlm ? 'loading' : ''}
-                        disabled={isTestingLlm}
-                        onClick={testLlmConfig}
-                      >
+                      <Button variant="primary" className={isTestingLlm ? 'loading' : ''} disabled={isTestingLlm} onClick={testLlmConfig}>
                         {isTestingLlm ? <Loader2 size={16} className="animate-spin" /> : <Server size={16} />}
                         Test End-to-End LLM
                       </Button>
@@ -1388,18 +1402,36 @@ export function CockpitSettingsPage() {
                   )}
                 </div>
 
-                {llmTestResult && (
-                  <div
-                    className={`mt-4 rounded-lg border border-slate-700 bg-slate-900 p-3 ${
-                      llmTestResult.success ? 'border-l-4 border-l-emerald-500' : 'border-l-4 border-l-red-500'
-                    }`}
-                  >
-                    <div className="mb-2 flex items-center gap-2 font-semibold">
-                      {llmTestResult.success ? (
-                        <CheckCircle size={18} color="#10b981" />
-                      ) : (
-                        <AlertTriangle size={18} color="#ef4444" />
+                {executorSettings.backend === 'claude-cli' && (
+                  <div className="mt-3 rounded-md border border-slate-700 bg-slate-950 p-3 text-xs text-slate-300">
+                    <strong>Claude login flow:</strong>
+                    <ol className="mt-2 list-decimal space-y-1 pl-4">
+                      <li>Open terminal in project.</li>
+                      <li>Run <code>claude setup-token</code> (or <code>claude /login</code>).</li>
+                      <li>Return here and click <strong>Test Claude CLI</strong>.</li>
+                    </ol>
+                  </div>
+                )}
+
+                <div className={`${settingsGridClass} mt-3`}>
+                  {executorSettings.backend === 'codex-cli' && (
+                    <>
+                      {runtimeCapabilities.implicitCodexApiKey && (
+                        <div className={`${settingsMetaClass} col-span-full mb-2 rounded border border-amber-800 bg-amber-950/40 p-2`}>
+                          <span className="font-semibold text-amber-300">Environment Key Bound:</span> Codex currently uses API key from environment (<code>{runtimeCapabilities.implicitCodexApiKey}</code>).
+                        </div>
                       )}
+                      <label>Codex API Key (for <code>codex login --with-api-key</code>)<input type="password" value={codexApiKeyForLogin} onChange={(e) => setCodexApiKeyForLogin(e.target.value)} placeholder="sk-..." /></label>
+                      <label>Codex Login Action<Button variant="secondary" onClick={loginCodexWithApiKey}>Login Codex via API Key</Button></label>
+                    </>
+                  )}
+                </div>
+                <div className={settingsMetaClass}>{cliHealthMessage}</div>
+
+                {llmTestResult && (
+                  <div className={`mt-4 rounded-lg border border-slate-700 bg-slate-900 p-3 ${llmTestResult.success ? 'border-l-4 border-l-emerald-500' : 'border-l-4 border-l-red-500'}`}>
+                    <div className="mb-2 flex items-center gap-2 font-semibold">
+                      {llmTestResult.success ? <CheckCircle size={18} color="#10b981" /> : <AlertTriangle size={18} color="#ef4444" />}
                       <span>Result: {llmTestResult.status === 'ok' ? 'Success' : `Failed (${llmTestResult.status})`}</span>
                       <span className="ml-auto text-xs opacity-60">{llmTestResult.latencyMs}ms</span>
                     </div>
@@ -1411,22 +1443,46 @@ export function CockpitSettingsPage() {
                     )}
                   </div>
                 )}
-                <div className={`${settingsGridClass} mt-3`}>
-                  {executorSettings.backend === 'codex-cli' && (
-                    <>
-                      {runtimeCapabilities.implicitCodexApiKey && (
-                        <div className={`${settingsMetaClass} col-span-full mb-2 rounded border border-amber-800 bg-amber-950/40 p-2`}>
-                          <span className="font-semibold text-amber-300">Environment Key Bound:</span> Codex is currently using API Key implicitly inherited from your shell environment variables (<code>{runtimeCapabilities.implicitCodexApiKey}</code>).
-                          To override it, you can execute a new login below.
-                        </div>
-                      )}
-                      <label>Codex API Key (for `codex login --with-api-key`)<input type="password" value={codexApiKeyForLogin} onChange={(e) => setCodexApiKeyForLogin(e.target.value)} placeholder="sk-..." /></label>
-                      <label>Codex Login Action<Button variant="secondary" onClick={loginCodexWithApiKey}>Login Codex via API Key</Button></label>
-                    </>
-                  )}
+              </>
+            ) : (
+              <>
+                <h3>Direct Provider Configuration</h3>
+                <p className={settingsNoteClass}>Direct mode uses provider/API key/model flow (no CLI executor controls).</p>
+                <div className={settingsGridClass}>
+                  <label>
+                    Provider
+                    <select
+                      value={directProviderSettings.provider}
+                      onChange={(e) => setDirectProviderSettings((prev) => ({ ...prev, provider: e.target.value as DirectProviderSettings['provider'] }))}
+                    >
+                      <option value="openai">OpenAI</option>
+                      <option value="anthropic">Anthropic</option>
+                      <option value="google">Google</option>
+                    </select>
+                  </label>
+                  <label>
+                    Model
+                    <input
+                      value={directProviderSettings.model}
+                      onChange={(e) => setDirectProviderSettings((prev) => ({ ...prev, model: e.target.value }))}
+                      placeholder="gpt-4.1 / claude-sonnet / gemini-2.5-flash"
+                    />
+                  </label>
                 </div>
-                {executorSettings.backend === 'claude-cli' && <div className={settingsMetaClass}>Claude login is interactive: run <code>claude setup-token</code> (or <code>claude /login</code>) in terminal, then click Test Claude CLI.</div>}
-                <div className={settingsMetaClass}>{cliHealthMessage}</div>
+                <div className="mt-3 grid grid-cols-1 gap-2">
+                  <ApiKeyInput
+                    label={`${directProviderSettings.provider.toUpperCase()} API Key`}
+                    value={directProviderSettings.apiKey}
+                    onChange={(val) => setDirectProviderSettings((prev) => ({ ...prev, apiKey: val }))}
+                    placeholder="API key"
+                  />
+                </div>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <Button variant="secondary" onClick={saveDirectProviderSettings}>Save Direct Provider Config</Button>
+                </div>
+                <div className={settingsMetaClass}>{directProviderSavedAt}</div>
+              </>
+            )}
           </section>
         )}
       </main>
