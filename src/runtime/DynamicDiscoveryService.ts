@@ -70,7 +70,12 @@ export class DynamicDiscoveryService {
       const id = path.basename(file, '.md');
 
       const name = (parsed.raw.split('\n')[0] || '').replace('# Pipeline:', '').trim();
-      const stages = this.parsePipelineStages(parsed.sections['Steps'] || '');
+      const stages = this.parsePipelineStages(
+        parsed.sections['Steps'] ||
+        parsed.sections['Full Path'] ||
+        parsed.sections['Lightweight Path'] ||
+        ''
+      );
 
       const profile: PipelineDefinition = {
         id,
@@ -144,7 +149,42 @@ export class DynamicDiscoveryService {
           nextAllowedRoles: [], // Will be handled by PipelineRegistry.getNextStage
           completionCriteria: ''
         });
+        continue;
       }
+
+      // Matches "1. Intake (PM)" or "2. Clarification (PM + Architect)"
+      const parenMatch = line.match(/^(\d+(\.\d+)*)\.\s+(.+?)\s+\((.+)\)\s*$/);
+      if (parenMatch && parenMatch[1] && parenMatch[3] && parenMatch[4]) {
+        const stepId = parenMatch[1].trim();
+        const stepTitle = parenMatch[3].trim();
+        const roleRaw = parenMatch[4].split('+')[0]?.split('/')[0]?.split(',')[0]?.trim() || 'PM';
+        stages.push({
+          id: stepId,
+          name: `${stepTitle} Stage`,
+          title: `${stepTitle} Stage`,
+          role: roleRaw,
+          agent: this.normalizeRoleToSlug(roleRaw),
+          description: stepTitle,
+          instructions: stepTitle,
+          nextAllowedRoles: [],
+          completionCriteria: ''
+        });
+      }
+    }
+
+    // Safety net: if parsed pipeline is still empty, start with PM to avoid wrong entry role.
+    if (stages.length === 0) {
+      stages.push({
+        id: '1',
+        name: 'Intake Stage',
+        title: 'Intake Stage',
+        role: 'PM Orchestrator',
+        agent: 'pm-orchestrator',
+        description: 'Fallback intake stage',
+        instructions: 'Fallback intake stage',
+        nextAllowedRoles: [],
+        completionCriteria: ''
+      });
     }
     return stages;
   }

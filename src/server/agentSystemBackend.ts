@@ -6,6 +6,7 @@ import path from 'path';
 import Database from 'better-sqlite3';
 import { v4 as uuidv4 } from 'uuid';
 import { executeQuasiLinearRun } from '../runtime/graphs/PilotQuasiLinearGraph';
+import { detectLanguage } from '../runtime/LanguageDetection';
 import { fetchRecentEvents } from '../runtime/events/EventBus';
 import { updateCockpitExecutorConfig, getCockpitExecutorConfig } from '../runtime/CockpitExecutorConfig';
 import { DynamicDiscoveryService, AgentRegistry, PipelineRegistry, SkillRegistry } from '../runtime/DynamicDiscoveryService';
@@ -979,6 +980,7 @@ app.post('/api/chat', async (req, res) => {
   const runId = uuidv4();
   const executionMode = String(req.body?.executionMode || 'multiple_agents').trim();
   const mode = executionMode === 'linear' || executionMode === 'mock' ? executionMode : 'multiple_agents';
+  const detectedLanguage = detectLanguage(message);
 
   if (!message) {
     res.status(400).json({ success: false, error: 'message_required' });
@@ -1013,11 +1015,19 @@ app.post('/api/chat', async (req, res) => {
     const lastNonFinalizeArtifact = [...artifactLogs]
       .reverse()
       .find((entry) => !String(entry).includes('[stage:finalize]'));
+    const localizedRunCompleted =
+      detectedLanguage === 'uk'
+        ? 'Виконання завершено.'
+        : detectedLanguage === 'ru'
+          ? 'Выполнение завершено.'
+          : detectedLanguage === 'be'
+            ? 'Выкананне завершана.'
+            : 'Run completed.';
     const finalMessage =
       (assistantMessage && assistantMessage.trim()) ||
       parseArtifactMessage(lastNonFinalizeArtifact) ||
       parseArtifactMessage(artifactLogs[artifactLogs.length - 1]) ||
-      'Run completed.';
+      localizedRunCompleted;
     ensureThreadInProject(projectId, threadId);
     appendThreadMessage(threadId, 'agent', finalMessage);
 

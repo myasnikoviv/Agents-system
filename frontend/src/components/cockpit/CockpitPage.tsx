@@ -30,6 +30,7 @@ interface RuntimeEvent {
         stageId?: string;
         nextStageId?: string;
         outcome?: string;
+        tool?: string;
     };
 }
 
@@ -177,6 +178,7 @@ export function CockpitPage() {
     const [isRecording, setIsRecording] = useState(false);
     const [eventsByThread, setEventsByThread] = useState<Record<string, RuntimeEvent[]>>({});
     const [isProcessing, setIsProcessing] = useState(false);
+    const [isAwaitingAgentReply, setIsAwaitingAgentReply] = useState(false);
     const [ghostText, setGhostText] = useState('');
     const [voiceLang, setVoiceLang] = useState<'auto' | 'uk' | 'en'>('auto');
     const [currentThreadId, setCurrentThreadId] = useState<string | null>(null);
@@ -269,6 +271,12 @@ export function CockpitPage() {
     const mediaRecorderRef = useRef<MediaRecorder | null>(null);
     const audioChunksRef = useRef<Blob[]>([]);
     const recognitionRef = useRef<SpeechRecognitionInstance | null>(null);
+    const seenChatEventIdsRef = useRef<Set<string>>(new Set());
+    const activeThreadKeyRef = useRef(activeThreadKey);
+
+    useEffect(() => {
+        activeThreadKeyRef.current = activeThreadKey;
+    }, [activeThreadKey]);
 
     useEffect(() => {
         scrollRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -342,6 +350,52 @@ export function CockpitPage() {
                     ...prev,
                     [threadKey]: [...(prev[threadKey] || []), event].slice(-120),
                 }));
+
+                const eventId = String(event.event_id || '').trim();
+                const shouldPropagateToChat =
+                    !!threadKey &&
+                    threadKey !== '__global__' &&
+                    !!eventId &&
+                    !seenChatEventIdsRef.current.has(eventId);
+
+                if (shouldPropagateToChat) {
+                    seenChatEventIdsRef.current.add(eventId);
+                    if (seenChatEventIdsRef.current.size > 500) {
+                        const first = seenChatEventIdsRef.current.values().next().value as string | undefined;
+                        if (first) seenChatEventIdsRef.current.delete(first);
+                    }
+
+                    const eventType = String(event.event_type || '').trim();
+                    const roleLabel = String(event.agent_role || 'system').trim();
+                    const stageLabel = String(event.source_stage || '').trim();
+                    const statusLabel = String(event.status || '').trim();
+
+                    let text: string | null = null;
+                    if (eventType === 'stage.started') {
+                        text = `Swarm: stage ${stageLabel || 'n/a'} started (${roleLabel}).`;
+                    } else if (eventType === 'swarm_stage_completed') {
+                        text = `Swarm: stage ${stageLabel || 'n/a'} completed (${roleLabel}).`;
+                    } else if (eventType === 'tool.called') {
+                        const tool = String(event.payload?.tool || 'tool').trim();
+                        text = `Swarm: tool executed (${tool}) by ${roleLabel}.`;
+                    } else if (eventType === 'run.completed') {
+                        text = `Swarm: run completed (${statusLabel || 'success'}).`;
+                        if (threadKey === activeThreadKeyRef.current) {
+                            setIsAwaitingAgentReply(false);
+                            setIsProcessing(false);
+                            setStatus('completed');
+                        }
+                    }
+
+                    if (text) {
+                        appendMessageToThread(threadKey, {
+                            id: `evt-${eventId}`,
+                            role: 'agent',
+                            content: text,
+                            timestamp: new Date(event.timestamp || Date.now()),
+                        });
+                    }
+                }
 
             } catch (err) {
                 console.error('SSE Error parsing data:', err);
@@ -535,6 +589,12 @@ export function CockpitPage() {
         const hasTokens = promptTokens.length > 0;
         if ((!hasText && !hasTokens) || isProcessing) return;
         
+        const threadIdToUse = String(selectedThread || '').trim() || `thread_${Date.now()}`;
+        if (!selectedThread) {
+            setSelectedThread(threadIdToUse);
+            setCurrentThreadId(threadIdToUse);
+        }
+
         const tokenPayload = promptTokens.map((t) => `${t.kind}:${t.value}`).join('\n');
         const selectedScopeKeys = workScope.items
             .filter((it) => selectedScopeItemIds.includes(it.id))
@@ -548,7 +608,7 @@ export function CockpitPage() {
         setPromptTokens([]);
         setUploadedAttachments([]);
         
-        appendMessageToThread(selectedThread, {
+        appendMessageToThread(threadIdToUse, {
             id: Date.now().toString(),
             role: 'user',
             content: userMsg,
@@ -556,6 +616,7 @@ export function CockpitPage() {
         });
 
         setIsProcessing(true);
+        setIsAwaitingAgentReply(true);
 
         try {
             const res = await fetch(apiUrl('/api/chat'), {
@@ -565,7 +626,7 @@ export function CockpitPage() {
                     message: userMsg,
                     executionMode: mode,
                     projectId: selectedProject,
-                    threadId: selectedThread,
+                    threadId: threadIdToUse,
                     attachments: uploadedAttachments,
                 }),
             });
@@ -585,7 +646,7 @@ export function CockpitPage() {
 
                 // 1. If we have a direct message (conversational response), show it first
                 if (data.message) {
-                    appendMessageToThread(responseThreadId || selectedThread, {
+                    appendMessageToThread(responseThreadId || threadIdToUse, {
                         id: Date.now().toString(),
                         role: 'agent',
                         content: data.message,
@@ -594,7 +655,7 @@ export function CockpitPage() {
                 } 
                 // 2. For legacy direct/linear modes, display logs
                 else if (Array.isArray(data.logs) && data.logs.length > 0 && (data.status === 'completed' || data.observability?.pipeline === 'openhands-direct' || mode !== 'multiple_agents')) {
-                    appendMessagesToThread(responseThreadId || selectedThread, data.logs.map((log: string, i: number) => ({
+                    appendMessagesToThread(responseThreadId || threadIdToUse, data.logs.map((log: string, i: number) => ({
                         id: `${Date.now()}-${i}`,
                         role: 'agent',
                         content: log,
@@ -605,7 +666,7 @@ export function CockpitPage() {
                 else {
                     const runId = typeof data.runId === 'string' ? data.runId : '';
                     const runIdShort = runId ? runId.slice(0, 8) : 'n/a';
-                    appendMessageToThread(responseThreadId || selectedThread, {
+                    appendMessageToThread(responseThreadId || threadIdToUse, {
                         id: Date.now().toString(),
                         role: 'agent',
                         content: `Task dispatched to Swarm (Run ID: ${runIdShort}). See event feed for updates.`,
@@ -615,7 +676,14 @@ export function CockpitPage() {
             }
         } catch (error) {
             console.error('Chat error:', error);
+            appendMessageToThread(threadIdToUse, {
+                id: `chat-error-${Date.now()}`,
+                role: 'agent',
+                content: 'Request failed. Please retry in a few seconds.',
+                timestamp: new Date()
+            });
         } finally {
+            setIsAwaitingAgentReply(false);
             setIsProcessing(false);
         }
     };
@@ -1146,6 +1214,23 @@ export function CockpitPage() {
                                 </div>
                             </div>
                         ))}
+
+                        {isAwaitingAgentReply && (
+                            <div className="chat-bubble agent border-dashed border-slate-500/70 bg-slate-900/60">
+                                <div className="chat-meta">
+                                    <span>Agent</span>
+                                    <span>now</span>
+                                </div>
+                                <div className="inline-flex items-center gap-2 text-slate-300" aria-live="polite" aria-label="Agent is generating response">
+                                    <span className="text-[0.82rem]">Agent is thinking</span>
+                                    <span className="inline-flex items-center gap-1">
+                                        <span className="h-1.5 w-1.5 rounded-full bg-slate-300/60 animate-pulse" />
+                                        <span className="h-1.5 w-1.5 rounded-full bg-slate-300/60 animate-pulse" style={{ animationDelay: '120ms' }} />
+                                        <span className="h-1.5 w-1.5 rounded-full bg-slate-300/60 animate-pulse" style={{ animationDelay: '240ms' }} />
+                                    </span>
+                                </div>
+                            </div>
+                        )}
                         
                         {status === 'awaiting_approval' && (
                             <div className="approval-card">

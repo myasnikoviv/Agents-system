@@ -1,6 +1,7 @@
 import { AgentProfile, PipelineDefinition, PipelineStage } from '../DynamicDiscoveryService';
 import { ToolDiscoveryService } from '../ToolDiscoveryService';
 import { BlackboardService } from '../BlackboardService';
+import { DetectedLanguage } from '../LanguageDetection';
 
 export type ResponseMode = 'handoff' | 'final' | 'clarify' | 'tool_call';
 
@@ -43,6 +44,7 @@ export interface RunContext {
     rawUserInput: string;
     normalizedGoal: string;
     taskType: string;
+    responseLanguage?: DetectedLanguage;
     acceptanceCriteria?: string[];
   };
 
@@ -118,6 +120,7 @@ export class RunContextAssembler {
     stageId: string,
     taskDescription: string,
     memory: any = {},
+    runtimeHints?: { preferredLanguage?: DetectedLanguage },
     projectContext?: { projectId: string, workspacePath: string }
   ): Promise<RunContext> {
     const stageIndex = pipeline.stages.findIndex(s => s.id === stageId);
@@ -140,6 +143,7 @@ export class RunContextAssembler {
         rawUserInput: taskDescription,
         normalizedGoal: taskDescription, // TODO: LLM normalization
         taskType: pipeline.slug,
+        responseLanguage: runtimeHints?.preferredLanguage || 'unknown',
         acceptanceCriteria: []
       },
 

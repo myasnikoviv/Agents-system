@@ -1,6 +1,6 @@
 import * as path from 'path';
 import { StateGraph, START, END, MemorySaver, Annotation } from '@langchain/langgraph';
-import { resolveExplicitDirectives } from '../IntakeClassifier';
+import { classifyRequest } from '../IntakeClassifier';
 import { DynamicDiscoveryService } from '../DynamicDiscoveryService';
 import { AgentRegistry } from '../registries/AgentRegistry';
 import { PipelineRegistry } from '../registries/PipelineRegistry';
@@ -11,6 +11,7 @@ import { BlackboardService } from '../BlackboardService';
 import { resolveInterruptBeforeNodes } from '../ApprovalPolicyEngine';
 import { loadConfig } from '../CockpitExecutorConfig';
 import { ReclassificationCheckpoint } from '../context/ReclassificationCheckpoint';
+import { detectLanguage, type DetectedLanguage } from '../LanguageDetection';
 
 
 // The officially supported way to type State in LangGraph TS
@@ -64,6 +65,10 @@ export const PilotStateAnnotation = Annotation.Root({
     reducer: (x: string, y: string) => y ?? x,
     default: () => process.cwd(),
   }),
+  preferredLanguage: Annotation<DetectedLanguage>({
+    reducer: (_: DetectedLanguage, y: DetectedLanguage) => y,
+    default: () => 'unknown',
+  }),
 });
 
 export type PilotState = typeof PilotStateAnnotation.State;
@@ -109,6 +114,99 @@ function skillTelemetryContext(state: PilotState, stage: string) {
   };
 }
 
+function compactText(value: string, max = 220): string {
+  const normalized = String(value || '').replace(/\s+/g, ' ').trim();
+  if (normalized.length <= max) return normalized;
+  return `${normalized.slice(0, max - 1)}…`;
+}
+
+function extractRetrySeconds(text: string): string | null {
+  const retryInMatch = text.match(/retry in\s+([\d.]+)s/i);
+  if (retryInMatch?.[1]) return String(Math.ceil(Number(retryInMatch[1])));
+  const retryDelayMatch = text.match(/"retryDelay"\s*:\s*"(\d+)s"/i);
+  if (retryDelayMatch?.[1]) return retryDelayMatch[1];
+  return null;
+}
+
+function summarizeExecutionError(language: DetectedLanguage, rawError: string): string {
+  const text = String(rawError || '').trim();
+  const lower = text.toLowerCase();
+  const retrySec = extractRetrySeconds(text);
+
+  const quotaError =
+    lower.includes('resource_exhausted') ||
+    lower.includes('quota exceeded') ||
+    lower.includes('too many requests') ||
+    lower.includes(' 429');
+
+  if (quotaError) {
+    if (language === 'uk') {
+      return retrySec
+        ? `OpenHands/Gemini тимчасово недоступний через ліміт запитів. Спробуйте повторити приблизно через ${retrySec} с.`
+        : 'OpenHands/Gemini тимчасово недоступний через ліміт запитів. Спробуйте повторити трохи пізніше.';
+    }
+    if (language === 'ru') {
+      return retrySec
+        ? `OpenHands/Gemini временно недоступен из-за лимита запросов. Повторите примерно через ${retrySec} с.`
+        : 'OpenHands/Gemini временно недоступен из-за лимита запросов. Повторите немного позже.';
+    }
+    if (language === 'be') {
+      return retrySec
+        ? `OpenHands/Gemini часова недаступны праз ліміт запытаў. Паўтарыце прыкладна праз ${retrySec} с.`
+        : 'OpenHands/Gemini часова недаступны праз ліміт запытаў. Паўтарыце крыху пазней.';
+    }
+    return retrySec
+      ? `OpenHands/Gemini is temporarily rate-limited. Please retry in about ${retrySec}s.`
+      : 'OpenHands/Gemini is temporarily rate-limited. Please retry shortly.';
+  }
+
+  if (lower.includes('timed out') || lower.includes('timeout')) {
+    if (language === 'uk') return 'OpenHands не встиг завершити запит вчасно (timeout). Спробуйте ще раз.';
+    if (language === 'ru') return 'OpenHands не успел завершить запрос вовремя (timeout). Попробуйте снова.';
+    if (language === 'be') return 'OpenHands не паспеў завяршыць запыт своечасова (timeout). Паспрабуйце яшчэ раз.';
+    return 'OpenHands timed out while processing the request. Please retry.';
+  }
+
+  const cleaned = compactText(
+    text
+      .replace(/\[Sidecar Error\]\s*/gi, '')
+      .replace(/OpenHands reported execution status=error\s*\|\s*details=/gi, '')
+      .replace(/Execution failed:\s*/gi, '')
+  );
+
+  if (language === 'uk') return `OpenHands повернув помилку: ${cleaned}`;
+  if (language === 'ru') return `OpenHands вернул ошибку: ${cleaned}`;
+  if (language === 'be') return `OpenHands вярнуў памылку: ${cleaned}`;
+  return `OpenHands returned an error: ${cleaned}`;
+}
+
+function localizeSystemMessage(
+  language: DetectedLanguage,
+  kind: 'stageFailed' | 'runCompleted',
+  details?: { stageId?: string; error?: string }
+): string {
+  if (kind === 'runCompleted') {
+    if (language === 'uk') return 'Виконання завершено.';
+    if (language === 'ru') return 'Выполнение завершено.';
+    if (language === 'be') return 'Выкананне завершана.';
+    return 'Run completed.';
+  }
+
+  const stageId = details?.stageId || 'unknown';
+  const rawError = details?.error || 'Unknown execution error';
+  const humanized = summarizeExecutionError(language, rawError);
+  if (language === 'uk') {
+    return `[System] Етап ${stageId} завершився помилкою; продовжую пайплайн із fallback. ${humanized}`;
+  }
+  if (language === 'ru') {
+    return `[System] Этап ${stageId} завершился с ошибкой; продолжаю пайплайн с fallback. ${humanized}`;
+  }
+  if (language === 'be') {
+    return `[System] Этап ${stageId} завяршыўся з памылкай; працягваю пайплайн з fallback. ${humanized}`;
+  }
+  return `[System] Stage ${stageId} failed; continuing pipeline with fallback. ${humanized}`;
+}
+
 /**
  * DEPRECATED: Hardcoded nodes have been replaced by swarmNode.
  */
@@ -127,46 +225,54 @@ async function routerNode(state: PilotState): Promise<Partial<PilotState>> {
   const lastUserMessage = [...(state.messages || [])].filter((m) => m.role === 'user').pop();
   const userMessage =
     (lastUserMessage?.content || state.artifactLogs[0] || '').replace(/^User Message:\s*/i, '');
-  const explicit = resolveExplicitDirectives(userMessage);
+  const preferredLanguage = detectLanguage(userMessage);
 
-  if (explicit) {
+  try {
+    const classified = await classifyRequest(userMessage);
+    const pipeline = String(classified.pipeline || '').trim() || 'unified-task-intake';
+    const intent = String(classified.intent || '').trim() || 'unknown';
+    const isExplicit = Boolean(classified.isExplicit);
+
     console.log(
-      `[PilotGraph:Router] Explicit directive -> intent=${explicit.intent} pipeline=${explicit.pipeline}`
+      `[PilotGraph:Router] Dynamic routing -> intent=${intent} pipeline=${pipeline} explicit=${isExplicit} confidence=${classified.confidence}`
     );
+
     return {
-      intent: explicit.intent,
-      selected_pipeline: explicit.pipeline,
-      customAgents: explicit.customAgents,
-      status: `routed:explicit:${explicit.intent}`,
+      intent,
+      selected_pipeline: pipeline,
+      customAgents: Array.isArray(classified.customAgents) ? classified.customAgents : [],
+      preferredLanguage,
+      status: `routed:${isExplicit ? 'explicit' : 'dynamic'}:${intent}`,
       artifactLogs: [
         buildArtifactLog({
           stage: 'router',
           role: 'Router',
           status: 'completed',
           source: 'llm',
-          message: `[Router] Explicit directive accepted. Pipeline: ${explicit.pipeline}. Reason: ${explicit.reason}`,
+          message: `[Router] Dynamic route selected. Pipeline: ${pipeline}. Reason: ${classified.reason}`,
+        }),
+      ],
+    };
+  } catch (error: any) {
+    console.warn('[PilotGraph:Router] classifyRequest failed, fallback to intake:', error?.message || error);
+    return {
+      intent: 'unknown',
+      selected_pipeline: 'unified-task-intake',
+      customAgents: [],
+      preferredLanguage,
+      status: 'routed:fallback:intake',
+      artifactLogs: [
+        buildArtifactLog({
+          stage: 'router',
+          role: 'Router',
+          status: 'fallback',
+          source: 'fallback',
+          fallbackCategory: 'classification_error',
+          message: '[Router] Classification failed; fallback to unified-task-intake.',
         }),
       ],
     };
   }
-
-  console.log('[PilotGraph:Router] Default routing -> unified-task-intake');
-  return {
-    intent: 'task',
-    selected_pipeline: 'unified-task-intake',
-    customAgents: [],
-    status: 'routed:default-intake',
-    artifactLogs: [
-      buildArtifactLog({
-        stage: 'router',
-        role: 'Router',
-        status: 'completed',
-        source: 'llm',
-        message:
-          '[Router] Default route to unified-task-intake. PM orchestrator decides whether to answer directly or execute.',
-      }),
-    ],
-  };
 }
 
 /**
@@ -179,7 +285,10 @@ async function swarmNode(state: PilotState): Promise<Partial<PilotState>> {
   const pipelineId = state.selected_pipeline || 'unified-task-intake';
   let pipelineDef = PipelineRegistry.getPipeline(pipelineId);
   if (!pipelineDef || !Array.isArray(pipelineDef.stages) || pipelineDef.stages.length === 0) {
-    const fallbackAgent = AgentRegistry.getAllAgents()[0]?.slug || 'system-core';
+    const fallbackAgent =
+      AgentRegistry.getAgent('pm-orchestrator')?.slug ||
+      AgentRegistry.getAllAgents()[0]?.slug ||
+      'system-core';
     pipelineDef = {
       id: pipelineId,
       slug: pipelineId,
@@ -205,7 +314,36 @@ async function swarmNode(state: PilotState): Promise<Partial<PilotState>> {
   }
   
   const currentStage = state.status.replace(/_completed$/, '');
-  const nextStage = PipelineRegistry.getNextStage(pipelineId, currentStage);
+  const hasCompletedRealStage = /_completed$/.test(String(state.status || ''));
+  const needsPmEntry = !hasCompletedRealStage && currentStage !== 'pm-entry';
+
+  const pmAgentProfile =
+    AgentRegistry.getAgent('pm-orchestrator') ||
+    AgentRegistry.getAllAgents()[0];
+
+  const nextStage = needsPmEntry
+    ? {
+        id: 'pm-entry',
+        name: 'PM Entry Stage',
+        title: 'PM Entry Stage',
+        role: 'pm-orchestrator',
+        agent: pmAgentProfile?.slug || 'pm-orchestrator',
+        description: 'Mandatory PM-first entry gate before pipeline execution.',
+        instructions: 'PM-first entry gate',
+        nextAllowedRoles: [],
+        completionCriteria: '',
+      }
+    : PipelineRegistry.getNextStage(pipelineId, currentStage);
+
+  const executionPipelineDef = needsPmEntry
+    ? {
+        ...pipelineDef,
+        id: `${pipelineDef.id}::pm-entry`,
+        slug: `${pipelineDef.slug}::pm-entry`,
+        title: `${pipelineDef.title} (PM Entry)`,
+        stages: [nextStage as any],
+      }
+    : pipelineDef;
 
   if (!nextStage) {
     console.log(`[PilotGraph:Swarm] No more stages in pipeline ${pipelineId}.`);
@@ -255,10 +393,11 @@ async function swarmNode(state: PilotState): Promise<Partial<PilotState>> {
 
   const runContext = await RunContextAssembler.assemble(
     agent,
-    pipelineDef,
+    executionPipelineDef as any,
     nextStage.id,
     state.artifactLogs[0] || 'Execute project task',
     { history },
+    { preferredLanguage: state.preferredLanguage },
     { projectId: state.projectId, workspacePath: state.workspacePath }
   );
 
@@ -273,7 +412,10 @@ async function swarmNode(state: PilotState): Promise<Partial<PilotState>> {
       status: `${nextStage.id}_completed`,
       messages: [{
         role: 'assistant',
-        content: `[${runContext.agent.title}] Stage ${nextStage.id} failed; continuing pipeline with fallback. Error: ${errMsg}`,
+        content: localizeSystemMessage(state.preferredLanguage, 'stageFailed', {
+          stageId: nextStage.id,
+          error: errMsg,
+        }),
       }],
       artifactLogs: [
         buildArtifactLog({
@@ -339,6 +481,7 @@ async function swarmNode(state: PilotState): Promise<Partial<PilotState>> {
  * Conditional edge for the swarm loop.
  */
 function routeSwarm(state: PilotState): string {
+  if (state.status === 'pm-entry_completed') return 'finalize';
   if (state.status === 'pipeline_completed') return 'finalize';
   return 'swarm';
 }
@@ -351,8 +494,10 @@ async function finalizeNode(state: PilotState): Promise<Partial<PilotState>> {
     
     await emitSwarmEvent('run.completed', {
         runId: state.pipeline_run_id || '',
+        threadId: state.thread_id || '',
         agent: { slug: 'system' },
-        pipeline: { id: state.selected_pipeline || 'runtime', currentStageId: 'finalize' }
+        pipeline: { id: state.selected_pipeline || 'runtime', currentStageId: 'finalize' },
+        activeTicketId: state.plane_issue_id || '',
     } as any, { status: 'completed' });
 
     return {
@@ -363,7 +508,7 @@ async function finalizeNode(state: PilotState): Promise<Partial<PilotState>> {
                 role: 'System',
                 status: 'completed',
                 source: 'llm',
-                message: 'All pipeline stages finished. Execution successful.',
+                message: localizeSystemMessage(state.preferredLanguage, 'runCompleted'),
             }),
         ],
     };
