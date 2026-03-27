@@ -26,7 +26,7 @@ The command prints one report with:
 
 ## Required PM Behavior
 1. Before any continuation action, PM runs progress router.
-2. PM must paste router summary into [object Object] handoff comment or run report.
+2. PM must paste router summary into Plane handoff comment or run report.
 3. PM must update the same state card after each stage transition.
 4. If state card is missing or invalid, execution is blocked until reconstructed.
 

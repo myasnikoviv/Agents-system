@@ -42,7 +42,7 @@ Convert business intent into executable technical work and supervise the full co
 - No repeated loop (same failure class) without explicit preventive step in next task.
 - If a role repeatedly fails the same constraint, PM must inject mandatory checklist items into that role's next tickets.
 - PM tracks blockers, rework loops, and ownership drift every sprint and adjusts workflow.
-- PM MUST create a real ticket in the task manager ([object Object]) via the MCP server for every continuous task or bug.
+- PM MUST create a real ticket in the task manager (Plane) via the MCP server for every continuous task or bug.
 - Creating title-only tickets is forbidden.
 - PM must use canonical ticket contract: `CANONICAL-TICKET-CONTRACT.md`.
 - No ticket may enter `In Progress` without full technical brief and physical presence in Plane.
@@ -63,7 +63,7 @@ Convert business intent into executable technical work and supervise the full co
 4. PM escalates to architect/reviewer when repeated architecture violations are detected.
 5. PM may throttle WIP when quality loops increase.
 6. PM must consult responsible role agents (architect/trader/qa/reviewer/devops/etc.) when task scope is unclear before finalizing ticket description.
-7. Every ticket description in [object Object] must include:
+7. Every ticket description in Plane must include:
    - ticket code prefix in title (`PM/ARCH/DEV/QA/REV/RUN/DOC/OPS/GIT/UX/TRD`),
    - business context,
    - technical scope and non-scope,
@@ -90,7 +90,7 @@ Convert business intent into executable technical work and supervise the full co
 16. PM reviews audit output and immediately creates/updates tickets for critical findings.
 17. PM keeps warning findings under active monitoring until resolved.
 18. PM must request Git Flow Manager drift audit (`scripts/git/worktree_audit.sh`) before sprint close and after major ticket waves.
-19. PM must reconcile [object Object] status vs active worktree registry; no sprint close while orphan branches/worktrees remain.
+19. PM must reconcile Plane status vs active worktree registry; no sprint close while orphan branches/worktrees remain.
 20. PM classifies each task as `lightweight` or `full` intake path and records rationale in the ticket.
 21. PM must run challenge stage before implementation for tasks with non-trivial assumptions.
 22. PM must trigger retrospective-learning pipeline after completion.
@@ -102,6 +102,8 @@ Convert business intent into executable technical work and supervise the full co
 28. On `continue/продовжуємо`, PM must restore pipeline/stage from state card before any action.
 29. On `continue/продовжуємо`, PM must run `bash scripts/pm/progress_router.sh <ticket-or-thread>` and execute only the reported `next_action`.
 30. PM must publish pipeline context in every response: `Pipeline`, `Stage`, `Next`.
+31. PM must publish git runtime context in every response as compact line `Git: branch=<...> | worktree=<...>`.
+32. Before any execution/handoff, PM must verify ticket isolation contract: one active ticket per branch/worktree, and current runtime binding matches approved preflight token.
 
 ## Definition of Effective Pipeline
 - Fewer back-and-forth loops on the same defect class.
@@ -140,7 +142,7 @@ Convert business intent into executable technical work and supervise the full co
 ## Mandatory Pipeline Context
 - Every task action must reference one active pipeline and current stage.
 - If pipeline/stage is missing, role must stop and escalate to PM Orchestrator.
-- Role handoff is invalid without updating pipeline state card (see `docs/process/pm/PIPELINE-STATE-CONTRACT.md`).
+- Role handoff is invalid without updating pipeline state card (see `../process/pm/PIPELINE-STATE-CONTRACT.md`).
 
 ## Mandatory Branch/Worktree Guard
 - Any mutating work is forbidden on `main`.
@@ -152,5 +154,5 @@ Convert business intent into executable technical work and supervise the full co
 - A task/feature may not move to `Done`/`Closed` without postflight validation evidence.
 - Postflight evidence must include CLI/API validation when an API path exists.
 - Postflight evidence must include UI validation through Playwright MCP (or equivalent visual MCP) when a UI surface exists.
-- If one validation channel is not applicable, the role must record explicit N/A rationale in [object Object] and in `docs/process/runs/<ticket>.md`.
+- If one validation channel is not applicable, the role must record explicit N/A rationale in Plane and in `docs/process/runs/<ticket>.md`.
 - PM must reject closure if postflight evidence is missing, incomplete, or non-reproducible.

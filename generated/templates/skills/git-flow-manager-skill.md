@@ -9,7 +9,7 @@ Ensure safe branch, commit, and merge lifecycle.
 3. Structure commits by logical unit.
 4. Merge with traceable message and release tag when needed.
 5. Run worktree/branch drift audit (`scripts/git/worktree_audit.sh`) and report mismatches to PM.
-6. Run `scripts/git/worktree_cleanup_sweep.sh` to reconcile [object Object] status and prune resources.
+6. Run `scripts/git/worktree_cleanup_sweep.sh` to reconcile Plane status and prune resources.
 7. Run `scripts/git/closure_orchestrator.sh <ticket>` (`MODE=dry-run|apply`) for preflight-to-cleanup closure flow.
 8. For sprint closure, run integration closure flow:
    - create `codex/<sprint-id>-integration` branch/worktree,

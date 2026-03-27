@@ -1,7 +1,7 @@
-# [object Object] Local Setup (trade_bot)
+# Plane Local Setup (trade_bot)
 
 ## Purpose
-Run [object Object] locally as ticket board for this repository.
+Run Plane locally as ticket board for this repository.
 
 ## Prerequisites
 - Docker Desktop (or Docker Engine + Compose)
@@ -40,7 +40,7 @@ scripts/plane/logs.sh
 ```
 
 ## Notes
-- `up.sh` clones official [object Object] repo into `${PLANE_RUNTIME_DIR}` and runs upstream compose.
+- `up.sh` clones official Plane repo into `${PLANE_RUNTIME_DIR}` and runs upstream compose.
 - If compose file path changes upstream, set `PLANE_COMPOSE_FILE` in `.env`.
 
 ## Troubleshooting

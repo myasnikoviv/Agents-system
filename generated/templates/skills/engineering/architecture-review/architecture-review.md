@@ -44,4 +44,4 @@ Architecture docs, dependency graph, contracts.
 - runtime-inspection
 
 # project_specific_notes
-Cross-check with Redis + LangGraph + [object Object] interaction points before approval.
+Cross-check with Redis + LangGraph + Plane interaction points before approval.

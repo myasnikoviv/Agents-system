@@ -35,7 +35,7 @@ Resolve execution blockers autonomously before involving the user, while preserv
 - Required before escalation: three distinct attempts + evidence + current best workaround recommendation.
 
 ## Evidence Requirements
-- [object Object] comments on blocker ticket for each attempt.
+- Plane comments on blocker ticket for each attempt.
 - Blocker report file: `docs/process/blockers/<id>.md`.
 - Pipeline state update with blocker context and owner handoff.
 
