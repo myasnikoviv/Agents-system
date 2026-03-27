@@ -31,6 +31,8 @@ interface RuntimeEvent {
         nextStageId?: string;
         outcome?: string;
         tool?: string;
+        summary?: string;
+        message?: string;
     };
 }
 
@@ -261,6 +263,31 @@ export function CockpitPage() {
         appendMessagesToThread(threadId, [next]);
     };
 
+    const appendAgentMessageIfChanged = (threadId: string | undefined, content: string, timestamp?: Date) => {
+        const text = String(content || '').trim();
+        if (!text) return;
+        const key = threadId && threadId.trim().length > 0 ? threadId : activeThreadKeyRef.current;
+        setMessagesByThread((prev) => {
+            const existing = prev[key] || [];
+            const last = existing[existing.length - 1];
+            if (last && last.role === 'agent' && String(last.content || '').trim() === text) {
+                return prev;
+            }
+            return {
+                ...prev,
+                [key]: [
+                    ...existing,
+                    {
+                        id: `agent-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+                        role: 'agent' as const,
+                        content: text,
+                        timestamp: timestamp || new Date(),
+                    },
+                ],
+            };
+        });
+    };
+
     // Auto-scroll refs
     const scrollRef = useRef<HTMLDivElement>(null);
     const feedEndRef = useRef<HTMLDivElement>(null);
@@ -359,41 +386,31 @@ export function CockpitPage() {
                     !seenChatEventIdsRef.current.has(eventId);
 
                 if (shouldPropagateToChat) {
-                    seenChatEventIdsRef.current.add(eventId);
-                    if (seenChatEventIdsRef.current.size > 500) {
-                        const first = seenChatEventIdsRef.current.values().next().value as string | undefined;
-                        if (first) seenChatEventIdsRef.current.delete(first);
-                    }
-
                     const eventType = String(event.event_type || '').trim();
                     const roleLabel = String(event.agent_role || 'system').trim();
-                    const stageLabel = String(event.source_stage || '').trim();
-                    const statusLabel = String(event.status || '').trim();
 
-                    let text: string | null = null;
-                    if (eventType === 'stage.started') {
-                        text = `Swarm: stage ${stageLabel || 'n/a'} started (${roleLabel}).`;
-                    } else if (eventType === 'swarm_stage_completed') {
-                        text = `Swarm: stage ${stageLabel || 'n/a'} completed (${roleLabel}).`;
+                    let chatText: string | null = null;
+                    if (eventType === 'swarm_stage_completed') {
+                        const stageMessage = String(event.payload?.message || '').trim();
+                        if (stageMessage) {
+                            chatText = stageMessage;
+                        }
                     } else if (eventType === 'tool.called') {
                         const tool = String(event.payload?.tool || 'tool').trim();
-                        text = `Swarm: tool executed (${tool}) by ${roleLabel}.`;
-                    } else if (eventType === 'run.completed') {
-                        text = `Swarm: run completed (${statusLabel || 'success'}).`;
-                        if (threadKey === activeThreadKeyRef.current) {
-                            setIsAwaitingAgentReply(false);
-                            setIsProcessing(false);
-                            setStatus('completed');
-                        }
+                        const summary = String(event.payload?.summary || '').trim();
+                        const toolBody = summary || 'Tool executed.';
+                        chatText = `**${roleLabel}** used \`${tool}\`\n\n${toolBody}`;
+                    } else if (eventType === 'run.completed' && threadKey === activeThreadKeyRef.current) {
+                        setStatus('completed');
                     }
 
-                    if (text) {
-                        appendMessageToThread(threadKey, {
-                            id: `evt-${eventId}`,
-                            role: 'agent',
-                            content: text,
-                            timestamp: new Date(event.timestamp || Date.now()),
-                        });
+                    if (chatText) {
+                        seenChatEventIdsRef.current.add(eventId);
+                        if (seenChatEventIdsRef.current.size > 500) {
+                            const first = seenChatEventIdsRef.current.values().next().value as string | undefined;
+                            if (first) seenChatEventIdsRef.current.delete(first);
+                        }
+                        appendAgentMessageIfChanged(threadKey, chatText, new Date(event.timestamp || Date.now()));
                     }
                 }
 
@@ -646,12 +663,7 @@ export function CockpitPage() {
 
                 // 1. If we have a direct message (conversational response), show it first
                 if (data.message) {
-                    appendMessageToThread(responseThreadId || threadIdToUse, {
-                        id: Date.now().toString(),
-                        role: 'agent',
-                        content: data.message,
-                        timestamp: new Date()
-                    });
+                    appendAgentMessageIfChanged(responseThreadId || threadIdToUse, data.message, new Date());
                 } 
                 // 2. For legacy direct/linear modes, display logs
                 else if (Array.isArray(data.logs) && data.logs.length > 0 && (data.status === 'completed' || data.observability?.pipeline === 'openhands-direct' || mode !== 'multiple_agents')) {
