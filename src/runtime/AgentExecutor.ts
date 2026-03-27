@@ -14,9 +14,34 @@ import { NativeToolLoopRunner } from './NativeToolLoopRunner';
 export class AgentExecutor {
   constructor() {}
 
+  private resolveBackendFromContext(
+    context: RunContext,
+    fallback: 'claude-cli' | 'codex-cli' | 'openhands-sdk',
+  ): 'claude-cli' | 'codex-cli' | 'openhands-sdk' {
+    if (context.executionTarget === 'claude-cli') return 'claude-cli';
+    if (context.executionTarget === 'codex-cli') return 'codex-cli';
+    if (context.executionTarget === 'openhands') return 'openhands-sdk';
+    return fallback;
+  }
+
   async run(context: RunContext, providedAdapter?: ExecutionAdapter): Promise<ExecutionResult> {
     const cfg = loadConfig(context.workspacePath);
-    const backend = cfg.backend;
+    const backend = this.resolveBackendFromContext(context, cfg.backend);
+
+    // Keep runtime contract consistent for downstream adapters/telemetry.
+    if (backend === 'claude-cli') {
+      context.executionTarget = 'claude-cli';
+      context.provider = 'claude-cli';
+      context.model = cfg.claude.model;
+    } else if (backend === 'codex-cli') {
+      context.executionTarget = 'codex-cli';
+      context.provider = 'codex-cli';
+      context.model = cfg.codex.model;
+    } else if (backend === 'openhands-sdk') {
+      context.executionTarget = 'openhands';
+      context.provider = 'openhands-sdk';
+      context.model = cfg.openhands.model;
+    }
     
     let adapter: ExecutionAdapter;
     
