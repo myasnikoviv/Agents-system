@@ -97,88 +97,6 @@ function buildArtifactLog(params: {
   return parts.join(' ');
 }
 
-async function safeRunRole(
-  roleSlug: string,
-  prompt: string,
-  fallbackMessage: string,
-  context?: { 
-    runId?: string; 
-    ticketId?: string; 
-    threadId?: string; 
-    pipelineId?: string; 
-    stage?: string;
-    artifactLogs?: string[];
-    selectedPipeline?: string;
-  },
-  history: { role: string, content: string }[] = [],
-): Promise<{ message: string; source: 'llm' | 'fallback'; fallbackCategory?: string }> {
-  try {
-    const executor = new AgentExecutor();
-    const agent =
-      AgentRegistry.getAgent(roleSlug) ||
-      AgentRegistry.getAllAgents()[0] ||
-      {
-        slug: roleSlug,
-        name: roleSlug,
-        title: roleSlug,
-        callsign: roleSlug,
-        mission: 'Execute assigned task.',
-        description: 'Fallback synthesized agent profile.',
-        instructions: '',
-        owns: [],
-        guardrails: [],
-        skills: [],
-        tools: [],
-        fullInstructions: '',
-        sourcePath: 'runtime://fallback-agent',
-      };
-    const pipeline =
-      PipelineRegistry.getPipeline(context?.pipelineId || 'legacy') ||
-      {
-        id: context?.pipelineId || 'legacy',
-        slug: context?.pipelineId || 'legacy',
-        name: context?.pipelineId || 'Legacy',
-        title: context?.pipelineId || 'Legacy',
-        description: 'Fallback synthesized pipeline.',
-        stages: [
-          {
-            id: context?.stage || 'respond',
-            name: 'Respond Stage',
-            title: 'Respond Stage',
-            role: roleSlug,
-            agent: agent.slug,
-            description: 'Fallback stage',
-            instructions: 'Fallback stage',
-            nextAllowedRoles: [],
-            completionCriteria: '',
-          },
-        ],
-        sourcePath: 'runtime://fallback-pipeline',
-      };
-
-    const runContext = await RunContextAssembler.assemble(
-      agent,
-      pipeline,
-      context?.stage || 'legacy',
-      prompt,
-      { history },
-      { projectId: 'agent_system', workspacePath: process.cwd() } // Conversational defaults to cwd for now
-    );
-    const result = await executor.run(runContext);
-    return {
-      message: result.content,
-      source: 'llm',
-    };
-  } catch (e) {
-    console.error(`[safeRunRole] Error executing ${roleSlug}:`, e);
-    return {
-      message: fallbackMessage,
-      source: 'fallback',
-      fallbackCategory: 'execution_error'
-    };
-  }
-}
-
 function skillTelemetryContext(state: PilotState, stage: string) {
   return {
     runId: state.pipeline_run_id,
@@ -409,7 +327,6 @@ async function swarmNode(state: PilotState): Promise<Partial<PilotState>> {
  */
 function routeSwarm(state: PilotState): string {
   if (state.status === 'pipeline_completed') return 'finalize';
-  if (state.status === 'intake_blocked') return 'respond';
   return 'swarm';
 }
 
@@ -440,78 +357,14 @@ async function finalizeNode(state: PilotState): Promise<Partial<PilotState>> {
 }
 
 /**
- * Conditional router function — called after routerNode completes.
- * Returns the name of the next node based on the classified intent.
- *
- * Supports:
- * - 'conversational' → single respond node
- * - 'new-feature' | 'bug-fix' | 'refactor' | 'strategy-tuning' | '*' → full intake pipeline
- * - 'research' → intake → research (partial pipeline)
- * - 'custom' → customStartNode which begins a dynamic agent sequence
+ * Router always enters unified pipeline execution path.
+ * Explicit directives may adjust pipeline id, but still execute via swarm.
  */
 function routeByIntent(state: PilotState): string {
-  if (state.selected_pipeline === 'conversational') return 'respond';
-  if (state.selected_pipeline === 'custom' && state.customAgents.length > 0) return 'custom_router';
+  if (state.selected_pipeline === 'custom' && state.customAgents.length > 0) {
+    return 'custom_router';
+  }
   return 'intake';
-}
-
-/**
- * Conversational response node — PM Orchestrator answers directly.
- */
-async function conversationalNode(state: PilotState): Promise<Partial<PilotState>> {
-  console.log(`[PilotGraph] Conversational mode: answering directly via PM Orchestrator...`);
-  await ensureDiscovery(state.workspacePath);
-  const runId = state.pipeline_run_id || `conv-${Date.now()}`;
-  const convContext = {
-    runId,
-    threadId: state.thread_id || 'none',
-    activeTicketId: state.plane_issue_id || '',
-    agent: { slug: 'pm-orchestrator' },
-    pipeline: { id: 'conversational', currentStageId: 'respond' },
-  } as any;
-  
-  const lastUserMsg = [...(state.messages || [])].filter(m => m.role === 'user').pop();
-  const userMessage = lastUserMsg ? lastUserMsg.content : (state.artifactLogs[0] || '').replace(/User Message: /, '');
-  const history = (state.messages || []).slice(0, -1);
-
-  await emitSwarmEvent('run.started', convContext, { status: 'started' });
-  await emitSwarmEvent('stage.started', convContext, { stage: 'respond' });
-
-  const message = await safeRunRole(
-    'pm-orchestrator',
-    userMessage,
-    `I'm your AI assistant for the trade-bot project. I'm ready to help! What would you like to know?`,
-    {
-      runId,
-      ticketId: state.plane_issue_id,
-      threadId: state.thread_id,
-      pipelineId: 'conversational',
-      stage: 'respond',
-      artifactLogs: state.artifactLogs || [],
-      selectedPipeline: 'conversational',
-    },
-    history
-  );
-
-  await emitSwarmEvent('run.completed', convContext, {
-    status: message.source === 'llm' ? 'completed' : 'fallback',
-    fallbackCategory: message.fallbackCategory,
-  });
-
-  return {
-    status: 'conversational_done',
-    messages: [{ role: 'assistant', content: message.message }],
-    artifactLogs: [
-      buildArtifactLog({
-        stage: 'respond',
-        role: 'PM Orchestrator',
-        status: message.source === 'llm' ? 'completed' : 'fallback',
-        source: message.source,
-        fallbackCategory: message.fallbackCategory,
-        message: 'Answered user request.',
-      }),
-    ],
-  };
 }
 
 // ---------------------------------------------------------
@@ -522,10 +375,8 @@ const checkpointer = new MemorySaver();
 
 
 export const pilotGraph = new StateGraph(PilotStateAnnotation)
-  // Entry: router classifies the intent
+  // Entry: router selects pipeline id (explicit directive or default intake)
   .addNode('router', routerNode)
-  // Conversational: single PM response node
-  .addNode('respond', conversationalNode)
   // Swarm: dynamic pipeline executor
   .addNode('swarm', swarmNode)
   // Finalize: cleanup and documentation
@@ -534,15 +385,11 @@ export const pilotGraph = new StateGraph(PilotStateAnnotation)
   // START → router (always — first node for every request)
   .addEdge(START, 'router')
 
-  // Router → conditional branch based on LLM-classified intent
+  // Router → unified execution path
   .addConditionalEdges('router', routeByIntent, {
-    'respond': 'respond',
     'intake': 'swarm', // Start swarm directly (it will find intake step)
     'custom_router': 'swarm', // For now, we use swarm for everything
   })
-
-  // Conversational → done immediately
-  .addEdge('respond', END)
 
   // Swarm loop
   .addConditionalEdges('swarm', routeSwarm, {
@@ -558,29 +405,12 @@ export const pilotGraph = new StateGraph(PilotStateAnnotation)
   });
 
 /**
- * Main execution entry point — the unified graph with smart routing.
- * Automatically classifies the request via LLM and routes to the correct path.
- *
- * Routing paths:
- * - conversational → PM Orchestrator answers directly (1 node)
- * - new-feature / bug-fix / refactor / strategy-tuning → full 11-stage pipeline
- * - research → partial pipeline (intake → research → END)
- * - custom (agent: X, Y) → selected agent sequence
+ * Main execution entry point — unified graph with single execution path.
+ * Explicit user directives can override pipeline/agents, but the runtime
+ * always executes through the swarm pipeline loop.
  */
 export async function executeQuasiLinearRun(initialState: Partial<PilotState>) {
   const threadConfig = { configurable: { thread_id: initialState.thread_id || 'default' } };
   const finalState = await pilotGraph.invoke(initialState, threadConfig);
   return finalState;
-}
-
-/**
- * Explicit conversational run — forces conversational intent (skips LLM classification).
- * @deprecated Prefer executeQuasiLinearRun — the router handles this automatically.
- */
-export async function executeConversationalRun(initialState: Partial<PilotState>) {
-  return executeQuasiLinearRun({
-    ...initialState,
-    intent: 'conversational',
-    selected_pipeline: 'conversational',
-  });
 }
