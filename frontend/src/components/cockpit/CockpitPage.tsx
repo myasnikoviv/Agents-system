@@ -180,7 +180,7 @@ interface DirectoryPickerWindow extends Window {
     showDirectoryPicker?: () => Promise<DirectoryPickerHandleLike>;
 }
 
-type RuntimeProvider = 'claude-cli' | 'codex-cli' | 'openhands-sdk';
+type RuntimeProvider = string;
 
 const toRenderableMarkdown = (raw: string): string =>
     String(raw || '').replace(
@@ -220,6 +220,15 @@ export function CockpitPage() {
         'openhands-sdk': ['auto'],
     });
     const [providerMessage, setProviderMessage] = useState<string | null>(null);
+    const [runtimeCapabilities, setRuntimeCapabilities] = useState<{
+        effectiveMode: 'cli' | 'direct';
+        selectedBackend: string;
+        supportsDirectProviderConfig: boolean;
+    }>({
+        effectiveMode: 'cli',
+        selectedBackend: 'codex-cli',
+        supportsDirectProviderConfig: false,
+    });
 
     const [runtimePickerOpen, setRuntimePickerOpen] = useState<'provider' | 'model' | 'voice' | 'target' | 'access' | 'branch' | null>(null);
     const [showCatalogPicker, setShowCatalogPicker] = useState(false);
@@ -277,6 +286,8 @@ export function CockpitPage() {
     }, [activeThreadKey, eventsByThread]);
 
     const agentRegistryRef = useRef<AgentRegistryEntry[]>([]);
+    const isCliEffectiveMode = runtimeCapabilities.effectiveMode !== 'direct';
+    const runtimeProviderLabel = isCliEffectiveMode ? 'Executor' : 'Provider';
 
     const resolveAgentSlug = (rawRole: string): string => {
         const probe = String(rawRole || '').trim().toLowerCase();
@@ -643,7 +654,12 @@ export function CockpitPage() {
             const data = await fetchJsonSafe<{
                 success?: boolean;
                 runtimeSelection?: { provider?: RuntimeProvider; model?: string };
-                capabilities?: { providerModels?: Partial<Record<RuntimeProvider, string[]>> };
+                capabilities?: {
+                    providerModels?: Partial<Record<string, string[]>>;
+                    effectiveMode?: 'cli' | 'direct';
+                    selectedBackend?: string;
+                    supportsDirectProviderConfig?: boolean;
+                };
             }>('/api/cockpit/providers');
             if (!data?.success) return;
             const providerModels = data.capabilities?.providerModels;
@@ -656,6 +672,11 @@ export function CockpitPage() {
             }
             if (data.runtimeSelection?.provider) setSelectedProvider(data.runtimeSelection.provider);
             if (data.runtimeSelection?.model) setSelectedModel(data.runtimeSelection.model);
+            setRuntimeCapabilities((prev) => ({
+                effectiveMode: data.capabilities?.effectiveMode || prev.effectiveMode,
+                selectedBackend: data.capabilities?.selectedBackend || data.runtimeSelection?.provider || prev.selectedBackend,
+                supportsDirectProviderConfig: data.capabilities?.supportsDirectProviderConfig ?? prev.supportsDirectProviderConfig,
+            }));
         };
         void loadProviders();
         void loadRuntimeFooter();
@@ -1794,7 +1815,8 @@ export function CockpitPage() {
                                             event.stopPropagation();
                                             setRuntimePickerOpen((prev) => (prev === 'provider' ? null : 'provider'));
                                         }}
-                                        aria-label="Provider"
+                                        aria-label={runtimeProviderLabel}
+                                        title={runtimeProviderLabel}
                                     >
                                         <span>{selectedProvider}</span>
                                         <ChevronDown size={12} />
@@ -1814,7 +1836,7 @@ export function CockpitPage() {
                                                         void applyRuntimeSelection(provider, fallbackModel);
                                                     }}
                                                 >
-                                                    {provider}
+                                                    {isCliEffectiveMode ? provider : `provider:${provider}`}
                                                 </button>
                                             ))}
                                         </div>
@@ -1971,6 +1993,19 @@ export function CockpitPage() {
                                         </button>
                                     </div>
                                 )}
+                            </div>
+                            <div className="runtime-picker">
+                                <div
+                                    className={`runtime-footer-item ${isCliEffectiveMode ? 'runtime-footer-item-accent' : ''}`}
+                                    title={runtimeCapabilities.supportsDirectProviderConfig ? 'Active execution path (direct provider config available)' : 'Active execution path'}
+                                >
+                                    <Cpu size={12} />
+                                    <span>
+                                        {isCliEffectiveMode
+                                            ? `CLI · ${runtimeCapabilities.selectedBackend || selectedProvider}`
+                                            : `Direct API · ${selectedProvider}`}
+                                    </span>
+                                </div>
                             </div>
                             <div className="runtime-picker">
                                 <button

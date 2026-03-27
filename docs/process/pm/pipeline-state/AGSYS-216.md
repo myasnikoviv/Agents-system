@@ -1,0 +1,18 @@
+# Pipeline State: AGSYS-216
+- Pipeline: feature-change
+- Mode: full
+- Current Stage: reviewer-handoff
+- Completed Stages: pm-entry, requirements-pack, assumptions-review, git-preflight, implementation-delta, postflight-smoke
+- Next Stage: code-review
+- Current Owner: Сокіл-Координатор (PM Orchestrator)
+- Next Owner: Вартовий Якості (Code Reviewer)
+- Ticket: AGSYS-216
+- Thread: cockpit-runtime-thread
+- Last Updated: 2026-03-27T21:56:11+01:00
+- Blocking Gates: none
+- Evidence Links: docs/process/tickets/AGSYS-216-requirements-pack.md; docs/process/tickets/AGSYS-216-assumptions-review.md; docs/process/tests/AGSYS-216.md
+- Plane Status: In Progress
+- Branch: codex/AGSYS-216-composer-controls-cleanup
+- Worktree: /Users/myasnikoviv/development/agent-system
+- Preflight Token: docs/process/git/preflights/AGSYS-216.env
+- Acceptance Lock: YES
