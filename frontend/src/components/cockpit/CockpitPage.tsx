@@ -1,5 +1,5 @@
 import React, { useMemo, useState, useEffect, useRef } from 'react';
-import { Mic, Send, Cpu, Activity, LayoutDashboard, Terminal, Settings, PanelLeftClose, PanelLeftOpen, Globe2, ChevronDown, Plus, PencilLine, Folder, FolderPlus, Laptop, ShieldCheck, GitBranch, RefreshCw } from 'lucide-react';
+import { Mic, Send, Cpu, Activity, LayoutDashboard, Terminal, Settings, PanelLeftClose, PanelLeftOpen, Globe2, ChevronDown, Plus, PencilLine, Folder, FolderPlus, Laptop, ShieldCheck, GitBranch, RefreshCw, Trash2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -33,6 +33,7 @@ interface RuntimeEvent {
         tool?: string;
         summary?: string;
         message?: string;
+        errors?: string[];
     };
 }
 
@@ -43,16 +44,6 @@ interface ObservabilityState {
     blockingGates: string;
     approvalRequired: boolean;
     approvalReason: string;
-}
-
-interface ExecutionFeedEntry {
-    raw: string;
-    stage?: string;
-    role?: string;
-    status?: string;
-    source?: string;
-    fallback?: string;
-    message?: string;
 }
 
 interface GitContext {
@@ -83,6 +74,30 @@ interface RailThread {
     id: string;
     label: string;
     updatedAt: string;
+}
+interface PlaneProjectOption {
+    id: string;
+    name: string;
+    identifier: string;
+}
+interface AgentRegistryEntry {
+    slug: string;
+    title: string;
+    callsign: string;
+    sourcePath?: string;
+    available?: boolean;
+}
+type AgentLiveStatus = 'active' | 'standby' | 'unavailable';
+interface AgentRuntimeStatus {
+    slug: string;
+    title: string;
+    callsign: string;
+    status: AgentLiveStatus;
+    currentStage: string;
+    currentTask: string;
+    currentIssue: string;
+    threadId: string;
+    lastUpdated: string;
 }
 interface PersistedThreadMessage {
     id: string;
@@ -156,8 +171,13 @@ interface SpeechRecognitionInstance {
     stop: () => void;
 }
 
+interface DirectoryPickerHandleLike {
+    name?: string;
+    path?: string;
+    fullPath?: string;
+}
 interface DirectoryPickerWindow extends Window {
-    showDirectoryPicker?: () => Promise<{ name?: string }>;
+    showDirectoryPicker?: () => Promise<DirectoryPickerHandleLike>;
 }
 
 type RuntimeProvider = 'claude-cli' | 'codex-cli' | 'openhands-sdk';
@@ -187,9 +207,10 @@ export function CockpitPage() {
     const [currentTicketId, setCurrentTicketId] = useState<string | null>(null);
     const [status, setStatus] = useState<string>('idle');
     const [observability, setObservability] = useState<ObservabilityState | null>(null);
-    const [executionFeed, setExecutionFeed] = useState<ExecutionFeedEntry[]>([]);
     const [gitContext, setGitContext] = useState<GitContext | null>(null);
     const [catalog, setCatalog] = useState<CatalogState>({ agents: [], pipelines: [], skills: [] });
+    const [agentRegistry, setAgentRegistry] = useState<AgentRegistryEntry[]>([]);
+    const [agentRuntime, setAgentRuntime] = useState<Record<string, AgentRuntimeStatus>>({});
 
     const [selectedProvider, setSelectedProvider] = useState<RuntimeProvider>('claude-cli');
     const [selectedModel, setSelectedModel] = useState('auto');
@@ -238,6 +259,11 @@ export function CockpitPage() {
     const [uploadedAttachments, setUploadedAttachments] = useState<UploadedAttachment[]>([]);
     const [isProjectModalOpen, setIsProjectModalOpen] = useState(false);
     const [projectDirectory, setProjectDirectory] = useState('');
+    const [planeProjectOptions, setPlaneProjectOptions] = useState<PlaneProjectOption[]>([]);
+    const [selectedPlaneProjectId, setSelectedPlaneProjectId] = useState('');
+    const [createPlaneProject, setCreatePlaneProject] = useState(false);
+    const [isLoadingPlaneProjects, setIsLoadingPlaneProjects] = useState(false);
+    const [planeProjectsConfigured, setPlaneProjectsConfigured] = useState<boolean | null>(null);
     const [isChainModalOpen, setIsChainModalOpen] = useState(false);
     const [newChainLabel, setNewChainLabel] = useState('');
     const [newChainScope, setNewChainScope] = useState<'current' | 'unbound'>('current');
@@ -249,6 +275,38 @@ export function CockpitPage() {
         }
         return eventsByThread.__global__ || [];
     }, [activeThreadKey, eventsByThread]);
+
+    const agentRegistryRef = useRef<AgentRegistryEntry[]>([]);
+
+    const resolveAgentSlug = (rawRole: string): string => {
+        const probe = String(rawRole || '').trim().toLowerCase();
+        if (!probe) return '';
+        const registry = agentRegistryRef.current;
+        const exact = registry.find((agent) => agent.slug.toLowerCase() === probe);
+        if (exact) return exact.slug;
+        const byTitle = registry.find((agent) => agent.title.toLowerCase() === probe);
+        if (byTitle) return byTitle.slug;
+        const byCallsign = registry.find((agent) => agent.callsign.toLowerCase() === probe);
+        if (byCallsign) return byCallsign.slug;
+        return probe;
+    };
+
+    const agentStatusRows = useMemo<AgentRuntimeStatus[]>(() => {
+        return agentRegistry.map((agent) => {
+            const current = agentRuntime[agent.slug];
+            return {
+                slug: agent.slug,
+                title: agent.title,
+                callsign: agent.callsign,
+                status: agent.available === false ? 'unavailable' : (current?.status || 'standby'),
+                currentStage: current?.currentStage || 'n/a',
+                currentTask: current?.currentTask || 'n/a',
+                currentIssue: current?.currentIssue || 'n/a',
+                threadId: current?.threadId || 'n/a',
+                lastUpdated: current?.lastUpdated || '',
+            };
+        });
+    }, [agentRegistry, agentRuntime]);
 
     const appendMessagesToThread = (threadId: string | undefined, next: ChatMessage[]) => {
         const key = threadId && threadId.trim().length > 0 ? threadId : activeThreadKey;
@@ -304,6 +362,10 @@ export function CockpitPage() {
     useEffect(() => {
         activeThreadKeyRef.current = activeThreadKey;
     }, [activeThreadKey]);
+
+    useEffect(() => {
+        agentRegistryRef.current = agentRegistry;
+    }, [agentRegistry]);
 
     useEffect(() => {
         scrollRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -378,6 +440,52 @@ export function CockpitPage() {
                     [threadKey]: [...(prev[threadKey] || []), event].slice(-120),
                 }));
 
+                const eventType = String(event.event_type || '').trim();
+                const roleLabel = String(event.agent_role || 'system').trim();
+                const resolvedSlug = resolveAgentSlug(roleLabel);
+                if (resolvedSlug && resolvedSlug !== 'system') {
+                    setAgentRuntime((prev) => {
+                        const existing = prev[resolvedSlug] || {
+                            slug: resolvedSlug,
+                            title: resolvedSlug,
+                            callsign: resolvedSlug,
+                            status: 'standby' as AgentLiveStatus,
+                            currentStage: 'n/a',
+                            currentTask: 'n/a',
+                            currentIssue: 'n/a',
+                            threadId: 'n/a',
+                            lastUpdated: '',
+                        };
+                        const rawStatus = String(event.status || '').trim().toLowerCase();
+                        const status: AgentLiveStatus =
+                            rawStatus === 'failed' || eventType === 'stage.failed'
+                                ? 'unavailable'
+                                : eventType === 'stage.started' || eventType === 'tool.called'
+                                    ? 'active'
+                                    : eventType === 'swarm_stage_completed' || eventType === 'run.completed'
+                                        ? 'standby'
+                                        : existing.status;
+                        const currentStage =
+                            String(event.payload?.stageId || event.source_stage || existing.currentStage || 'n/a').trim() || 'n/a';
+                        const currentTask =
+                            String(event.payload?.message || event.payload?.summary || existing.currentTask || 'n/a').trim() || 'n/a';
+                        const currentIssue =
+                            String(event.plane_issue_id || existing.currentIssue || 'n/a').trim() || 'n/a';
+                        return {
+                            ...prev,
+                            [resolvedSlug]: {
+                                ...existing,
+                                status,
+                                currentStage,
+                                currentTask: status === 'standby' ? 'n/a' : currentTask,
+                                currentIssue,
+                                threadId: threadKey,
+                                lastUpdated: event.timestamp || new Date().toISOString(),
+                            },
+                        };
+                    });
+                }
+
                 const eventId = String(event.event_id || '').trim();
                 const shouldPropagateToChat =
                     !!threadKey &&
@@ -386,22 +494,47 @@ export function CockpitPage() {
                     !seenChatEventIdsRef.current.has(eventId);
 
                 if (shouldPropagateToChat) {
-                    const eventType = String(event.event_type || '').trim();
-                    const roleLabel = String(event.agent_role || 'system').trim();
-
                     let chatText: string | null = null;
-                    if (eventType === 'swarm_stage_completed') {
+                    if (eventType === 'stage.started') {
+                        const stageLabel = String(event.payload?.stageId || event.source_stage || 'n/a').trim();
+                        chatText = `Swarm handoff: **${roleLabel}** started stage \`${stageLabel}\`.`;
+                    } else if (eventType === 'swarm_stage_completed') {
                         const stageMessage = String(event.payload?.message || '').trim();
                         if (stageMessage) {
                             chatText = stageMessage;
+                        } else {
+                            const stageLabel = String(event.payload?.stageId || event.source_stage || 'n/a').trim();
+                            chatText = `Swarm update: **${roleLabel}** completed stage \`${stageLabel}\`.`;
                         }
                     } else if (eventType === 'tool.called') {
                         const tool = String(event.payload?.tool || 'tool').trim();
                         const summary = String(event.payload?.summary || '').trim();
                         const toolBody = summary || 'Tool executed.';
                         chatText = `**${roleLabel}** used \`${tool}\`\n\n${toolBody}`;
+                    } else if (eventType === 'contract_reprompt') {
+                        chatText = `Contract guard: **${roleLabel}** is reformatting the response to match AGENTS.md.`;
+                    } else if (eventType === 'contract_fail') {
+                        const errors = Array.isArray(event.payload?.errors) ? event.payload.errors : [];
+                        const bullets = errors.slice(0, 4).map((err: string) => `- ${err}`).join('\n');
+                        chatText = `Contract guard flagged response format issues.${bullets ? `\n${bullets}` : ''}`;
+                    } else if (eventType === 'contract_pass') {
+                        chatText = `Contract guard passed for **${roleLabel}**.`;
                     } else if (eventType === 'run.completed' && threadKey === activeThreadKeyRef.current) {
                         setStatus('completed');
+                        setIsAwaitingAgentReply(false);
+                        setAgentRuntime((prev) => {
+                            const next = { ...prev };
+                            for (const [slug, runtime] of Object.entries(next)) {
+                                if (runtime.threadId === threadKey) {
+                                    next[slug] = {
+                                        ...runtime,
+                                        status: runtime.status === 'unavailable' ? 'unavailable' : 'standby',
+                                        currentTask: 'n/a',
+                                    };
+                                }
+                            }
+                            return next;
+                        });
                     }
 
                     if (chatText) {
@@ -477,7 +610,32 @@ export function CockpitPage() {
                 });
             }
         };
+        const loadAgentRegistry = async () => {
+            const data = await fetchJsonSafe<{ success?: boolean; agents?: AgentRegistryEntry[] }>('/api/cockpit/agents/registry');
+            if (!data?.success || !Array.isArray(data.agents)) return;
+            setAgentRegistry(data.agents);
+            setAgentRuntime((prev) => {
+                const next: Record<string, AgentRuntimeStatus> = { ...prev };
+                for (const agent of data.agents || []) {
+                    if (!next[agent.slug]) {
+                        next[agent.slug] = {
+                            slug: agent.slug,
+                            title: agent.title || agent.slug,
+                            callsign: agent.callsign || agent.title || agent.slug,
+                            status: agent.available === false ? 'unavailable' : 'standby',
+                            currentStage: 'n/a',
+                            currentTask: 'n/a',
+                            currentIssue: 'n/a',
+                            threadId: 'n/a',
+                            lastUpdated: '',
+                        };
+                    }
+                }
+                return next;
+            });
+        };
         void loadCatalog();
+        void loadAgentRegistry();
     }, []);
 
     useEffect(() => {
@@ -658,12 +816,12 @@ export function CockpitPage() {
                 setCurrentTicketId(data.ticketId || null);
                 setStatus(data.status);
                 if (data.observability) setObservability(data.observability);
-                if (data.executionFeed) setExecutionFeed(data.executionFeed);
                 if (data.gitContext) setGitContext(data.gitContext);
 
                 // 1. If we have a direct message (conversational response), show it first
                 if (data.message) {
                     appendAgentMessageIfChanged(responseThreadId || threadIdToUse, data.message, new Date());
+                    setIsAwaitingAgentReply(false);
                 } 
                 // 2. For legacy direct/linear modes, display logs
                 else if (Array.isArray(data.logs) && data.logs.length > 0 && (data.status === 'completed' || data.observability?.pipeline === 'openhands-direct' || mode !== 'multiple_agents')) {
@@ -673,6 +831,7 @@ export function CockpitPage() {
                         content: log,
                         timestamp: new Date()
                     })));
+                    setIsAwaitingAgentReply(false);
                 } 
                 // 3. Otherwise, indicate swarm dispatch
                 else {
@@ -688,6 +847,7 @@ export function CockpitPage() {
             }
         } catch (error) {
             console.error('Chat error:', error);
+            setIsAwaitingAgentReply(false);
             appendMessageToThread(threadIdToUse, {
                 id: `chat-error-${Date.now()}`,
                 role: 'agent',
@@ -695,7 +855,6 @@ export function CockpitPage() {
                 timestamp: new Date()
             });
         } finally {
-            setIsAwaitingAgentReply(false);
             setIsProcessing(false);
         }
     };
@@ -715,7 +874,6 @@ export function CockpitPage() {
             if (data.success) {
                 setStatus(data.status);
                 if (data.observability) setObservability(data.observability);
-                if (data.executionFeed) setExecutionFeed(data.executionFeed);
                 if (data.gitContext) setGitContext(data.gitContext);
                 if (data.logs) {
                     appendMessagesToThread(selectedThread, data.logs.map((log: string, i: number) => ({
@@ -885,6 +1043,20 @@ export function CockpitPage() {
         return segments[segments.length - 1] || '';
     };
 
+    const getParentDir = (value: string): string => {
+        const trimmed = value.trim().replace(/[\\/]+$/, '');
+        if (!trimmed) return '';
+        const slashIndex = Math.max(trimmed.lastIndexOf('/'), trimmed.lastIndexOf('\\'));
+        if (slashIndex <= 0) return '';
+        return trimmed.slice(0, slashIndex);
+    };
+
+    const isAbsolutePath = (value: string): boolean => {
+        const v = value.trim();
+        if (!v) return false;
+        return v.startsWith('/') || /^[A-Za-z]:[\\/]/.test(v);
+    };
+
     const getUniqueProjectId = (baseId: string): string => {
         const existing = new Set(railProjects.map((p) => p.id));
         if (!existing.has(baseId)) return baseId;
@@ -907,11 +1079,11 @@ export function CockpitPage() {
     const handleCreateChain = async (
         projectIdArg?: string,
         labelArg?: string,
-        options?: { projectLabel?: string; worktreePath?: string },
-    ) => {
+        options?: { projectLabel?: string; worktreePath?: string; planeProjectId?: string; createPlaneProject?: boolean },
+    ): Promise<boolean> => {
         const projectId = projectIdArg || selectedProject;
-        if (!projectId) return;
-        const data = await fetchJsonSafe<any>('/api/cockpit/chains', {
+        if (!projectId) return false;
+        const response = await fetch(apiUrl('/api/cockpit/chains'), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -919,17 +1091,92 @@ export function CockpitPage() {
                 label: labelArg || `New chat ${new Date().toLocaleTimeString()}`,
                 projectLabel: options?.projectLabel,
                 worktreePath: options?.worktreePath,
+                planeProjectId: options?.planeProjectId,
+                createPlaneProject: options?.createPlaneProject,
             }),
         });
-        if (!data?.success) {
-            setProviderMessage('Failed to create chain: backend unavailable');
-            return;
+        let data: any = null;
+        try {
+            data = await response.json();
+        } catch {
+            data = null;
+        }
+        if (!response.ok || !data?.success) {
+            const code = String(data?.error || '');
+            if (code === 'plane_project_required') {
+                setProviderMessage('Select a Plane project or explicitly enable new Plane project creation.');
+            } else {
+                setProviderMessage(String(data?.message || data?.error || 'Failed to create chain: backend unavailable'));
+            }
+            return false;
         }
         setRailProjects(data.projects || []);
         setRailThreadsByProject(data.threadsByProject || {});
         setSelectedProject(projectId);
         if (data.thread?.id) setSelectedThread(data.thread.id);
         void syncProjectRuntimeContext(projectId);
+        return true;
+    };
+
+    const applyChainsSnapshot = (
+        projects: RailProject[],
+        threadsByProject: Record<string, RailThread[]>,
+        preferredProjectId?: string,
+        preferredThreadId?: string,
+    ) => {
+        setRailProjects(projects);
+        setRailThreadsByProject(threadsByProject);
+
+        const effectiveProject =
+            (preferredProjectId && projects.some((p) => p.id === preferredProjectId) && preferredProjectId) ||
+            (selectedProject && projects.some((p) => p.id === selectedProject) && selectedProject) ||
+            projects[0]?.id ||
+            '';
+
+        const projectThreads = threadsByProject[effectiveProject] || [];
+        const effectiveThread =
+            (preferredThreadId && projectThreads.some((t) => t.id === preferredThreadId) && preferredThreadId) ||
+            (selectedThread && projectThreads.some((t) => t.id === selectedThread) && selectedThread) ||
+            projectThreads[0]?.id ||
+            '';
+
+        setSelectedProject(effectiveProject);
+        setSelectedThread(effectiveThread);
+    };
+
+    const handleDeleteThread = async (projectId: string, threadId: string) => {
+        if (!threadId) return;
+        const ok = window.confirm('Delete this chat thread?');
+        if (!ok) return;
+        const data = await fetchJsonSafe<any>(`/api/cockpit/chains/${encodeURIComponent(threadId)}`, {
+            method: 'DELETE',
+        });
+        if (!data?.success) {
+            setProviderMessage('Failed to delete chat thread');
+            return;
+        }
+        const nextThreadId = (data.threadsByProject?.[projectId] || [])[0]?.id || '';
+        applyChainsSnapshot(data.projects || [], data.threadsByProject || {}, projectId, nextThreadId);
+    };
+
+    const handleDeleteProject = async (projectId: string) => {
+        if (!projectId) return;
+        const ok = window.confirm('Delete this project and all its chat threads?');
+        if (!ok) return;
+        const response = await fetch(apiUrl(`/api/cockpit/projects/${encodeURIComponent(projectId)}`), {
+            method: 'DELETE',
+        });
+        let data: any = null;
+        try {
+            data = await response.json();
+        } catch {
+            data = null;
+        }
+        if (!response.ok || !data?.success) {
+            setProviderMessage(String(data?.message || data?.error || 'Failed to delete project'));
+            return;
+        }
+        applyChainsSnapshot(data.projects || [], data.threadsByProject || {});
     };
 
     const handleChooseDirectory = async () => {
@@ -940,31 +1187,101 @@ export function CockpitPage() {
         }
         try {
             const handle = await win.showDirectoryPicker();
+            const explicitPath = String(handle?.path || handle?.fullPath || '').trim();
+            if (explicitPath) {
+                setProjectDirectory(explicitPath);
+                return;
+            }
+
             const folderName = String(handle?.name || '').trim();
-            if (folderName) setProjectDirectory(folderName);
+            if (!folderName) return;
+
+            if (folderName.includes('/') || folderName.includes('\\')) {
+                setProjectDirectory(folderName);
+                return;
+            }
+
+            const parentCandidates = [
+                getParentDir(runtimeFooter.worktreePath || ''),
+                getParentDir(gitContext?.worktreePath || ''),
+            ].filter(Boolean);
+
+            if (!parentCandidates[0]) {
+                setProjectDirectory(folderName);
+                setProviderMessage('Directory picker returned only folder name. Paste absolute project path manually.');
+                return;
+            }
+            setProjectDirectory(`${parentCandidates[0].replace(/[\\/]+$/, '')}/${folderName}`);
         } catch {
             // User canceled picker.
         }
     };
 
+    const loadPlaneProjectOptions = async () => {
+        setIsLoadingPlaneProjects(true);
+        const data = await fetchJsonSafe<any>('/api/cockpit/plane/projects');
+        if (!data?.success) {
+            setPlaneProjectOptions([]);
+            setPlaneProjectsConfigured(false);
+            setProviderMessage('Failed to load Plane projects.');
+            setIsLoadingPlaneProjects(false);
+            return;
+        }
+        setPlaneProjectOptions(Array.isArray(data.projects) ? data.projects : []);
+        setPlaneProjectsConfigured(Boolean(data.configured));
+        setIsLoadingPlaneProjects(false);
+    };
+
+    const openProjectModal = () => {
+        setProjectDirectory('');
+        setSelectedPlaneProjectId('');
+        setCreatePlaneProject(false);
+        setPlaneProjectOptions([]);
+        setPlaneProjectsConfigured(null);
+        setIsProjectModalOpen(true);
+        void loadPlaneProjectOptions();
+    };
+
+    const resetProjectModalState = () => {
+        setIsProjectModalOpen(false);
+        setProjectDirectory('');
+        setSelectedPlaneProjectId('');
+        setCreatePlaneProject(false);
+        setPlaneProjectOptions([]);
+        setPlaneProjectsConfigured(null);
+        setIsLoadingPlaneProjects(false);
+    };
+
     const handleAddNewProject = async () => {
-        const folderName = getFolderNameFromPath(projectDirectory);
+        const absoluteDirectory = projectDirectory.trim();
+        if (!isAbsolutePath(absoluteDirectory)) {
+            setProviderMessage('Project directory must be an absolute path.');
+            return;
+        }
+        if (!selectedPlaneProjectId && !createPlaneProject) {
+            setProviderMessage('Select an existing Plane project or enable "Create new Plane project".');
+            return;
+        }
+        const folderName = getFolderNameFromPath(absoluteDirectory);
         if (!folderName) return;
         const projectId = getUniqueProjectId(slugifyProjectId(folderName));
-        await handleCreateChain(projectId, 'New chat', {
+        const created = await handleCreateChain(projectId, 'New chat', {
             projectLabel: folderName,
-            worktreePath: projectDirectory.trim() || undefined,
+            worktreePath: absoluteDirectory || undefined,
+            planeProjectId: selectedPlaneProjectId || undefined,
+            createPlaneProject,
         });
+        if (!created) return;
         setSelectedProject(projectId);
-        setProjectDirectory('');
-        setIsProjectModalOpen(false);
+        resetProjectModalState();
     };
 
     const handleAddNewChain = async () => {
         const chainLabel = (newChainLabel || '').trim() || `New chat ${new Date().toLocaleTimeString()}`;
         const projectId = newChainScope === 'unbound' ? '__unbound__' : selectedProject;
         if (!projectId) return;
-        await handleCreateChain(projectId, chainLabel);
+        const created = await handleCreateChain(projectId, chainLabel);
+        if (!created) return;
         setIsChainModalOpen(false);
         setNewChainLabel('');
         setNewChainScope('current');
@@ -984,23 +1301,6 @@ export function CockpitPage() {
         if (s.includes('fail') || s.includes('error') || s.includes('blocked')) return 'status-badge fail';
         if (s.includes('progress') || s.includes('running') || s.includes('started')) return 'status-badge progress';
         return 'status-badge neutral';
-    };
-
-    const prettyStage = (value?: string) => {
-        if (!value) return 'n/a';
-        return value
-            .replace(/[_-]/g, ' ')
-            .replace(/\s+/g, ' ')
-            .trim()
-            .replace(/\b\w/g, (m) => m.toUpperCase());
-    };
-
-    const prettyEventType = (value?: string) => {
-        if (!value) return 'event';
-        return value
-            .split('.')
-            .map((part) => prettyStage(part))
-            .join(' / ');
     };
 
     const runtimeModeLabel = mode === 'mock' ? 'Mock' : mode === 'linear' ? 'Quasi-linear' : 'Multiple agents';
@@ -1068,14 +1368,14 @@ export function CockpitPage() {
                         </button>
                     </div>
                     {!railCollapsed && (
-                        <>
+                        <div className="rail-body">
                             <div className="rail-top-actions">
                                 <button
                                     type="button"
                                     className="rail-top-btn"
                                     onClick={() => {
                                         if (!selectedProject) {
-                                            setIsProjectModalOpen(true);
+                                                    openProjectModal();
                                             return;
                                         }
                                         setIsChainModalOpen(true);
@@ -1084,7 +1384,7 @@ export function CockpitPage() {
                                     <PencilLine size={13} />
                                     <span>Новий ланцюжок</span>
                                 </button>
-                                <button type="button" className="rail-top-btn" onClick={() => setIsProjectModalOpen(true)}>
+                                <button type="button" className="rail-top-btn" onClick={openProjectModal}>
                                     <FolderPlus size={13} />
                                     <span>Add new project</span>
                                 </button>
@@ -1093,39 +1393,75 @@ export function CockpitPage() {
                                 <span>Projects</span>
                             </div>
                             <div className="rail-project-list">
-                                {railProjects.map((project) => (
-                                    <div key={project.id} className="rail-project-node">
-                                        <button
-                                            type="button"
-                                            className={`rail-project-btn ${selectedProject === project.id ? 'active' : ''}`}
-                                            onClick={() => {
-                                                setSelectedProject(project.id);
-                                                setSelectedThread((railThreadsByProject[project.id] || [])[0]?.id || '');
-                                                void syncProjectRuntimeContext(project.id);
-                                            }}
-                                        >
-                                            <Folder size={13} />
-                                            <span>{project.label}</span>
+                                {railProjects.length === 0 ? (
+                                    <div className="rail-empty-state">
+                                        <div className="rail-empty-title">No projects yet</div>
+                                        <div className="rail-empty-text">Create a project to start chats in a selected worktree.</div>
+                                        <button type="button" className="rail-empty-action" onClick={openProjectModal}>
+                                            <FolderPlus size={13} />
+                                            <span>Add project</span>
                                         </button>
+                                    </div>
+                                ) : railProjects.map((project) => (
+                                    <div key={project.id} className="rail-project-node">
+                                        <div className="rail-item-row">
+                                            <button
+                                                type="button"
+                                                className={`rail-project-btn ${selectedProject === project.id ? 'active' : ''}`}
+                                                onClick={() => {
+                                                    setSelectedProject(project.id);
+                                                    setSelectedThread((railThreadsByProject[project.id] || [])[0]?.id || '');
+                                                    void syncProjectRuntimeContext(project.id);
+                                                }}
+                                            >
+                                                <Folder size={13} />
+                                                <span className="rail-project-label">{project.label}</span>
+                                            </button>
+                                            <button
+                                                type="button"
+                                                className="rail-delete-btn"
+                                                title="Delete project"
+                                                aria-label={`Delete project ${project.label}`}
+                                                onClick={(event) => {
+                                                    event.stopPropagation();
+                                                    void handleDeleteProject(project.id);
+                                                }}
+                                            >
+                                                <Trash2 size={12} />
+                                            </button>
+                                        </div>
                                         {selectedProject === project.id && (
                                             <div className="rail-thread-list nested">
                                                 {(railThreadsByProject[project.id] || []).map((thread) => (
-                                                    <button
-                                                        key={thread.id}
-                                                        type="button"
-                                                        className={`rail-thread-btn ${selectedThread === thread.id ? 'active' : ''}`}
-                                                        onClick={() => setSelectedThread(thread.id)}
-                                                    >
-                                                        <span className="rail-thread-label">{thread.label}</span>
-                                                        <span className="rail-thread-age">{new Date(thread.updatedAt).toLocaleDateString()}</span>
-                                                    </button>
+                                                    <div key={thread.id} className="rail-item-row rail-item-row-thread">
+                                                        <button
+                                                            type="button"
+                                                            className={`rail-thread-btn ${selectedThread === thread.id ? 'active' : ''}`}
+                                                            onClick={() => setSelectedThread(thread.id)}
+                                                        >
+                                                            <span className="rail-thread-label">{thread.label}</span>
+                                                            <span className="rail-thread-age">{new Date(thread.updatedAt).toLocaleDateString()}</span>
+                                                        </button>
+                                                        <button
+                                                            type="button"
+                                                            className="rail-delete-btn"
+                                                            title="Delete chat"
+                                                            aria-label={`Delete chat ${thread.label}`}
+                                                            onClick={(event) => {
+                                                                event.stopPropagation();
+                                                                void handleDeleteThread(project.id, thread.id);
+                                                            }}
+                                                        >
+                                                            <Trash2 size={12} />
+                                                        </button>
+                                                    </div>
                                                 ))}
                                             </div>
                                         )}
                                     </div>
                                 ))}
                             </div>
-                        </>
+                        </div>
                     )}
                 </aside>
                 {/* Left Panel: Chat Input */}
@@ -1697,7 +2033,7 @@ export function CockpitPage() {
                         <Activity size={20} />
                         Live Hive State
                     </div>
-                    
+
                     <div className="agent-status-card">
                         <div className="agent-avatar">
                             <Cpu size={24} color={'white'} />
@@ -1705,75 +2041,49 @@ export function CockpitPage() {
                         <div className="agent-info">
                             <div className="agent-name">Swarm Controller</div>
                             <div className="agent-activity">
-                                {visibleEvents.length > 0 
-                                    ? `Last Active: ${visibleEvents[visibleEvents.length-1].agent_role || 'System'} (${mode})`
-                                    : `Listening on Events Hub...`}
+                                {agentStatusRows.length > 0
+                                    ? `${agentStatusRows.filter((row) => row.status === 'active').length} active / ${agentStatusRows.length} total agents`
+                                    : 'No discovered agents yet'}
                             </div>
                         </div>
                     </div>
 
-                    <div className="feed-container">
-                            <>
-                                {executionFeed.length > 0 && (
-                                    <div className="catalog-card">
-                                        <div className="catalog-title">Execution Feed</div>
-                                        {executionFeed.map((item, idx) => (
-                                            <div key={`exec-${idx}`} className="execution-item">
-                                                <div className="execution-head">
-                                                    <span>{item.role || 'Unknown role'}</span>
-                                                    <span>{item.stage || 'n/a'}</span>
-                                                </div>
-                                                <div className="execution-body">
-                                                    <span className={statusBadgeClass(item.status)}>{item.status || 'unknown'}</span>
-                                                    {item.fallback && <span className="execution-fallback">fallback: {item.fallback}</span>}
-                                                </div>
-                                                <div className="execution-msg">{item.message || item.raw}</div>
-                                            </div>
-                                        ))}
+                    <div className="catalog-card">
+                        <div className="catalog-title">Agent Runtime Board</div>
+                        <div className="agent-board">
+                            {agentStatusRows.length === 0 ? (
+                                <div className="agent-board-empty">No agent registry data.</div>
+                            ) : (
+                                agentStatusRows.map((row) => (
+                                    <div key={row.slug} className="agent-board-row">
+                                        <div className={`agent-dot ${row.status}`} />
+                                        <div className="agent-board-main">
+                                            <div className="agent-board-title">{row.callsign || row.title}</div>
+                                            <div className="agent-board-sub">{row.slug}</div>
+                                        </div>
+                                        <div className="agent-board-meta">
+                                            <span>{row.status}</span>
+                                            <span>stage: {row.currentStage}</span>
+                                            <span>task: {row.currentTask}</span>
+                                            <span>issue: {row.currentIssue}</span>
+                                        </div>
                                     </div>
-                                )}
+                                ))
+                            )}
+                        </div>
+                    </div>
 
-                                {visibleEvents.length === 0 ? (
-                                    <div style={{opacity: 0.5, fontSize: '0.85rem', textAlign: 'center', marginTop: '1rem'}}>
-                                        No events yet...
-                                    </div>
-                                ) : null}
-                                
-                                {visibleEvents.slice().reverse().map((ev, idx) => (
-                                    <div key={ev.event_id || idx} className="feed-item observability-event-card">
-                                        <div className="feed-header">
-                                            <span>{ev.agent_role || 'System'}</span>
-                                            <span>{new Date(ev.timestamp).toLocaleTimeString()}</span>
-                                        </div>
-                                        <div className="observability-event-type">{prettyEventType(ev.event_type)}</div>
-                                        <div className="execution-body">
-                                            <span className={statusBadgeClass(ev.status)}>{ev.status || 'unknown'}</span>
-                                            <span>from: {prettyStage(ev.source_stage)}</span>
-                                            <span>to: {prettyStage(ev.target_stage)}</span>
-                                        </div>
-                                        <div className="observability-event-grid">
-                                            <span>Role</span>
-                                            <strong>{ev.agent_role || 'system'}</strong>
-                                            <span>Issue</span>
-                                            <strong>
-                                                {(ev.plane_issue_id || currentTicketId) ? (
-                                                    planeTicketUrl(ev.plane_issue_id || currentTicketId || '') ? (
-                                                        <a href={planeTicketUrl(ev.plane_issue_id || currentTicketId || '')!} target="_blank" rel="noreferrer">{ev.plane_issue_id || currentTicketId}</a>
-                                                    ) : (
-                                                        ev.plane_issue_id || currentTicketId
-                                                    )
-                                                ) : (
-                                                    'n/a'
-                                                )}
-                                            </strong>
-                                            <span>Branch</span>
-                                            <strong>{gitContext?.activeBranch || 'n/a'}</strong>
-                                            <span>Worktree</span>
-                                            <strong>{gitContext?.worktreePath || 'n/a'}</strong>
-                                        </div>
-                                    </div>
-                                ))}
-                            </>
+                    <div className="feed-container">
+                        <div className="catalog-card">
+                            <div className="catalog-title">Runtime Summary</div>
+                            <div className="catalog-section">
+                                <span className={statusBadgeClass(status)}>{status || 'idle'}</span>
+                                <span>Active thread: {selectedThread || 'n/a'}</span>
+                                <span>Ticket: {currentTicketId || 'n/a'}</span>
+                                <span>Branch: {gitContext?.activeBranch || runtimeFooter.activeBranch || 'n/a'}</span>
+                                <span>Worktree: {gitContext?.worktreePath || runtimeFooter.worktreePath || 'n/a'}</span>
+                            </div>
+                        </div>
                         <div ref={feedEndRef} />
                     </div>
                 </section>
@@ -1803,14 +2113,46 @@ export function CockpitPage() {
                             <div className="cockpit-modal-hint">
                                 Project name: <strong>{getFolderNameFromPath(projectDirectory) || '—'}</strong>
                             </div>
+                            <label htmlFor="plane-project-select" className="cockpit-modal-label">Plane Project</label>
+                            <select
+                                id="plane-project-select"
+                                value={selectedPlaneProjectId}
+                                onChange={(e) => setSelectedPlaneProjectId(e.target.value)}
+                                disabled={createPlaneProject || isLoadingPlaneProjects || planeProjectsConfigured === false}
+                                className="cockpit-modal-input"
+                            >
+                                <option value="">
+                                    {isLoadingPlaneProjects
+                                        ? 'Loading Plane projects...'
+                                        : planeProjectsConfigured === false
+                                            ? 'Plane is not configured'
+                                            : 'Select existing Plane project'}
+                                </option>
+                                {planeProjectOptions.map((project) => (
+                                    <option key={project.id} value={project.id}>
+                                        {project.name} ({project.identifier})
+                                    </option>
+                                ))}
+                            </select>
+                            <label className="cockpit-modal-label">
+                                <input
+                                    type="checkbox"
+                                    checked={createPlaneProject}
+                                    onChange={(e) => {
+                                        const nextValue = e.target.checked;
+                                        setCreatePlaneProject(nextValue);
+                                        if (nextValue) setSelectedPlaneProjectId('');
+                                    }}
+                                />
+                                Create new Plane project (explicit)
+                            </label>
                         </div>
                         <div className="cockpit-modal-actions">
                             <button
                                 type="button"
                                 className="cockpit-modal-secondary"
                                 onClick={() => {
-                                    setIsProjectModalOpen(false);
-                                    setProjectDirectory('');
+                                    resetProjectModalState();
                                 }}
                             >
                                 Cancel
@@ -1818,7 +2160,7 @@ export function CockpitPage() {
                             <button
                                 type="button"
                                 className="cockpit-modal-primary"
-                                disabled={!getFolderNameFromPath(projectDirectory)}
+                                disabled={!isAbsolutePath(projectDirectory) || (!selectedPlaneProjectId && !createPlaneProject)}
                                 onClick={() => { void handleAddNewProject(); }}
                             >
                                 Create Project
