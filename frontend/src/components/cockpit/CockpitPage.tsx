@@ -329,33 +329,6 @@ export function CockpitPage() {
                     [threadKey]: [...(prev[threadKey] || []), event].slice(-120),
                 }));
 
-                const isStageSignal =
-                    event.event_type === 'stage.started' ||
-                    event.event_type === 'swarm_stage_completed' ||
-                    event.event_type === 'run.completed';
-                if (isStageSignal && threadKey !== '__global__') {
-                    const pipeline = event.payload?.pipelineId || observability?.pipeline || 'runtime';
-                    const role = event.agent_role || 'system';
-                    const stage = prettyStage(event.source_stage || event.payload?.stageId || 'n/a');
-                    const nextStage = prettyStage(event.target_stage || event.payload?.nextStageId || 'n/a');
-                    const ticket = event.plane_issue_id || currentTicketId || 'n/a';
-                    const statusText = event.status || event.payload?.outcome || 'in_progress';
-                    const lines = [
-                        `Active role: ${role}`,
-                        `Pipeline: ${pipeline}`,
-                        `Stage: ${stage}`,
-                        `Next: ${nextStage}`,
-                        `Ticket: ${ticket}`,
-                        '',
-                        `Update: ${prettyEventType(event.event_type)} (${statusText})`,
-                    ];
-                    appendMessageToThread(threadKey, {
-                        id: `${event.event_id || Date.now()}-evt`,
-                        role: 'agent',
-                        content: lines.join('\n'),
-                        timestamp: new Date(event.timestamp || Date.now()),
-                    });
-                }
             } catch (err) {
                 console.error('SSE Error parsing data:', err);
             }
@@ -587,7 +560,7 @@ export function CockpitPage() {
                     appendMessagesToThread(responseThreadId || selectedThread, data.logs.map((log: string, i: number) => ({
                         id: `${Date.now()}-${i}`,
                         role: 'agent',
-                        content: formatLogForChat(log, data.observability?.pipeline, data.ticketId || null),
+                        content: log,
                         timestamp: new Date()
                     })));
                 } 
@@ -631,7 +604,7 @@ export function CockpitPage() {
                     appendMessagesToThread(selectedThread, data.logs.map((log: string, i: number) => ({
                         id: `${Date.now()}-${i}`,
                         role: 'agent',
-                        content: formatLogForChat(log, data.observability?.pipeline, data.ticketId || null),
+                        content: log,
                         timestamp: new Date()
                     })));
                 }
@@ -913,23 +886,6 @@ export function CockpitPage() {
             .join(' / ');
     };
 
-    const formatLogForChat = (raw: string, fallbackPipeline?: string, fallbackTicket?: string): string => {
-        const stage = raw.match(/\[stage:([^\]]+)\]/)?.[1] || 'n/a';
-        const role = raw.match(/\[role:([^\]]+)\]/)?.[1] || 'system';
-        const status = raw.match(/\[status:([^\]]+)\]/)?.[1] || 'unknown';
-        const message = raw.match(/message=(.*)$/)?.[1] || raw;
-        const pipeline = fallbackPipeline || observability?.pipeline || 'runtime';
-        const ticket = fallbackTicket || currentTicketId || 'n/a';
-        return [
-            `Active role: ${role}`,
-            `Pipeline: ${pipeline}`,
-            `Stage: ${prettyStage(stage)}`,
-            `Next: n/a`,
-            `Ticket: ${ticket}`,
-            '',
-            `Update: ${message} (${status})`,
-        ].join('\n');
-    };
     const runtimeModeLabel = mode === 'mock' ? 'Mock' : mode === 'linear' ? 'Quasi-linear' : 'Multiple agents';
 
     const applyRuntimeSelection = async (provider?: RuntimeProvider, model?: string) => {
