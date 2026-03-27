@@ -29,6 +29,13 @@ process.on('unhandledRejection', (reason) => {
 const settingsStore = new Map<string, unknown>();
 const projectStore = new Map<string, { id: string; label: string; worktreePath?: string }>();
 const threadStore = new Map<string, Array<{ id: string; label: string; updatedAt: string }>>();
+type PersistedChatMessage = {
+  id: string;
+  role: 'user' | 'agent';
+  content: string;
+  timestamp: string;
+};
+const threadMessageStore = new Map<string, PersistedChatMessage[]>();
 const planeBindingStore = new Map<string, {
   cockpitProjectId: string;
   planeProjectId?: string;
@@ -146,6 +153,7 @@ const PLANE_BASE_URL = (process.env.PLANE_BASE_URL || 'http://127.0.0.1:3000').r
 const PLANE_WORKSPACE = process.env.PLANE_WORKSPACE || 'agent-system';
 const PLANE_API_KEY = process.env.PLANE_API_KEY || process.env.PLANE_API_TOKEN || '';
 const SETTINGS_FILE_PATH = path.resolve(process.cwd(), '.agent-system', 'cockpit-settings.json');
+const RUNTIME_STORE_FILE_PATH = path.resolve(process.cwd(), '.agent-system', 'cockpit-runtime-store.json');
 
 const toPlaneIdentifier = (value: string): string =>
   value
@@ -184,6 +192,72 @@ const restoreSettingsStore = () => {
     Object.entries(parsed).forEach(([key, value]) => settingsStore.set(key, value));
   } catch (error) {
     console.error('[agent-system-backend] failed to restore settings store:', error);
+  }
+};
+
+const persistRuntimeStore = () => {
+  try {
+    const projects = Array.from(projectStore.values());
+    const threadsByProject = Array.from(threadStore.entries()).reduce<Record<string, Array<{ id: string; label: string; updatedAt: string }>>>(
+      (acc, [key, value]) => {
+        acc[key] = value;
+        return acc;
+      },
+      {},
+    );
+    const messagesByThread = Array.from(threadMessageStore.entries()).reduce<Record<string, PersistedChatMessage[]>>(
+      (acc, [key, value]) => {
+        acc[key] = value;
+        return acc;
+      },
+      {},
+    );
+    fs.mkdirSync(path.dirname(RUNTIME_STORE_FILE_PATH), { recursive: true });
+    fs.writeFileSync(
+      RUNTIME_STORE_FILE_PATH,
+      JSON.stringify({ projects, threadsByProject, messagesByThread }, null, 2),
+      'utf-8',
+    );
+  } catch (error) {
+    console.error('[agent-system-backend] failed to persist runtime store:', error);
+  }
+};
+
+const restoreRuntimeStore = () => {
+  try {
+    if (!fs.existsSync(RUNTIME_STORE_FILE_PATH)) return;
+    const raw = fs.readFileSync(RUNTIME_STORE_FILE_PATH, 'utf-8');
+    if (!raw.trim()) return;
+    const parsed = JSON.parse(raw) as {
+      projects?: Array<{ id: string; label: string; worktreePath?: string }>;
+      threadsByProject?: Record<string, Array<{ id: string; label: string; updatedAt: string }>>;
+      messagesByThread?: Record<string, PersistedChatMessage[]>;
+    };
+    (parsed.projects || []).forEach((project) => {
+      if (!project?.id) return;
+      projectStore.set(project.id, {
+        id: project.id,
+        label: project.label || project.id,
+        ...(project.worktreePath ? { worktreePath: project.worktreePath } : {}),
+      });
+    });
+    Object.entries(parsed.threadsByProject || {}).forEach(([projectId, threads]) => {
+      threadStore.set(projectId, Array.isArray(threads) ? threads : []);
+    });
+    Object.entries(parsed.messagesByThread || {}).forEach(([threadId, messages]) => {
+      threadMessageStore.set(
+        threadId,
+        (Array.isArray(messages) ? messages : []).filter(
+          (message) =>
+            Boolean(message?.id) &&
+            (message?.role === 'user' || message?.role === 'agent') &&
+            typeof message?.content === 'string' &&
+            typeof message?.timestamp === 'string',
+        ),
+      );
+    });
+  } catch (error) {
+    console.error('[agent-system-backend] failed to restore runtime store:', error);
   }
 };
 
@@ -349,6 +423,7 @@ const ensureProject = (id: string, label: string, worktreePath?: string) => {
   if (!existing) {
     projectStore.set(id, { id, label, ...(worktreePath ? { worktreePath } : {}) });
     threadStore.set(id, []);
+    persistRuntimeStore();
     return;
   }
   existing.label = label;
@@ -356,6 +431,43 @@ const ensureProject = (id: string, label: string, worktreePath?: string) => {
     existing.worktreePath = worktreePath.trim();
   }
   projectStore.set(id, existing);
+  persistRuntimeStore();
+};
+
+const ensureThreadInProject = (projectId: string, threadId: string, label?: string) => {
+  if (!projectStore.has(projectId)) {
+    ensureProject(projectId, projectId === '__unbound__' ? 'Unbound' : projectId);
+  }
+  const current = threadStore.get(projectId) || [];
+  const idx = current.findIndex((t) => t.id === threadId);
+  const now = new Date().toISOString();
+  if (idx === -1) {
+    current.unshift({
+      id: threadId,
+      label: label || `Chat ${new Date().toLocaleTimeString()}`,
+      updatedAt: now,
+    });
+  } else {
+    current[idx] = { ...current[idx], updatedAt: now };
+  }
+  threadStore.set(projectId, current);
+  if (!threadMessageStore.has(threadId)) threadMessageStore.set(threadId, []);
+  persistRuntimeStore();
+};
+
+const appendThreadMessage = (threadId: string, role: 'user' | 'agent', content: string) => {
+  const payload = String(content || '').trim();
+  if (!payload) return;
+  const current = threadMessageStore.get(threadId) || [];
+  current.push({
+    id: `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+    role,
+    content: payload,
+    timestamp: new Date().toISOString(),
+  });
+  // Keep history bounded
+  threadMessageStore.set(threadId, current.slice(-500));
+  persistRuntimeStore();
 };
 
 const refreshCatalog = async () => {
@@ -366,8 +478,13 @@ const refreshCatalog = async () => {
   }
 };
 
-ensureProject('default', 'Default');
-void syncPlaneBindingForProject({ id: 'default', label: 'Default' });
+restoreRuntimeStore();
+if (projectStore.size === 0) {
+  ensureProject('default', 'Default');
+}
+for (const project of projectStore.values()) {
+  void syncPlaneBindingForProject(project);
+}
 restoreSettingsStore();
 void refreshCatalog();
 const runtimeFromSettingsAtBoot = getRuntimeSelectionFromExecutorSettings();
@@ -486,6 +603,10 @@ app.post('/api/cockpit/chains', (req, res) => {
   };
   const current = threadStore.get(projectId) || [];
   threadStore.set(projectId, [nextThread, ...current]);
+  if (!threadMessageStore.has(nextThread.id)) {
+    threadMessageStore.set(nextThread.id, []);
+  }
+  persistRuntimeStore();
 
   const projects = Array.from(projectStore.values());
   const threadsByProject = Array.from(threadStore.entries()).reduce<Record<string, Array<{ id: string; label: string; updatedAt: string }>>>(
@@ -500,6 +621,19 @@ app.post('/api/cockpit/chains', (req, res) => {
     return acc;
   }, {});
   res.json({ success: true, projects, threadsByProject, thread: nextThread, planeBindings });
+});
+
+app.get('/api/cockpit/chains/:threadId/messages', (req, res) => {
+  const threadId = String(req.params.threadId || '').trim();
+  if (!threadId) {
+    res.status(400).json({ success: false, error: 'thread_id_required' });
+    return;
+  }
+  res.json({
+    success: true,
+    threadId,
+    messages: threadMessageStore.get(threadId) || [],
+  });
 });
 
 app.post('/api/cockpit/projects/select', (req, res) => {
@@ -679,6 +813,7 @@ app.post('/api/cockpit/settings/:section', (req, res) => {
 app.post('/api/chat', async (req, res) => {
   const message = String(req.body?.message || req.body?.prompt || '').trim();
   const threadId = String(req.body?.threadId || `thread_${Date.now()}`).trim();
+  const projectId = String(req.body?.projectId || 'default').trim() || 'default';
   const runId = uuidv4();
   const executionMode = String(req.body?.executionMode || 'multiple_agents').trim();
   const mode = executionMode === 'linear' || executionMode === 'mock' ? executionMode : 'multiple_agents';
@@ -689,6 +824,9 @@ app.post('/api/chat', async (req, res) => {
   }
 
   try {
+    ensureThreadInProject(projectId, threadId);
+    appendThreadMessage(threadId, 'user', message);
+
     const finalState = await executeQuasiLinearRun({
       plane_issue_id: String(req.body?.ticketId || '').trim(),
       pipeline_run_id: runId,
@@ -697,7 +835,7 @@ app.post('/api/chat', async (req, res) => {
       executionOptions: { mode },
       messages: [{ role: 'user', content: message }],
       artifactLogs: [message],
-      projectId: String(req.body?.projectId || 'agent_system'),
+      projectId,
       workspacePath: process.cwd(),
     });
 
@@ -705,7 +843,21 @@ app.post('/api/chat', async (req, res) => {
       .reverse()
       .find((m: { role: string; content: string }) => m.role === 'assistant')?.content;
     const artifactLogs = Array.isArray(finalState.artifactLogs) ? finalState.artifactLogs : [];
-    const finalMessage = assistantMessage || artifactLogs[artifactLogs.length - 1] || null;
+    const parseArtifactMessage = (log?: string): string | null => {
+      if (!log) return null;
+      const match = String(log).match(/message=(.*)$/);
+      return (match?.[1] || '').trim() || null;
+    };
+    const lastNonFinalizeArtifact = [...artifactLogs]
+      .reverse()
+      .find((entry) => !String(entry).includes('[stage:finalize]'));
+    const finalMessage =
+      (assistantMessage && assistantMessage.trim()) ||
+      parseArtifactMessage(lastNonFinalizeArtifact) ||
+      parseArtifactMessage(artifactLogs[artifactLogs.length - 1]) ||
+      'Run completed.';
+    ensureThreadInProject(projectId, threadId);
+    appendThreadMessage(threadId, 'agent', finalMessage);
 
     res.json({
       success: true,
@@ -742,6 +894,10 @@ app.post('/api/chat', async (req, res) => {
 });
 
 app.post('/api/chat/approve', (_req, res) => {
+  const threadId = String(_req.body?.threadId || '').trim();
+  if (threadId) {
+    appendThreadMessage(threadId, 'agent', 'Approval acknowledged');
+  }
   res.json({
     success: true,
     status: 'approved',
