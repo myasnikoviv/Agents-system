@@ -37,6 +37,10 @@ export interface CockpitExecutorConfig {
 export function loadConfig(projectRoot: string): CockpitExecutorConfig {
   const absProjectRoot = path.resolve(projectRoot);
   const configPath = path.resolve(absProjectRoot, 'cockpit_config.json');
+  const codexAppBin = '/Applications/Codex.app/Contents/Resources/codex';
+  const resolvedCodexBin =
+    process.env.CODEX_CLI_BIN ||
+    (fs.existsSync(codexAppBin) ? codexAppBin : 'codex');
   
   const defaults: CockpitExecutorConfig = {
     backend: 'claude-cli',
@@ -46,7 +50,7 @@ export function loadConfig(projectRoot: string): CockpitExecutorConfig {
       model: process.env.CLAUDE_CODE_MODEL || 'auto',
     },
     codex: {
-      bin: process.env.CODEX_CLI_BIN || 'codex',
+      bin: resolvedCodexBin,
       model: process.env.CODEX_MODEL || 'auto',
       sandbox: 'workspace-write',
     },

@@ -10,12 +10,31 @@ export { AgentRegistry, PipelineRegistry, SkillRegistry };
 
 export class DynamicDiscoveryService {
   private static defaultDocsPath = path.join(process.cwd(), 'docs');
+  private static defaultManifestPath = path.join(process.cwd(), 'AGENTS.md');
 
   static async discoverAll(projectRoot?: string) {
-    const docsPath = projectRoot ? path.join(projectRoot, 'docs') : this.defaultDocsPath;
-    await this.discoverAgents(docsPath);
-    await this.discoverPipelines(docsPath);
-    await this.discoverSkills(docsPath);
+    const root = projectRoot || process.cwd();
+    const docsPath = path.join(root, 'docs');
+    const manifestPath = path.join(root, 'AGENTS.md');
+    const fromManifest = this.parseManifestPaths(fs.existsSync(manifestPath) ? manifestPath : this.defaultManifestPath);
+
+    if (fromManifest.agents.length > 0) {
+      await this.discoverAgentsFromFiles(fromManifest.agents);
+    } else {
+      await this.discoverAgents(docsPath);
+    }
+
+    if (fromManifest.pipelines.length > 0) {
+      await this.discoverPipelinesFromFiles(fromManifest.pipelines);
+    } else {
+      await this.discoverPipelines(docsPath);
+    }
+
+    if (fromManifest.skills.length > 0) {
+      await this.discoverSkillsFromFiles(fromManifest.skills);
+    } else {
+      await this.discoverSkills(docsPath);
+    }
   }
 
   static async discoverAgents(docsPath: string = this.defaultDocsPath) {
@@ -58,6 +77,41 @@ export class DynamicDiscoveryService {
     }
   }
 
+  static async discoverAgentsFromFiles(files: string[]) {
+    AgentRegistry.clear();
+    const uniqueFiles = Array.from(new Set(files)).filter((f) => fs.existsSync(f));
+    for (const filePath of uniqueFiles) {
+      const parsed = MarkdownInterpreter.parse(filePath);
+      const slug = path.basename(filePath, '.md');
+
+      const name = (parsed.raw.split('\n')[0] || '').replace('#', '').trim();
+      const callsign = (parsed.sections['Callsign'] || '').trim() || name;
+      const mission = (parsed.sections['Mission'] || parsed.sections['Purpose'] || '').trim();
+      const owns = this.extractList(parsed.sections['Owns']);
+      const guardrails = this.extractList(parsed.sections['Guardrails']);
+      const skills = this.extractList(parsed.sections['Skills'] || parsed.sections['Related Skills']);
+      const tools = this.extractList(parsed.sections['Tools']);
+
+      const profile: AgentProfile = {
+        slug,
+        name,
+        title: name,
+        callsign,
+        mission,
+        description: mission,
+        instructions: parsed.raw,
+        owns,
+        guardrails,
+        skills,
+        tools,
+        fullInstructions: parsed.raw,
+        sourcePath: filePath,
+      };
+
+      AgentRegistry.register(profile);
+    }
+  }
+
   static async discoverPipelines(docsPath: string = this.defaultDocsPath) {
     PipelineRegistry.clear();
     const pipelinesDir = path.join(docsPath, 'pipelines');
@@ -91,6 +145,35 @@ export class DynamicDiscoveryService {
     }
   }
 
+  static async discoverPipelinesFromFiles(files: string[]) {
+    PipelineRegistry.clear();
+    const uniqueFiles = Array.from(new Set(files)).filter((f) => fs.existsSync(f));
+    for (const filePath of uniqueFiles) {
+      const parsed = MarkdownInterpreter.parse(filePath);
+      const id = path.basename(filePath, '.md');
+
+      const name = (parsed.raw.split('\n')[0] || '').replace('# Pipeline:', '').trim();
+      const stages = this.parsePipelineStages(
+        parsed.sections['Steps'] ||
+        parsed.sections['Full Path'] ||
+        parsed.sections['Lightweight Path'] ||
+        ''
+      );
+
+      const profile: PipelineDefinition = {
+        id,
+        slug: id,
+        name,
+        title: name,
+        description: parsed.sections['Goal'] || '',
+        stages,
+        sourcePath: filePath,
+      };
+
+      PipelineRegistry.register(profile);
+    }
+  }
+
   static async discoverSkills(docsPath: string = this.defaultDocsPath) {
     SkillRegistry.clear();
     const skillsDir = path.join(docsPath, 'skills');
@@ -116,6 +199,55 @@ export class DynamicDiscoveryService {
 
       SkillRegistry.register(profile);
     }
+  }
+
+  static async discoverSkillsFromFiles(files: string[]) {
+    SkillRegistry.clear();
+    const uniqueFiles = Array.from(new Set(files)).filter((f) => fs.existsSync(f));
+    for (const filePath of uniqueFiles) {
+      const parsed = MarkdownInterpreter.parse(filePath);
+      const id = path.basename(filePath, '.md');
+
+      const name = parsed.sections['Skill Name'] || id;
+      const tools = this.extractList(parsed.sections['Tools'] || parsed.sections['Outputs']);
+
+      const profile: SkillProfile = {
+        id,
+        name,
+        description: parsed.sections['Purpose'] || '',
+        tools,
+        usageGuidelines: parsed.sections['When To Use'] || '',
+        sourcePath: filePath,
+      };
+
+      SkillRegistry.register(profile);
+    }
+  }
+
+  private static parseManifestPaths(manifestPath: string): { agents: string[]; pipelines: string[]; skills: string[] } {
+    if (!manifestPath || !fs.existsSync(manifestPath)) {
+      return { agents: [], pipelines: [], skills: [] };
+    }
+
+    const root = path.dirname(manifestPath);
+    const raw = fs.readFileSync(manifestPath, 'utf-8');
+    const agents: string[] = [];
+    const pipelines: string[] = [];
+    const skills: string[] = [];
+
+    const allTickedPaths = Array.from(raw.matchAll(/`(\.\/[^`]+\.md)`/g)).map((m) => m[1]);
+    for (const relPath of allTickedPaths) {
+      const abs = path.resolve(root, relPath);
+      if (relPath.includes('/agents/')) agents.push(abs);
+      else if (relPath.includes('/pipelines/')) pipelines.push(abs);
+      else if (relPath.includes('/skills/')) skills.push(abs);
+    }
+
+    return {
+      agents: Array.from(new Set(agents)),
+      pipelines: Array.from(new Set(pipelines)),
+      skills: Array.from(new Set(skills)),
+    };
   }
 
   private static extractList(section: string | undefined): string[] {
