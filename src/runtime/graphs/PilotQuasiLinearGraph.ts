@@ -178,7 +178,7 @@ async function swarmNode(state: PilotState): Promise<Partial<PilotState>> {
   
   const pipelineId = state.selected_pipeline || 'unified-task-intake';
   let pipelineDef = PipelineRegistry.getPipeline(pipelineId);
-  if (!pipelineDef) {
+  if (!pipelineDef || !Array.isArray(pipelineDef.stages) || pipelineDef.stages.length === 0) {
     const fallbackAgent = AgentRegistry.getAllAgents()[0]?.slug || 'system-core';
     pipelineDef = {
       id: pipelineId,
@@ -234,11 +234,24 @@ async function swarmNode(state: PilotState): Promise<Partial<PilotState>> {
       role: m.role,
       content: String(m.content || '').slice(0, 3000),
     }));
-  const agent = AgentRegistry.getAgent(nextStage.agent) || AgentRegistry.getAllAgents()[0];
-  if (!agent) {
-    console.warn(`[PilotGraph:Swarm] Agent ${nextStage.agent} not found and no fallback agents available. Terminating.`);
-    return { status: 'pipeline_completed' };
-  }
+  const agent =
+    AgentRegistry.getAgent(nextStage.agent) ||
+    AgentRegistry.getAllAgents()[0] ||
+    {
+      slug: nextStage.agent || 'system-core',
+      name: nextStage.agent || 'System Core',
+      title: nextStage.agent || 'System Core',
+      callsign: nextStage.agent || 'System Core',
+      mission: 'Execute assigned task.',
+      description: 'Fallback synthesized agent profile.',
+      instructions: '',
+      owns: [],
+      guardrails: [],
+      skills: [],
+      tools: [],
+      fullInstructions: '',
+      sourcePath: 'runtime://fallback-agent',
+    };
 
   const runContext = await RunContextAssembler.assemble(
     agent,

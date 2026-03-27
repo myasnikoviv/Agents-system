@@ -81,6 +81,12 @@ interface RailThread {
     label: string;
     updatedAt: string;
 }
+interface PersistedThreadMessage {
+    id: string;
+    role: 'user' | 'agent';
+    content: string;
+    timestamp: string;
+}
 
 type PromptTokenKind = 'pipeline' | 'agent' | 'skill';
 interface PromptToken {
@@ -452,6 +458,29 @@ export function CockpitPage() {
         };
         void loadChains();
     }, [selectedProject, selectedThread]); // Added dependencies per lint rule
+
+    useEffect(() => {
+        const threadId = String(selectedThread || '').trim();
+        if (!threadId) return;
+        const loadThreadMessages = async () => {
+            const data = await fetchJsonSafe<{
+                success?: boolean;
+                threadId?: string;
+                messages?: PersistedThreadMessage[];
+            }>(`/api/cockpit/chains/${encodeURIComponent(threadId)}/messages`);
+            if (!data?.success || !Array.isArray(data.messages)) return;
+            setMessagesByThread((prev) => ({
+                ...prev,
+                [threadId]: data.messages!.map((item) => ({
+                    id: item.id,
+                    role: item.role,
+                    content: item.content,
+                    timestamp: new Date(item.timestamp),
+                })),
+            }));
+        };
+        void loadThreadMessages();
+    }, [selectedThread]);
 
     useEffect(() => {
         const loadWorkScope = async () => {
