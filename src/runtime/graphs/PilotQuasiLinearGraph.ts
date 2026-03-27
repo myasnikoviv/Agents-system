@@ -128,10 +128,25 @@ function extractRetrySeconds(text: string): string | null {
   return null;
 }
 
-function summarizeExecutionError(language: DetectedLanguage, rawError: string): string {
+function summarizeExecutionError(language: DetectedLanguage, rawError: string, providerLabel = 'Execution provider'): string {
   const text = String(rawError || '').trim();
   const lower = text.toLowerCase();
   const retrySec = extractRetrySeconds(text);
+  const missingBinaryMatch = text.match(/spawn\s+([^\s]+)\s+ENOENT/i);
+
+  if (missingBinaryMatch?.[1]) {
+    const bin = missingBinaryMatch[1];
+    if (language === 'uk') {
+      return `${providerLabel} не може запустити \`${bin}\`: виконуваний файл не знайдено в PATH (ENOENT). Встановіть CLI або перемкніть провайдера.`;
+    }
+    if (language === 'ru') {
+      return `${providerLabel} не может запустить \`${bin}\`: исполняемый файл не найден в PATH (ENOENT). Установите CLI или переключите провайдера.`;
+    }
+    if (language === 'be') {
+      return `${providerLabel} не можа запусціць \`${bin}\`: выканальны файл не знойдзены ў PATH (ENOENT). Усталюйце CLI або пераключыце правайдара.`;
+    }
+    return `${providerLabel} cannot start \`${bin}\`: executable was not found in PATH (ENOENT). Install the CLI or switch provider.`;
+  }
 
   const quotaError =
     lower.includes('resource_exhausted') ||
@@ -142,48 +157,49 @@ function summarizeExecutionError(language: DetectedLanguage, rawError: string): 
   if (quotaError) {
     if (language === 'uk') {
       return retrySec
-        ? `OpenHands/Gemini тимчасово недоступний через ліміт запитів. Спробуйте повторити приблизно через ${retrySec} с.`
-        : 'OpenHands/Gemini тимчасово недоступний через ліміт запитів. Спробуйте повторити трохи пізніше.';
+        ? `${providerLabel} тимчасово недоступний через ліміт запитів. Спробуйте повторити приблизно через ${retrySec} с.`
+        : `${providerLabel} тимчасово недоступний через ліміт запитів. Спробуйте повторити трохи пізніше.`;
     }
     if (language === 'ru') {
       return retrySec
-        ? `OpenHands/Gemini временно недоступен из-за лимита запросов. Повторите примерно через ${retrySec} с.`
-        : 'OpenHands/Gemini временно недоступен из-за лимита запросов. Повторите немного позже.';
+        ? `${providerLabel} временно недоступен из-за лимита запросов. Повторите примерно через ${retrySec} с.`
+        : `${providerLabel} временно недоступен из-за лимита запросов. Повторите немного позже.`;
     }
     if (language === 'be') {
       return retrySec
-        ? `OpenHands/Gemini часова недаступны праз ліміт запытаў. Паўтарыце прыкладна праз ${retrySec} с.`
-        : 'OpenHands/Gemini часова недаступны праз ліміт запытаў. Паўтарыце крыху пазней.';
+        ? `${providerLabel} часова недаступны праз ліміт запытаў. Паўтарыце прыкладна праз ${retrySec} с.`
+        : `${providerLabel} часова недаступны праз ліміт запытаў. Паўтарыце крыху пазней.`;
     }
     return retrySec
-      ? `OpenHands/Gemini is temporarily rate-limited. Please retry in about ${retrySec}s.`
-      : 'OpenHands/Gemini is temporarily rate-limited. Please retry shortly.';
+      ? `${providerLabel} is temporarily rate-limited. Please retry in about ${retrySec}s.`
+      : `${providerLabel} is temporarily rate-limited. Please retry shortly.`;
   }
 
   if (lower.includes('timed out') || lower.includes('timeout')) {
-    if (language === 'uk') return 'OpenHands не встиг завершити запит вчасно (timeout). Спробуйте ще раз.';
-    if (language === 'ru') return 'OpenHands не успел завершить запрос вовремя (timeout). Попробуйте снова.';
-    if (language === 'be') return 'OpenHands не паспеў завяршыць запыт своечасова (timeout). Паспрабуйце яшчэ раз.';
-    return 'OpenHands timed out while processing the request. Please retry.';
+    if (language === 'uk') return `${providerLabel} не встиг завершити запит вчасно (timeout). Спробуйте ще раз.`;
+    if (language === 'ru') return `${providerLabel} не успел завершить запрос вовремя (timeout). Попробуйте снова.`;
+    if (language === 'be') return `${providerLabel} не паспеў завяршыць запыт своечасова (timeout). Паспрабуйце яшчэ раз.`;
+    return `${providerLabel} timed out while processing the request. Please retry.`;
   }
 
   const cleaned = compactText(
     text
       .replace(/\[Sidecar Error\]\s*/gi, '')
       .replace(/OpenHands reported execution status=error\s*\|\s*details=/gi, '')
+      .replace(/Execution provider reported execution status=error\s*\|\s*details=/gi, '')
       .replace(/Execution failed:\s*/gi, '')
   );
 
-  if (language === 'uk') return `OpenHands повернув помилку: ${cleaned}`;
-  if (language === 'ru') return `OpenHands вернул ошибку: ${cleaned}`;
-  if (language === 'be') return `OpenHands вярнуў памылку: ${cleaned}`;
-  return `OpenHands returned an error: ${cleaned}`;
+  if (language === 'uk') return `${providerLabel} повернув помилку: ${cleaned}`;
+  if (language === 'ru') return `${providerLabel} вернул ошибку: ${cleaned}`;
+  if (language === 'be') return `${providerLabel} вярнуў памылку: ${cleaned}`;
+  return `${providerLabel} returned an error: ${cleaned}`;
 }
 
 function localizeSystemMessage(
   language: DetectedLanguage,
   kind: 'stageFailed' | 'runCompleted',
-  details?: { stageId?: string; error?: string }
+  details?: { stageId?: string; error?: string; providerLabel?: string }
 ): string {
   if (kind === 'runCompleted') {
     if (language === 'uk') return 'Виконання завершено.';
@@ -194,7 +210,8 @@ function localizeSystemMessage(
 
   const stageId = details?.stageId || 'unknown';
   const rawError = details?.error || 'Unknown execution error';
-  const humanized = summarizeExecutionError(language, rawError);
+  const providerLabel = details?.providerLabel || 'Execution provider';
+  const humanized = summarizeExecutionError(language, rawError, providerLabel);
   if (language === 'uk') {
     return `[System] Етап ${stageId} завершився помилкою; продовжую пайплайн із fallback. ${humanized}`;
   }
@@ -403,6 +420,15 @@ async function swarmNode(state: PilotState): Promise<Partial<PilotState>> {
 
   const executor = new AgentExecutor();
   let result: { content: string };
+  const backend = loadConfig(state.workspacePath).backend;
+  const providerLabel =
+    backend === 'codex-cli'
+      ? 'Codex CLI'
+      : backend === 'claude-cli'
+        ? 'Claude CLI'
+        : backend === 'openhands-sdk'
+          ? 'OpenHands'
+          : 'Execution provider';
   try {
     result = await executor.run(runContext);
   } catch (error: any) {
@@ -415,6 +441,7 @@ async function swarmNode(state: PilotState): Promise<Partial<PilotState>> {
         content: localizeSystemMessage(state.preferredLanguage, 'stageFailed', {
           stageId: nextStage.id,
           error: errMsg,
+          providerLabel,
         }),
       }],
       artifactLogs: [
