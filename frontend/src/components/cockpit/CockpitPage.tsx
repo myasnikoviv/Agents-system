@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useMemo, useState, useEffect, useRef } from 'react';
 import { Mic, Send, Cpu, Activity, LayoutDashboard, Terminal, Settings, PanelLeftClose, PanelLeftOpen, Globe2, ChevronDown, Plus, PencilLine, Folder, FolderPlus, Laptop, ShieldCheck, GitBranch, RefreshCw } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { apiUrl, fetchJsonSafe } from '../../lib/http';
@@ -16,11 +16,19 @@ interface RuntimeEvent {
     event_id: string;
     event_type: string;
     timestamp: string;
+    pipeline_run_id?: string;
     agent_role: string;
     source_stage: string;
     target_stage?: string;
     status: string;
     plane_issue_id: string;
+    thread_id?: string;
+    payload?: {
+        pipelineId?: string;
+        stageId?: string;
+        nextStageId?: string;
+        outcome?: string;
+    };
 }
 
 interface ObservabilityState {
@@ -153,7 +161,7 @@ export function CockpitPage() {
     const [messagesByThread, setMessagesByThread] = useState<Record<string, ChatMessage[]>>({});
     const [input, setInput] = useState('');
     const [isRecording, setIsRecording] = useState(false);
-    const [events, setEvents] = useState<RuntimeEvent[]>([]);
+    const [eventsByThread, setEventsByThread] = useState<Record<string, RuntimeEvent[]>>({});
     const [isProcessing, setIsProcessing] = useState(false);
     const [ghostText, setGhostText] = useState('');
     const [voiceLang, setVoiceLang] = useState<'auto' | 'uk' | 'en'>('auto');
@@ -215,8 +223,14 @@ export function CockpitPage() {
     const [isChainModalOpen, setIsChainModalOpen] = useState(false);
     const [newChainLabel, setNewChainLabel] = useState('');
     const [newChainScope, setNewChainScope] = useState<'current' | 'unbound'>('current');
-    const activeThreadKey = selectedThread || '__unbound_thread__';
+    const activeThreadKey = selectedThread || currentThreadId || '__unbound_thread__';
     const messages = messagesByThread[activeThreadKey] || [];
+    const visibleEvents = useMemo(() => {
+        if (activeThreadKey && activeThreadKey !== '__unbound_thread__') {
+            return eventsByThread[activeThreadKey] || [];
+        }
+        return eventsByThread.__global__ || [];
+    }, [activeThreadKey, eventsByThread]);
 
     const appendMessagesToThread = (threadId: string | undefined, next: ChatMessage[]) => {
         const key = threadId && threadId.trim().length > 0 ? threadId : activeThreadKey;
@@ -248,7 +262,7 @@ export function CockpitPage() {
 
     useEffect(() => {
         feedEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-    }, [events]);
+    }, [visibleEvents]);
 
     useEffect(() => {
         const win = window as unknown as { 
@@ -308,15 +322,38 @@ export function CockpitPage() {
             try {
                 const data = JSON.parse(e.data);
                 if (data.type === 'connected') return;
-                setEvents(prev => [...prev.slice(-49), data as RuntimeEvent]); // keep last 50
-                
-                // If event completes research/arch, add a summary to chat
-                if (data.status === 'success' && data.event_type.endsWith('.completed')) {
-                    appendMessageToThread(data.thread_id || selectedThread, {
-                        id: Date.now().toString(),
+                const event = data as RuntimeEvent;
+                const threadKey = String(event.thread_id || '').trim() || '__global__';
+                setEventsByThread((prev) => ({
+                    ...prev,
+                    [threadKey]: [...(prev[threadKey] || []), event].slice(-120),
+                }));
+
+                const isStageSignal =
+                    event.event_type === 'stage.started' ||
+                    event.event_type === 'swarm_stage_completed' ||
+                    event.event_type === 'run.completed';
+                if (isStageSignal && threadKey !== '__global__') {
+                    const pipeline = event.payload?.pipelineId || observability?.pipeline || 'runtime';
+                    const role = event.agent_role || 'system';
+                    const stage = prettyStage(event.source_stage || event.payload?.stageId || 'n/a');
+                    const nextStage = prettyStage(event.target_stage || event.payload?.nextStageId || 'n/a');
+                    const ticket = event.plane_issue_id || currentTicketId || 'n/a';
+                    const statusText = event.status || event.payload?.outcome || 'in_progress';
+                    const lines = [
+                        `Active role: ${role}`,
+                        `Pipeline: ${pipeline}`,
+                        `Stage: ${stage}`,
+                        `Next: ${nextStage}`,
+                        `Ticket: ${ticket}`,
+                        '',
+                        `Update: ${prettyEventType(event.event_type)} (${statusText})`,
+                    ];
+                    appendMessageToThread(threadKey, {
+                        id: `${event.event_id || Date.now()}-evt`,
                         role: 'agent',
-                        content: `[${data.agent_role}] Completed stage: ${data.source_stage} → ${data.target_stage}`,
-                        timestamp: new Date(data.timestamp || Date.now())
+                        content: lines.join('\n'),
+                        timestamp: new Date(event.timestamp || Date.now()),
                     });
                 }
             } catch (err) {
@@ -550,7 +587,7 @@ export function CockpitPage() {
                     appendMessagesToThread(responseThreadId || selectedThread, data.logs.map((log: string, i: number) => ({
                         id: `${Date.now()}-${i}`,
                         role: 'agent',
-                        content: log,
+                        content: formatLogForChat(log, data.observability?.pipeline, data.ticketId || null),
                         timestamp: new Date()
                     })));
                 } 
@@ -594,7 +631,7 @@ export function CockpitPage() {
                     appendMessagesToThread(selectedThread, data.logs.map((log: string, i: number) => ({
                         id: `${Date.now()}-${i}`,
                         role: 'agent',
-                        content: log,
+                        content: formatLogForChat(log, data.observability?.pipeline, data.ticketId || null),
                         timestamp: new Date()
                     })));
                 }
@@ -874,6 +911,24 @@ export function CockpitPage() {
             .split('.')
             .map((part) => prettyStage(part))
             .join(' / ');
+    };
+
+    const formatLogForChat = (raw: string, fallbackPipeline?: string, fallbackTicket?: string): string => {
+        const stage = raw.match(/\[stage:([^\]]+)\]/)?.[1] || 'n/a';
+        const role = raw.match(/\[role:([^\]]+)\]/)?.[1] || 'system';
+        const status = raw.match(/\[status:([^\]]+)\]/)?.[1] || 'unknown';
+        const message = raw.match(/message=(.*)$/)?.[1] || raw;
+        const pipeline = fallbackPipeline || observability?.pipeline || 'runtime';
+        const ticket = fallbackTicket || currentTicketId || 'n/a';
+        return [
+            `Active role: ${role}`,
+            `Pipeline: ${pipeline}`,
+            `Stage: ${prettyStage(stage)}`,
+            `Next: n/a`,
+            `Ticket: ${ticket}`,
+            '',
+            `Update: ${message} (${status})`,
+        ].join('\n');
     };
     const runtimeModeLabel = mode === 'mock' ? 'Mock' : mode === 'linear' ? 'Quasi-linear' : 'Multiple agents';
 
@@ -1556,8 +1611,8 @@ export function CockpitPage() {
                         <div className="agent-info">
                             <div className="agent-name">Swarm Controller</div>
                             <div className="agent-activity">
-                                {events.length > 0 
-                                    ? `Last Active: ${events[events.length-1].agent_role || 'System'} (${mode})`
+                                {visibleEvents.length > 0 
+                                    ? `Last Active: ${visibleEvents[visibleEvents.length-1].agent_role || 'System'} (${mode})`
                                     : `Listening on Events Hub...`}
                             </div>
                         </div>
@@ -1584,13 +1639,13 @@ export function CockpitPage() {
                                     </div>
                                 )}
 
-                                {events.length === 0 ? (
+                                {visibleEvents.length === 0 ? (
                                     <div style={{opacity: 0.5, fontSize: '0.85rem', textAlign: 'center', marginTop: '1rem'}}>
                                         No events yet...
                                     </div>
                                 ) : null}
                                 
-                                {events.slice().reverse().map((ev, idx) => (
+                                {visibleEvents.slice().reverse().map((ev, idx) => (
                                     <div key={ev.event_id || idx} className="feed-item observability-event-card">
                                         <div className="feed-header">
                                             <span>{ev.agent_role || 'System'}</span>
@@ -1607,11 +1662,11 @@ export function CockpitPage() {
                                             <strong>{ev.agent_role || 'system'}</strong>
                                             <span>Issue</span>
                                             <strong>
-                                                {ev.plane_issue_id ? (
-                                                    planeTicketUrl(ev.plane_issue_id) ? (
-                                                        <a href={planeTicketUrl(ev.plane_issue_id)!} target="_blank" rel="noreferrer">{ev.plane_issue_id}</a>
+                                                {(ev.plane_issue_id || currentTicketId) ? (
+                                                    planeTicketUrl(ev.plane_issue_id || currentTicketId || '') ? (
+                                                        <a href={planeTicketUrl(ev.plane_issue_id || currentTicketId || '')!} target="_blank" rel="noreferrer">{ev.plane_issue_id || currentTicketId}</a>
                                                     ) : (
-                                                        ev.plane_issue_id
+                                                        ev.plane_issue_id || currentTicketId
                                                     )
                                                 ) : (
                                                     'n/a'

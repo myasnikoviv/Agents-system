@@ -199,6 +199,20 @@ function fastClassify(message: string): ClassificationResult | null {
     };
   }
 
+  // Operational workspace requests should go through the execution pipeline,
+  // not the lightweight conversational responder.
+  if (/\b(підрахуй|порахуй|count|list|find|show|перевір)\b/.test(text) &&
+      /\b(файл|files?|директор|directory|корен|root|worktree|branch)\b/.test(text)) {
+    return {
+      intent: 'research',
+      pipeline: 'unified-task-intake',
+      customAgents: [],
+      confidence: 0.9,
+      reason: 'Operational workspace command detected',
+      isExplicit: false,
+    };
+  }
+
   // Strategy/trading keywords → strategy-tuning
   if (/\b(стратег|backtest|strategy|backtesting|trading|сигнал|signal|індикатор|indicator)\b/.test(text)) {
     return {
