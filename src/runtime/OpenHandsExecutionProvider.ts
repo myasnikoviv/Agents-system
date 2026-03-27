@@ -67,6 +67,48 @@ export class OpenHandsExecutionProvider {
     return Math.min(maxMs, exp + jitter);
   }
 
+  private stringifyUnknown(value: unknown): string {
+    if (typeof value === 'string') return value;
+    try {
+      return JSON.stringify(value);
+    } catch {
+      return String(value ?? '');
+    }
+  }
+
+  private extractErrorTextFromEvent(event: any): string {
+    if (!event) return '';
+    const candidates: string[] = [];
+
+    if (typeof event?.content === 'string') candidates.push(event.content);
+    if (typeof event?.message === 'string') candidates.push(event.message);
+    if (typeof event?.error === 'string') candidates.push(event.error);
+    if (typeof event?.details === 'string') candidates.push(event.details);
+
+    if (event?.content && typeof event.content !== 'string') {
+      candidates.push(this.stringifyUnknown(event.content));
+    }
+    if (event?.error && typeof event.error !== 'string') {
+      candidates.push(this.stringifyUnknown(event.error));
+    }
+    if (event?.metadata) {
+      candidates.push(this.stringifyUnknown(event.metadata));
+    }
+
+    return candidates
+      .map((c) => String(c || '').trim())
+      .find((c) =>
+        c.length > 0 &&
+        (
+          c.toLowerCase().includes('error') ||
+          c.toLowerCase().includes('failed') ||
+          c.toLowerCase().includes('resource_exhausted') ||
+          c.toLowerCase().includes('quota') ||
+          c.toLowerCase().includes('429')
+        )
+      ) || '';
+  }
+
   async runTask(input: ExternalExecutionInput): Promise<ExternalExecutionResult> {
     const startedAt = Date.now();
     const cfg = getCockpitExecutorConfig();
@@ -121,11 +163,13 @@ export class OpenHandsExecutionProvider {
         let isRunning = true;
         let status = 'running';
         let statusAttempts = 0;
+        let latestStatusPayload: any = null;
 
         while (isRunning && statusAttempts < maxPollAttempts) {
           statusAttempts++;
           await this.sleep(pollIntervalMs);
           const statusRes = await axios.get(`${this.serverUrl}/api/conversations/${conversationId}`, { timeout: requestTimeoutMs });
+          latestStatusPayload = statusRes.data;
           status = String(statusRes.data?.execution_status || '').trim() || 'unknown';
           if (status !== 'running' && status !== 'pending') {
             isRunning = false;
@@ -136,7 +180,7 @@ export class OpenHandsExecutionProvider {
           status = 'timeout';
         }
 
-        const eventsRes = await axios.get(`${this.serverUrl}/api/conversations/${conversationId}/events/search?limit=20`, { timeout: requestTimeoutMs });
+        const eventsRes = await axios.get(`${this.serverUrl}/api/conversations/${conversationId}/events/search?limit=50`, { timeout: requestTimeoutMs });
         const events = Array.isArray(eventsRes.data?.events) ? eventsRes.data.events : [];
         const reversedEvents = [...events].reverse();
         const lastMessage = reversedEvents.find((e: any) => e.role === 'assistant');
@@ -145,10 +189,18 @@ export class OpenHandsExecutionProvider {
           String(e?.type || '').toLowerCase().includes('error') ||
           String(e?.status || '').toLowerCase() === 'error',
         );
-        const statusErrorText =
-          typeof lastErrorEvent?.content === 'string'
-            ? lastErrorEvent.content
-            : JSON.stringify(lastErrorEvent?.content || '');
+        const assistantSidecarError = reversedEvents.find((e: any) => {
+          const text = this.extractErrorTextFromEvent(e).toLowerCase();
+          return (
+            String(e?.role || '').toLowerCase() === 'assistant' &&
+            (text.includes('[sidecar error]') || text.includes('llm call failed'))
+          );
+        });
+        const statusErrorText = [
+          this.extractErrorTextFromEvent(lastErrorEvent),
+          this.extractErrorTextFromEvent(assistantSidecarError),
+          this.extractErrorTextFromEvent(latestStatusPayload),
+        ].find((item) => String(item || '').trim().length > 0) || '';
 
         const stdout = typeof lastMessage?.content === 'string'
           ? lastMessage.content
@@ -172,7 +224,11 @@ export class OpenHandsExecutionProvider {
           : `OpenHands reported execution status=${status}`;
         const combinedError = `${statusFailureText}${statusErrorText ? ` | details=${statusErrorText}` : ''}`;
         lastError = combinedError;
-        const retry = runAttempt < maxRunRetries && this.shouldRetry(combinedError);
+        const emptyErrorStatus = status === 'error' && !String(statusErrorText || '').trim();
+        const retryableErrorStatus = status === 'error' || status === 'failed';
+        const retry =
+          runAttempt < maxRunRetries &&
+          (emptyErrorStatus || retryableErrorStatus || this.shouldRetry(combinedError));
         if (!retry) {
           return {
             ok: false,

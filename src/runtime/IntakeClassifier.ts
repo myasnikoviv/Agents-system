@@ -12,7 +12,7 @@
 import { getCockpitExecutorConfig } from './CockpitExecutorConfig';
 
 export type IntentType =
-  | 'conversational'    // Simple Q&A, greetings, status checks
+  | 'conversational'    // Legacy label; mapped to PM intake pipeline
   | 'new-feature'       // Implementing a new feature
   | 'bug-fix'           // Fixing a bug
   | 'refactor'          // Code refactoring
@@ -53,7 +53,7 @@ const KNOWN_AGENTS = [
 
 /** Maps intent to pipeline id used in logs */
 const INTENT_TO_PIPELINE: Record<IntentType, string> = {
-  'conversational': 'conversational',
+  'conversational': 'unified-task-intake',
   'new-feature': 'new-feature',
   'bug-fix': 'bug-fix',
   'refactor': 'refactor',
@@ -164,6 +164,38 @@ export function resolveExplicitDirectives(message: string): ClassificationResult
 function fastClassify(message: string): ClassificationResult | null {
   const text = message.trim().toLowerCase();
 
+  // High-signal intent keywords should win even for short prompts.
+  if (/\b(bug|fix|broken|error|regression|помилка|зламалось|не\s+працює|виправ)\b/.test(text)) {
+    return {
+      intent: 'bug-fix',
+      pipeline: 'bug-fix',
+      customAgents: [],
+      confidence: 0.9,
+      reason: 'Bug/fix keywords detected',
+      isExplicit: false,
+    };
+  }
+  if (/\b(refactor|cleanup|restructure|tech debt|рефактор|перероб)\b/.test(text)) {
+    return {
+      intent: 'refactor',
+      pipeline: 'refactor',
+      customAgents: [],
+      confidence: 0.9,
+      reason: 'Refactor keywords detected',
+      isExplicit: false,
+    };
+  }
+  if (/\b(new feature|implement|add feature|нова фіча|нова функц|додай функц)\b/.test(text)) {
+    return {
+      intent: 'new-feature',
+      pipeline: 'new-feature',
+      customAgents: [],
+      confidence: 0.85,
+      reason: 'New feature keywords detected',
+      isExplicit: false,
+    };
+  }
+
   // Operational workspace requests should go through the execution pipeline,
   // not the lightweight conversational responder.
   if (/\b(підрахуй|порахуй|count|list|find|show|перевір)\b/.test(text) &&
@@ -178,49 +210,8 @@ function fastClassify(message: string): ClassificationResult | null {
     };
   }
 
-  // Very short messages → always conversational
-  if (text.length < 30) {
-    return {
-      intent: 'conversational',
-      pipeline: 'conversational',
-      customAgents: [],
-      confidence: 0.95,
-      reason: 'Short message (< 30 chars)',
-      isExplicit: false,
-    };
-  }
-
-  // Greeting / thanks patterns
-  if (/^(привіт|hello|hi|hey|дякую|thanks?|thank you|ок|окей|добре)/.test(text)) {
-    return {
-      intent: 'conversational',
-      pipeline: 'conversational',
-      customAgents: [],
-      confidence: 0.99,
-      reason: 'Greeting or acknowledgement pattern',
-      isExplicit: false,
-    };
-  }
-
-  // Question patterns → conversational
-  const questionPatterns = [
-    /\?$/,
-    /^(що|як|чи|де|хто|яка|які|скільки|чому|навіщо|коли)\b/,
-    /^(what|how|why|when|where|who|which|is|are|can|do|does|did|has|have)\b/,
-    /^(перевір|покажи|розкажи|поясни|explain|show|list|check|tell|describe)\b/,
-    /чи (ти|ви|маєш|маєте)\b/,
-    /доступ до проект/,
-  ];
-  if (questionPatterns.some(p => p.test(text)) && text.length < 120) {
-    return {
-      intent: 'conversational',
-      pipeline: 'conversational',
-      customAgents: [],
-      confidence: 0.85,
-      reason: 'Question pattern matched',
-      isExplicit: false,
-    };
-  }
+  // NOTE: No special conversational heuristics here.
+  // PM intake should decide Q&A vs execution path.
 
   // Strategy/trading keywords → strategy-tuning
   if (/\b(стратег|backtest|strategy|backtesting|trading|сигнал|signal|індикатор|indicator)\b/.test(text)) {
@@ -265,7 +256,7 @@ async function llmClassify(message: string): Promise<ClassificationResult> {
 Analyze the user message and classify it into exactly one intent.
 
 Available intents:
-- conversational: Simple Q&A, greetings, status checks, asking about capabilities
+- conversational: Simple Q&A, greetings, status checks, asking about capabilities (legacy label; still routed through PM intake)
 - new-feature: Implementing a new feature or functionality  
 - bug-fix: Fixing a bug or error
 - refactor: Code refactoring or restructuring

@@ -1,4 +1,5 @@
 import { RunContext } from './RunContext';
+import { languageInstructionTag } from '../LanguageDetection';
 
 export class SystemPromptGenerator {
   /**
@@ -44,7 +45,13 @@ export class SystemPromptGenerator {
     // 6. Output Contract
     sections.push(`Output Contract:\n- Response Mode: ${context.outputContract.responseMode}\n- Required Sections: ${context.outputContract.requiredSections.join(', ')}`);
 
-    // 7. Instruction Footer
+    // 7. Language policy
+    const responseLanguage = languageInstructionTag(context.task.responseLanguage || 'unknown');
+    sections.push(
+      `Language Policy:\n- Detect and follow the user's language in the latest message.\n- Respond in: ${responseLanguage}.\n- Switch language only if the user explicitly asks to switch.`
+    );
+
+    // 8. Instruction Footer
     sections.push(`
 You are acting as the ${agent.title}. 
 Focus on executing the current stage of the pipeline: "${pipeline.currentStageTitle}".

@@ -6,6 +6,36 @@ import { getCockpitExecutorConfig } from '../CockpitExecutorConfig';
 import { ExecutionPayload, ExecutionPayloadCompiler } from '../context/ExecutionPayloadCompiler';
 
 export class CodexCliAdapter implements ExecutionAdapter {
+  private parseCodexJsonOutput(stdout: string): string {
+    const raw = String(stdout || '').trim();
+    if (!raw) return '';
+
+    const lines = raw.split('\n').map((line) => line.trim()).filter(Boolean);
+    if (lines.length === 0) return raw;
+
+    const extractedMessages: string[] = [];
+
+    for (const line of lines) {
+      try {
+        const parsed = JSON.parse(line);
+        if (parsed?.type === 'item.completed') {
+          const item = parsed.item || {};
+          if (item?.type === 'agent_message' && typeof item?.text === 'string' && item.text.trim()) {
+            extractedMessages.push(item.text.trim());
+          }
+        }
+      } catch {
+        // Keep going; codex can mix text/JSON output depending on mode/version.
+      }
+    }
+
+    if (extractedMessages.length > 0) {
+      return extractedMessages.join('\n\n').trim();
+    }
+
+    return raw;
+  }
+
   compilePayload(context: RunContext): ExecutionPayload {
     return ExecutionPayloadCompiler.compile(context);
   }
@@ -41,7 +71,7 @@ export class CodexCliAdapter implements ExecutionAdapter {
 
     return {
       ok: true,
-      content: (out.stdout || '').trim()
+      content: this.parseCodexJsonOutput(out.stdout || '')
     };
   }
 }
