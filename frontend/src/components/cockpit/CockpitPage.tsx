@@ -1,6 +1,8 @@
 import React, { useMemo, useState, useEffect, useRef } from 'react';
 import { Mic, Send, Cpu, Activity, LayoutDashboard, Terminal, Settings, PanelLeftClose, PanelLeftOpen, Globe2, ChevronDown, Plus, PencilLine, Folder, FolderPlus, Laptop, ShieldCheck, GitBranch, RefreshCw } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { apiUrl, fetchJsonSafe } from '../../lib/http';
 import './CockpitPage.css';
 const RUNTIME_MODE_KEY = 'cockpit.runtime.mode.v1';
@@ -150,6 +152,12 @@ interface DirectoryPickerWindow extends Window {
 }
 
 type RuntimeProvider = 'claude-cli' | 'codex-cli' | 'openhands-sdk';
+
+const toRenderableMarkdown = (raw: string): string =>
+    String(raw || '').replace(
+        /<execute_tool>\s*([\s\S]*?)\s*<\/execute_tool>/gi,
+        (_match, inner) => `\n\`\`\`bash\n${String(inner || '').trim()}\n\`\`\`\n`
+    );
 
 export function CockpitPage() {
     const navigate = useNavigate();
@@ -1102,7 +1110,11 @@ export function CockpitPage() {
                                     <span>{m.role === 'user' ? 'Me' : 'Agent'}</span>
                                     <span>{m.timestamp.toLocaleTimeString()}</span>
                                 </div>
-                                <div style={{whiteSpace: 'pre-wrap'}}>{m.content}</div>
+                                <div className="chat-markdown">
+                                    <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                                        {toRenderableMarkdown(m.content)}
+                                    </ReactMarkdown>
+                                </div>
                             </div>
                         ))}
                         

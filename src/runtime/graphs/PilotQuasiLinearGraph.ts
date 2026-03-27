@@ -446,17 +446,28 @@ function routeByIntent(state: PilotState): string {
 async function conversationalNode(state: PilotState): Promise<Partial<PilotState>> {
   console.log(`[PilotGraph] Conversational mode: answering directly via PM Orchestrator...`);
   await ensureDiscovery(state.workspacePath);
+  const runId = state.pipeline_run_id || `conv-${Date.now()}`;
+  const convContext = {
+    runId,
+    threadId: state.thread_id || 'none',
+    activeTicketId: state.plane_issue_id || '',
+    agent: { slug: 'pm-orchestrator' },
+    pipeline: { id: 'conversational', currentStageId: 'respond' },
+  } as any;
   
   const lastUserMsg = [...(state.messages || [])].filter(m => m.role === 'user').pop();
   const userMessage = lastUserMsg ? lastUserMsg.content : (state.artifactLogs[0] || '').replace(/User Message: /, '');
   const history = (state.messages || []).slice(0, -1);
+
+  await emitSwarmEvent('run.started', convContext, { status: 'started' });
+  await emitSwarmEvent('stage.started', convContext, { stage: 'respond' });
 
   const message = await safeRunRole(
     'pm-orchestrator',
     userMessage,
     `I'm your AI assistant for the trade-bot project. I'm ready to help! What would you like to know?`,
     {
-      runId: state.pipeline_run_id,
+      runId,
       ticketId: state.plane_issue_id,
       threadId: state.thread_id,
       pipelineId: 'conversational',
@@ -466,6 +477,11 @@ async function conversationalNode(state: PilotState): Promise<Partial<PilotState
     },
     history
   );
+
+  await emitSwarmEvent('run.completed', convContext, {
+    status: message.source === 'llm' ? 'completed' : 'fallback',
+    fallbackCategory: message.fallbackCategory,
+  });
 
   return {
     status: 'conversational_done',

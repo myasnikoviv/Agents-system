@@ -433,6 +433,33 @@
     justify-content: space-between;
 }
 
+.chat-markdown p {
+    margin: 0.25rem 0;
+}
+
+.chat-markdown p:first-child {
+    margin-top: 0;
+}
+
+.chat-markdown p:last-child {
+    margin-bottom: 0;
+}
+
+.chat-markdown pre {
+    margin: 0.45rem 0 0.25rem;
+    padding: 0.5rem 0.62rem;
+    border-radius: 0.45rem;
+    border: 1px solid #334155;
+    background: #0f172a;
+    color: #e2e8f0;
+    overflow-x: auto;
+}
+
+.chat-markdown code {
+    font-family: 'IBM Plex Mono', 'Fira Code', 'SFMono-Regular', Menlo, monospace;
+    font-size: 0.78rem;
+}
+
 /* Task Input */
 .task-input-wrapper {
     position: relative;
