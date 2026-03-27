@@ -53,6 +53,14 @@ export class SystemPromptGenerator {
       `Language Policy:\n- Detect and follow the user's language in the latest message.\n- Respond in: ${responseLanguage}.\n- Switch language only if the user explicitly asks to switch.`
     );
 
+    sections.push(
+      'Ticket Integrity Policy:\n- Never invent ticket IDs.\n- If no real ticket is provided in context, explicitly use "Ticket: N/A".\n- Do not output synthetic thread-level ticket identifiers.'
+    );
+
+    sections.push(
+      'Source-of-Truth Policy:\n- Primary operating contract is AGENTS.md in repository root.\n- Agent/Pipeline/Skill definitions are loaded from paths referenced in AGENTS.md (typically ./generated/templates/*).\n- Align role, pipeline context, and response format with that contract.'
+    );
+
     // 8. Instruction Footer
     sections.push(`
 You are acting as the ${agent.title}. 

@@ -12,6 +12,7 @@ import { resolveInterruptBeforeNodes } from '../ApprovalPolicyEngine';
 import { loadConfig } from '../CockpitExecutorConfig';
 import { ReclassificationCheckpoint } from '../context/ReclassificationCheckpoint';
 import { detectLanguage, type DetectedLanguage } from '../LanguageDetection';
+import { buildContractRepromptInstruction, validateAgentResponseContract } from '../ResponseContractGuard';
 
 
 // The officially supported way to type State in LangGraph TS
@@ -333,6 +334,11 @@ async function swarmNode(state: PilotState): Promise<Partial<PilotState>> {
   const currentStage = state.status.replace(/_completed$/, '');
   const hasCompletedRealStage = /_completed$/.test(String(state.status || ''));
   const needsPmEntry = !hasCompletedRealStage && currentStage !== 'pm-entry';
+  const stopAfterPmEntry = hasCompletedRealStage && currentStage === 'pm-entry';
+
+  if (stopAfterPmEntry) {
+    return { status: 'pipeline_completed' };
+  }
 
   const pmAgentProfile =
     AgentRegistry.getAgent('pm-orchestrator') ||
@@ -457,6 +463,105 @@ async function swarmNode(state: PilotState): Promise<Partial<PilotState>> {
     };
   }
 
+  // Enforce AGENTS.md response contract with a single auto-reprompt recovery.
+  let contractValidation = validateAgentResponseContract(result.content);
+  if (!contractValidation.ok) {
+    const validationErrors = contractValidation.errors;
+    await emitEvent({
+      event_type: 'contract_fail',
+      plane_issue_id: state.plane_issue_id || '',
+      pipeline_run_id: state.pipeline_run_id || '',
+      thread_id: state.thread_id || '',
+      agent_role: runContext.agent.slug,
+      source_stage: nextStage.id,
+      status: 'failed',
+      correlation_id: state.pipeline_run_id || '',
+      payload: {
+        pipelineId,
+        stageId: nextStage.id,
+        errors: validationErrors,
+      },
+    });
+
+    await emitEvent({
+      event_type: 'contract_reprompt',
+      plane_issue_id: state.plane_issue_id || '',
+      pipeline_run_id: state.pipeline_run_id || '',
+      thread_id: state.thread_id || '',
+      agent_role: runContext.agent.slug,
+      source_stage: nextStage.id,
+      status: 'in_progress',
+      correlation_id: state.pipeline_run_id || '',
+      payload: {
+        pipelineId,
+        stageId: nextStage.id,
+        reason: 'response_contract_violation',
+      },
+    });
+
+    const repromptInstruction = buildContractRepromptInstruction(
+      state.preferredLanguage,
+      validationErrors,
+      result.content
+    );
+    const repromptContext = {
+      ...runContext,
+      memory: {
+        ...runContext.memory,
+        threadHistory: [
+          ...(runContext.memory.threadHistory || []),
+          { role: 'assistant' as const, content: result.content },
+          { role: 'user' as const, content: repromptInstruction },
+        ],
+      },
+    };
+
+    try {
+      result = await executor.run(repromptContext as any);
+    } catch (error: any) {
+      const errMsg = error?.message || 'Unknown execution error';
+      return {
+        status: `${nextStage.id}_completed`,
+        messages: [{
+          role: 'assistant',
+          content: localizeSystemMessage(state.preferredLanguage, 'stageFailed', {
+            stageId: nextStage.id,
+            error: errMsg,
+            providerLabel,
+          }),
+        }],
+        artifactLogs: [
+          buildArtifactLog({
+            stage: nextStage.id,
+            role: runContext.agent.title,
+            status: 'fallback',
+            source: 'fallback',
+            fallbackCategory: 'execution_error',
+            message: `Reprompt failed: ${errMsg}`,
+          }),
+        ],
+      };
+    }
+
+    contractValidation = validateAgentResponseContract(result.content);
+  }
+
+  await emitEvent({
+    event_type: contractValidation.ok ? 'contract_pass' : 'contract_fail',
+    plane_issue_id: state.plane_issue_id || '',
+    pipeline_run_id: state.pipeline_run_id || '',
+    thread_id: state.thread_id || '',
+    agent_role: runContext.agent.slug,
+    source_stage: nextStage.id,
+    status: contractValidation.ok ? 'success' : 'failed',
+    correlation_id: state.pipeline_run_id || '',
+    payload: {
+      pipelineId,
+      stageId: nextStage.id,
+      errors: contractValidation.ok ? [] : contractValidation.errors,
+    },
+  });
+
   // Check for intent drift (Phase 5)
   const drift = await ReclassificationCheckpoint.detectDrift(runContext, result.content);
   if (drift.shouldReroute) {
@@ -482,12 +587,13 @@ async function swarmNode(state: PilotState): Promise<Partial<PilotState>> {
     plane_issue_id: state.plane_issue_id || '',
     pipeline_run_id: state.pipeline_run_id || '',
     thread_id: state.thread_id || '',
-    agent_role: runContext.agent.title,
+    agent_role: runContext.agent.slug,
     source_stage: nextStage.id,
     status: 'success',
     correlation_id: state.pipeline_run_id || '',
     payload: {
       agentId: nextStage.agent,
+      agentTitle: runContext.agent.title,
       pipelineId,
       stageId: nextStage.id,
       outcome: 'success',
@@ -514,7 +620,6 @@ async function swarmNode(state: PilotState): Promise<Partial<PilotState>> {
  * Conditional edge for the swarm loop.
  */
 function routeSwarm(state: PilotState): string {
-  if (state.status === 'pm-entry_completed') return 'finalize';
   if (state.status === 'pipeline_completed') return 'finalize';
   return 'swarm';
 }

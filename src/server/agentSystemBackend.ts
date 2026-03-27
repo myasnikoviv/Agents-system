@@ -3,9 +3,10 @@ import dotenv from 'dotenv';
 import express from 'express';
 import fs from 'fs';
 import path from 'path';
+import { execSync } from 'child_process';
 import Database from 'better-sqlite3';
 import { v4 as uuidv4 } from 'uuid';
-import { executeQuasiLinearRun } from '../runtime/graphs/PilotQuasiLinearGraph';
+import { executeRuntimeRun } from '../runtime/graphs/RuntimeExecutionRouter';
 import { detectLanguage } from '../runtime/LanguageDetection';
 import { fetchRecentEvents } from '../runtime/events/EventBus';
 import { updateCockpitExecutorConfig, getCockpitExecutorConfig } from '../runtime/CockpitExecutorConfig';
@@ -443,7 +444,10 @@ const syncExecutorSettingsToRuntimeConfig = (executorSettings: Record<string, an
   }
 };
 
-const syncPlaneBindingForProject = async (project: { id: string; label: string }) => {
+const syncPlaneBindingForProject = async (
+  project: { id: string; label: string },
+  options?: { preferredPlaneProjectId?: string; createIfMissing?: boolean },
+) => {
   const checkedAt = new Date().toISOString();
   if (project.id === '__unbound__') {
     planeBindingStore.set(project.id, {
@@ -469,6 +473,8 @@ const syncPlaneBindingForProject = async (project: { id: string; label: string }
   const headers = { 'X-Api-Key': PLANE_API_KEY, 'Content-Type': 'application/json' };
   const wantedIdentifier = toPlaneIdentifier(project.id);
   const wantedName = toPlaneProjectName(project.label || project.id);
+  const preferredPlaneProjectId = String(options?.preferredPlaneProjectId || '').trim();
+  const createIfMissing = options?.createIfMissing !== false;
 
   try {
     const listRes = await fetch(`${apiRoot}/projects/`, { headers });
@@ -487,7 +493,9 @@ const syncPlaneBindingForProject = async (project: { id: string; label: string }
     const projects = Array.isArray(rawProjects) ? rawProjects : (rawProjects?.results || []);
     const wantedKey = normalizeProjectKey(wantedName);
     const projectKey = normalizeProjectKey(project.id);
-    const existing = projects.find(
+    const existing = preferredPlaneProjectId
+      ? projects.find((p) => p.id === preferredPlaneProjectId)
+      : projects.find(
       (p) =>
         p.identifier?.toUpperCase() === wantedIdentifier ||
         normalizeProjectKey(p.name || '') === wantedKey ||
@@ -501,6 +509,18 @@ const syncPlaneBindingForProject = async (project: { id: string; label: string }
         planeProjectIdentifier: existing.identifier,
         planeProjectName: existing.name,
         status: 'linked',
+        checkedAt,
+      });
+      return;
+    }
+
+    if (!createIfMissing) {
+      planeBindingStore.set(project.id, {
+        cockpitProjectId: project.id,
+        status: 'error',
+        message: preferredPlaneProjectId
+          ? `Preferred Plane project was not found: ${preferredPlaneProjectId}`
+          : 'Plane project is required. Select an existing project or explicitly allow creation.',
         checkedAt,
       });
       return;
@@ -572,20 +592,151 @@ const syncPlaneBindingForProject = async (project: { id: string; label: string }
   }
 };
 
+const fetchPlaneProjects = async (): Promise<Array<{ id: string; name: string; identifier: string }>> => {
+  if (!canUsePlane()) return [];
+  const apiRoot = `${PLANE_BASE_URL}/api/v1/workspaces/${PLANE_WORKSPACE}`;
+  const headers = { 'X-Api-Key': PLANE_API_KEY, 'Content-Type': 'application/json' };
+  const listRes = await fetch(`${apiRoot}/projects/`, { headers });
+  if (!listRes.ok) return [];
+  const rawProjects = await listRes.json() as
+    | Array<{ id: string; name: string; identifier: string }>
+    | { results?: Array<{ id: string; name: string; identifier: string }> };
+  const projects = Array.isArray(rawProjects) ? rawProjects : (rawProjects?.results || []);
+  return projects
+    .filter((p) => Boolean(p?.id))
+    .sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
+};
+
+const normalizeWorktreePath = (raw?: string): string | undefined => {
+  const value = String(raw || '').trim();
+  if (!value) return undefined;
+  if (path.isAbsolute(value)) return value;
+
+  const runtimeBase = runtimeFooter?.worktreePath
+    ? (path.isAbsolute(runtimeFooter.worktreePath)
+      ? path.dirname(runtimeFooter.worktreePath)
+      : path.resolve(process.cwd(), path.dirname(runtimeFooter.worktreePath)))
+    : '';
+
+  const baseCandidates = [
+    runtimeBase,
+    path.dirname(process.cwd()),
+    process.cwd(),
+  ].filter(Boolean);
+
+  for (const base of baseCandidates) {
+    const candidate = path.resolve(base, value);
+    try {
+      if (fs.existsSync(candidate)) return candidate;
+    } catch {
+      // ignore fs errors and fallback below
+    }
+  }
+  return path.resolve(path.dirname(process.cwd()), value);
+};
+
 const ensureProject = (id: string, label: string, worktreePath?: string) => {
+
   const existing = projectStore.get(id);
+  const normalizedWorktree = normalizeWorktreePath(worktreePath);
   if (!existing) {
-    projectStore.set(id, { id, label, ...(worktreePath ? { worktreePath } : {}) });
+    projectStore.set(id, { id, label, ...(normalizedWorktree ? { worktreePath: normalizedWorktree } : {}) });
     threadStore.set(id, []);
     persistRuntimeStore();
     return;
   }
   existing.label = label;
-  if (worktreePath && worktreePath.trim()) {
-    existing.worktreePath = worktreePath.trim();
+  if (normalizedWorktree) {
+    existing.worktreePath = normalizedWorktree;
   }
   projectStore.set(id, existing);
   persistRuntimeStore();
+};
+
+const resolveGitBranch = (worktreePath?: string): string => {
+  const target = String(worktreePath || '').trim();
+  if (!target) return runtimeFooter.activeBranch || 'main';
+  try {
+    const branch = execSync(`git -C "${target}" rev-parse --abbrev-ref HEAD`, {
+      stdio: ['ignore', 'pipe', 'ignore'],
+      encoding: 'utf-8',
+    }).trim();
+    return branch || (runtimeFooter.activeBranch || 'main');
+  } catch {
+    return runtimeFooter.activeBranch || 'main';
+  }
+};
+
+const validateProjectWorktree = (rawPath?: string): { ok: true; absolutePath: string } | { ok: false; error: string; message: string } => {
+  const inputPath = String(rawPath || '').trim();
+  if (!inputPath) {
+    return {
+      ok: false,
+      error: 'worktree_path_required',
+      message: 'Project directory is required.',
+    };
+  }
+  if (!path.isAbsolute(inputPath)) {
+    return {
+      ok: false,
+      error: 'worktree_path_must_be_absolute',
+      message: 'Project directory must be an absolute path.',
+    };
+  }
+  const normalized = normalizeWorktreePath(inputPath);
+  if (!normalized) {
+    return {
+      ok: false,
+      error: 'worktree_path_required',
+      message: 'Project directory is required.',
+    };
+  }
+  if (!fs.existsSync(normalized)) {
+    return {
+      ok: false,
+      error: 'worktree_path_not_found',
+      message: `Directory does not exist: ${normalized}`,
+    };
+  }
+  let stat: fs.Stats;
+  try {
+    stat = fs.statSync(normalized);
+  } catch {
+    return {
+      ok: false,
+      error: 'worktree_path_not_accessible',
+      message: `Directory is not accessible: ${normalized}`,
+    };
+  }
+  if (!stat.isDirectory()) {
+    return {
+      ok: false,
+      error: 'worktree_path_not_directory',
+      message: `Path is not a directory: ${normalized}`,
+    };
+  }
+
+  try {
+    const isGitWorktree = execSync(`git -C "${normalized}" rev-parse --is-inside-work-tree`, {
+      stdio: ['ignore', 'pipe', 'ignore'],
+      encoding: 'utf-8',
+    }).trim();
+    if (isGitWorktree !== 'true') {
+      return {
+        ok: false,
+        error: 'worktree_not_git_repo',
+        message: `Directory is not a git repository: ${normalized}`,
+      };
+    }
+  } catch {
+    return {
+      ok: false,
+      error: 'worktree_not_git_repo',
+      message: `Directory is not a git repository: ${normalized}`,
+    };
+  }
+
+  return { ok: true, absolutePath: normalized };
 };
 
 const ensureThreadInProject = (projectId: string, threadId: string, label?: string) => {
@@ -633,8 +784,17 @@ const refreshCatalog = async () => {
 };
 
 restoreRuntimeStore();
-if (projectStore.size === 0) {
-  ensureProject('default', 'Default');
+let normalizedLegacyProjects = false;
+for (const [projectId, project] of projectStore.entries()) {
+  const raw = String(project.worktreePath || '').trim();
+  if (!raw || path.isAbsolute(raw)) continue;
+  const normalized = normalizeWorktreePath(raw);
+  if (!normalized) continue;
+  projectStore.set(projectId, { ...project, worktreePath: normalized });
+  normalizedLegacyProjects = true;
+}
+if (normalizedLegacyProjects) {
+  persistRuntimeStore();
 }
 for (const project of projectStore.values()) {
   void syncPlaneBindingForProject(project);
@@ -687,6 +847,20 @@ app.get('/api/cockpit/catalog', async (_req, res) => {
   });
 });
 
+app.get('/api/cockpit/agents/registry', async (_req, res) => {
+  await refreshCatalog();
+  const agents = AgentRegistry.getAllAgents()
+    .map((agent) => ({
+      slug: agent.slug,
+      title: agent.title || agent.slug,
+      callsign: agent.callsign || agent.title || agent.slug,
+      sourcePath: agent.sourcePath || '',
+      available: true,
+    }))
+    .sort((a, b) => a.slug.localeCompare(b.slug));
+  res.json({ success: true, agents });
+});
+
 app.get('/api/cockpit/providers', (_req, res) => {
   const runtimeFromSettings = getRuntimeSelectionFromExecutorSettings();
   if (runtimeFromSettings) {
@@ -733,26 +907,75 @@ app.get('/api/cockpit/chains', (_req, res) => {
   res.json({ success: true, projects, threadsByProject, planeBindings });
 });
 
+const buildChainsPayload = () => {
+  const projects = Array.from(projectStore.values());
+  const threadsByProject = Array.from(threadStore.entries()).reduce<Record<string, Array<{ id: string; label: string; updatedAt: string }>>>(
+    (acc, [key, value]) => {
+      acc[key] = value;
+      return acc;
+    },
+    {},
+  );
+  const planeBindings = Array.from(planeBindingStore.entries()).reduce<Record<string, any>>((acc, [key, value]) => {
+    acc[key] = value;
+    return acc;
+  }, {});
+  return { success: true, projects, threadsByProject, planeBindings };
+};
+
 app.post('/api/cockpit/chains', (req, res) => {
   const projectId = String(req.body?.projectId || '').trim();
   const projectLabel = String(req.body?.projectLabel || '').trim();
   const worktreePath = String(req.body?.worktreePath || '').trim();
+  const selectedPlaneProjectId = String(req.body?.planeProjectId || '').trim();
+  const createPlaneProject = Boolean(req.body?.createPlaneProject);
   const label = String(req.body?.label || '').trim() || `New chat ${new Date().toLocaleTimeString()}`;
   if (!projectId) {
     res.status(400).json({ success: false, error: 'project_id_required' });
     return;
   }
 
-  if (!projectStore.has(projectId)) {
+  const creatingProject = !projectStore.has(projectId);
+  if (creatingProject) {
+    if (projectId !== '__unbound__') {
+      const validation = validateProjectWorktree(worktreePath || undefined);
+      if ('error' in validation) {
+        res.status(400).json({ success: false, error: validation.error, message: validation.message });
+        return;
+      }
+
+      if (!selectedPlaneProjectId && !createPlaneProject) {
+        res.status(400).json({
+          success: false,
+          error: 'plane_project_required',
+          message: 'Select an existing Plane project or explicitly enable new project creation.',
+        });
+        return;
+      }
+    }
     const derivedLabel = projectId === '__unbound__' ? 'Unbound' : (projectLabel || projectId);
     ensureProject(projectId, derivedLabel, worktreePath || undefined);
   } else if (projectLabel || worktreePath) {
+    if (worktreePath) {
+      const validation = validateProjectWorktree(worktreePath);
+      if ('error' in validation) {
+        res.status(400).json({ success: false, error: validation.error, message: validation.message });
+        return;
+      }
+    }
     const existing = projectStore.get(projectId)!;
     ensureProject(projectId, projectLabel || existing.label, worktreePath || existing.worktreePath);
   }
   const project = projectStore.get(projectId);
   if (project) {
-    void syncPlaneBindingForProject(project);
+    if (creatingProject) {
+      void syncPlaneBindingForProject(project, {
+        preferredPlaneProjectId: selectedPlaneProjectId || undefined,
+        createIfMissing: createPlaneProject,
+      });
+    } else {
+      void syncPlaneBindingForProject(project);
+    }
   }
 
   const nextThread = {
@@ -767,19 +990,70 @@ app.post('/api/cockpit/chains', (req, res) => {
   }
   persistRuntimeStore();
 
-  const projects = Array.from(projectStore.values());
-  const threadsByProject = Array.from(threadStore.entries()).reduce<Record<string, Array<{ id: string; label: string; updatedAt: string }>>>(
-    (acc, [key, value]) => {
-      acc[key] = value;
-      return acc;
-    },
-    {},
-  );
-  const planeBindings = Array.from(planeBindingStore.entries()).reduce<Record<string, any>>((acc, [key, value]) => {
-    acc[key] = value;
-    return acc;
-  }, {});
-  res.json({ success: true, projects, threadsByProject, thread: nextThread, planeBindings });
+  res.json({ ...buildChainsPayload(), thread: nextThread });
+});
+
+app.get('/api/cockpit/plane/projects', async (_req, res) => {
+  if (!canUsePlane()) {
+    res.json({
+      success: true,
+      configured: false,
+      projects: [],
+      message: 'Plane is not configured (PLANE_API_TOKEN / PLANE_BASE_URL / PLANE_WORKSPACE).',
+    });
+    return;
+  }
+  const projects = await fetchPlaneProjects();
+  res.json({
+    success: true,
+    configured: true,
+    projects,
+  });
+});
+
+app.delete('/api/cockpit/chains/:threadId', (req, res) => {
+  const threadId = String(req.params.threadId || '').trim();
+  if (!threadId) {
+    res.status(400).json({ success: false, error: 'thread_id_required' });
+    return;
+  }
+
+  let removed = false;
+  for (const [projectId, threads] of threadStore.entries()) {
+    const nextThreads = threads.filter((t) => t.id !== threadId);
+    if (nextThreads.length !== threads.length) {
+      removed = true;
+      threadStore.set(projectId, nextThreads);
+    }
+  }
+  if (removed) {
+    threadMessageStore.delete(threadId);
+    persistRuntimeStore();
+  }
+
+  res.json({ ...buildChainsPayload(), removedThreadId: threadId, removed });
+});
+
+app.delete('/api/cockpit/projects/:projectId', (req, res) => {
+  const projectId = String(req.params.projectId || '').trim();
+  if (!projectId) {
+    res.status(400).json({ success: false, error: 'project_id_required' });
+    return;
+  }
+  if (!projectStore.has(projectId)) {
+    res.status(404).json({ success: false, error: 'project_not_found' });
+    return;
+  }
+  const threads = threadStore.get(projectId) || [];
+  for (const thread of threads) {
+    threadMessageStore.delete(thread.id);
+  }
+  threadStore.delete(projectId);
+  projectStore.delete(projectId);
+  planeBindingStore.delete(projectId);
+
+  persistRuntimeStore();
+  res.json({ ...buildChainsPayload(), removedProjectId: projectId, removed: true });
 });
 
 app.get('/api/cockpit/chains/:threadId/messages', (req, res) => {
@@ -808,10 +1082,16 @@ app.post('/api/cockpit/projects/select', (req, res) => {
   }
 
   if (project.worktreePath && project.worktreePath.trim()) {
+    const normalizedWorktree = normalizeWorktreePath(project.worktreePath) || project.worktreePath.trim();
+    const nextBranch = resolveGitBranch(normalizedWorktree);
     runtimeFooter = {
       ...runtimeFooter,
-      worktreePath: project.worktreePath.trim(),
+      worktreePath: normalizedWorktree,
+      activeBranch: nextBranch,
     };
+    project.worktreePath = normalizedWorktree;
+    projectStore.set(project.id, project);
+    persistRuntimeStore();
     saveRuntimeState('runtime_footer', runtimeFooter);
   }
 
@@ -988,10 +1268,12 @@ app.post('/api/chat', async (req, res) => {
   }
 
   try {
+    await refreshCatalog();
+
     ensureThreadInProject(projectId, threadId);
     appendThreadMessage(threadId, 'user', message);
 
-    const finalState = await executeQuasiLinearRun({
+    const execution = await executeRuntimeRun({
       plane_issue_id: String(req.body?.ticketId || '').trim(),
       pipeline_run_id: runId,
       thread_id: threadId,
@@ -1002,6 +1284,7 @@ app.post('/api/chat', async (req, res) => {
       projectId,
       workspacePath: process.cwd(),
     });
+    const finalState = execution.finalState;
 
     const assistantMessage = [...(finalState.messages || [])]
       .reverse()
@@ -1046,6 +1329,9 @@ app.post('/api/chat', async (req, res) => {
         blockingGates: '',
         approvalRequired: false,
         approvalReason: '',
+        modeRequested: execution.modeRequested,
+        modeApplied: execution.modeApplied,
+        engine: execution.engine,
       },
       gitContext: {
         activeBranch: runtimeFooter.activeBranch,
