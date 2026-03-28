@@ -32,7 +32,7 @@ class LogicalAgenticAdapter implements ExecutionAdapter {
         ok: true,
         content: `Checking lines in ${file}...`,
         responseMode: 'tool_call',
-        toolCalls: [{ id: `call_${this.step}`, tool: 'read_file', args: { path: `/Users/myasnikoviv/development/Agents system/${file}` } }]
+        toolCalls: [{ id: `call_${this.step}`, tool: 'read_file', args: { path: `/Users/myasnikoviv/development/agent-system/${file}` } }]
       };
     }
     
@@ -65,18 +65,21 @@ The largest file is ${largestFile}.`;
 
 async function runFinalProof() {
   console.log('--- FINAL AGENTIC RUNTIME PROOF (REAL TOOLS, REAL DISK) ---');
-  const agentCallsign = 'System Core';
-  const pipelineId = 'bootstrap';
+  const pipelineId = 'unified-task-intake';
   await DynamicDiscoveryService.discoverAll();
 
   const runId = `proof_${Date.now()}`;
   const agent = AgentRegistry.getAgent('system-core')!;
-  const pipeline = PipelineRegistry.getPipeline(pipelineId)!;
+  const pipeline = PipelineRegistry.getPipeline(pipelineId) || PipelineRegistry.getAllPipelines()[0];
+  if (!agent || !pipeline || !pipeline.stages.length) {
+    throw new Error('Runtime proof bootstrap failed: missing system-core agent or discoverable pipeline/stages.');
+  }
+  const initialStageId = pipeline.stages[0].id;
 
   const context = await RunContextAssembler.assemble(
     agent,
     pipeline,
-    '10',
+    initialStageId,
     'Count and compare lines in 3 real files',
     { runId }
   );

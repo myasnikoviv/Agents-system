@@ -123,10 +123,20 @@ export class RunContextAssembler {
     runtimeHints?: { preferredLanguage?: DetectedLanguage },
     projectContext?: { projectId: string, workspacePath: string }
   ): Promise<RunContext> {
-    const stageIndex = pipeline.stages.findIndex(s => s.id === stageId);
+    if (!agent) {
+      throw new Error('RunContextAssembler: agent is required.');
+    }
+    if (!pipeline) {
+      throw new Error('RunContextAssembler: pipeline is required.');
+    }
+    if (!Array.isArray(pipeline.stages) || pipeline.stages.length === 0) {
+      throw new Error(`RunContextAssembler: pipeline ${pipeline.slug || pipeline.id || 'unknown'} has no stages.`);
+    }
+    const effectiveStageId = String(stageId || '').trim() || pipeline.stages[0].id;
+    const stageIndex = pipeline.stages.findIndex(s => s.id === effectiveStageId);
     const stage = pipeline.stages[stageIndex];
     if (!stage) {
-      throw new Error(`Stage ${stageId} not found in pipeline ${pipeline.slug}`);
+      throw new Error(`Stage ${effectiveStageId} not found in pipeline ${pipeline.slug}`);
     }
 
     const ctx: RunContext = {
