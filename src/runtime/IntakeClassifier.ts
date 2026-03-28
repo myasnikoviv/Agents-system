@@ -230,7 +230,7 @@ function fastClassify(message: string): ClassificationResult | null {
 
 /**
  * LLM-powered classifier — calls the configured LLM to analyze the message.
- * Falls back to 'new-feature' pipeline if the LLM is unavailable.
+ * Falls back to 'unified-task-intake' pipeline if the LLM is unavailable.
  */
 async function llmClassify(message: string): Promise<ClassificationResult> {
   const cfg = getCockpitExecutorConfig();
@@ -241,13 +241,13 @@ async function llmClassify(message: string): Promise<ClassificationResult> {
     String(cfg.openhands.model || '').toLowerCase().startsWith('google/');
 
   if (!hasOpenAIKey && !hasGoogleKey) {
-    // No LLM available — default to new-feature for longer messages
+    // No LLM available — default to PM intake pipeline.
     return {
-      intent: 'new-feature',
-      pipeline: 'new-feature',
+      intent: 'conversational',
+      pipeline: 'unified-task-intake',
       customAgents: [],
       confidence: 0.5,
-      reason: 'No LLM configured — defaulting to new-feature pipeline',
+      reason: 'No LLM configured — defaulting to intake pipeline',
       isExplicit: false,
     };
   }
@@ -330,11 +330,11 @@ User message: "${message.replace(/"/g, "'")}"`;
   } catch (e: any) {
     console.warn('[IntakeClassifier] LLM classification failed:', e.message);
     return {
-      intent: 'new-feature',
-      pipeline: 'new-feature',
+      intent: 'conversational',
+      pipeline: 'unified-task-intake',
       customAgents: [],
       confidence: 0.5,
-      reason: `LLM classification failed (${e.message}) — defaulting to new-feature`,
+      reason: 'LLM classification failed — defaulting to intake pipeline',
       isExplicit: false,
     };
   }

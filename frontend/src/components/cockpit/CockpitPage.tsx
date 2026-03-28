@@ -198,7 +198,7 @@ export function CockpitPage() {
     const [messagesByThread, setMessagesByThread] = useState<Record<string, ChatMessage[]>>({});
     const [input, setInput] = useState('');
     const [isRecording, setIsRecording] = useState(false);
-    const [eventsByThread, setEventsByThread] = useState<Record<string, RuntimeEvent[]>>({});
+    const [, setEventsByThread] = useState<Record<string, RuntimeEvent[]>>({});
     const [isProcessing, setIsProcessing] = useState(false);
     const [isAwaitingAgentReply, setIsAwaitingAgentReply] = useState(false);
     const [ghostText, setGhostText] = useState('');
@@ -269,13 +269,6 @@ export function CockpitPage() {
     const [newChainScope, setNewChainScope] = useState<'current' | 'unbound'>('current');
     const activeThreadKey = selectedThread || currentThreadId || '__unbound_thread__';
     const messages = messagesByThread[activeThreadKey] || [];
-    const visibleEvents = useMemo(() => {
-        if (activeThreadKey && activeThreadKey !== '__unbound_thread__') {
-            return eventsByThread[activeThreadKey] || [];
-        }
-        return eventsByThread.__global__ || [];
-    }, [activeThreadKey, eventsByThread]);
-
     const agentRegistryRef = useRef<AgentRegistryEntry[]>([]);
 
     const resolveAgentSlug = (rawRole: string): string => {
@@ -402,9 +395,8 @@ export function CockpitPage() {
         scrollRef.current?.scrollIntoView({ behavior: 'smooth' });
     }, [messages, status]); // Added status to trigger scroll when approval card appears
 
-    useEffect(() => {
-        feedEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-    }, [visibleEvents]);
+    // Intentionally do not auto-scroll event feed on runtime updates.
+    // This prevents jumpy UI while users inspect the swarm board/event history.
 
     useEffect(() => {
         const win = window as unknown as { 
@@ -864,7 +856,7 @@ export function CockpitPage() {
                     setIsAwaitingAgentReply(false);
                 }
                 // 2. For legacy direct/linear modes, display logs
-                else if (Array.isArray(data.logs) && data.logs.length > 0 && (data.status === 'completed' || data.observability?.pipeline === 'openhands-direct' || mode !== 'multiple_agents')) {
+                else if (Array.isArray(data.logs) && data.logs.length > 0 && mode !== 'multiple_agents') {
                     appendMessagesToThread(responseThreadId || threadIdToUse, data.logs.map((log: string, i: number) => ({
                         id: `${Date.now()}-${i}`,
                         role: 'agent',
