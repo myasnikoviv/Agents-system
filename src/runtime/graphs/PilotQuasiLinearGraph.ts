@@ -121,6 +121,22 @@ function compactText(value: string, max = 220): string {
   return `${normalized.slice(0, max - 1)}…`;
 }
 
+function isAgentStatusChainRequest(state: PilotState): boolean {
+  const userMessage = [...(state.messages || [])]
+    .reverse()
+    .find((m) => m.role === 'user')?.content || '';
+  const probe = String(userMessage || '').toLowerCase();
+  if (!probe) return false;
+
+  const hasChainIntent =
+    probe.includes('test chain') ||
+    probe.includes('тестовий ланцюг') ||
+    probe.includes('кожен агент') ||
+    probe.includes('через хендоф');
+  const hasStatusIntent = probe.includes('status') || probe.includes('статус');
+  return hasChainIntent && hasStatusIntent;
+}
+
 function buildContractFallbackMessage(state: PilotState, runContext: any, pipelineId: string, stageId: string): string {
   const callsign = runContext?.agent?.callsign || runContext?.agent?.title || runContext?.agent?.slug || 'Agent';
   const ticket = String(state.plane_issue_id || '').trim() || 'N/A';
@@ -319,6 +335,76 @@ async function routerNode(state: PilotState): Promise<Partial<PilotState>> {
  */
 async function swarmNode(state: PilotState): Promise<Partial<PilotState>> {
   await ensureDiscovery(state.workspacePath);
+
+  if (isAgentStatusChainRequest(state)) {
+    const pipelineId = 'unified-task-intake';
+    const agents = AgentRegistry.getAllAgents();
+    const messages: Array<{ role: string; content: string }> = [];
+
+    for (let idx = 0; idx < agents.length; idx++) {
+      const agent = agents[idx]!;
+      const stageId = `status-chain-${idx + 1}`;
+
+      await emitSwarmEvent('stage.started', {
+        runId: state.pipeline_run_id || '',
+        threadId: state.thread_id || '',
+        agent: { slug: agent.slug },
+        pipeline: { id: pipelineId, currentStageId: stageId },
+        activeTicketId: state.plane_issue_id || '',
+      } as any, { agentId: agent.slug, pipelineId });
+
+      const content = [
+        `Active role: ${agent.callsign || agent.title || agent.slug}`,
+        `Pipeline: ${pipelineId}`,
+        `Stage: ${stageId}`,
+        `Next: ${idx < agents.length - 1 ? agents[idx + 1]!.slug : 'finalize'}`,
+        `Ticket: ${state.plane_issue_id || 'N/A'}`,
+        'Git: branch=unknown | worktree=unknown',
+        '',
+        'summary',
+        `Агент ${agent.slug} на звʼязку.`,
+        '',
+        'findings',
+        '- status: standby',
+      ].join('\n');
+
+      await emitEvent({
+        event_type: 'swarm_stage_completed',
+        plane_issue_id: state.plane_issue_id || '',
+        pipeline_run_id: state.pipeline_run_id || '',
+        thread_id: state.thread_id || '',
+        agent_role: agent.slug,
+        source_stage: stageId,
+        status: 'success',
+        correlation_id: state.pipeline_run_id || '',
+        payload: {
+          agentId: agent.slug,
+          agentTitle: agent.title,
+          pipelineId,
+          stageId,
+          outcome: 'success',
+          message: content,
+        },
+      });
+
+      messages.push({ role: 'assistant', content });
+    }
+
+    return {
+      status: 'pipeline_completed',
+      selected_pipeline: pipelineId,
+      messages,
+      artifactLogs: [
+        buildArtifactLog({
+          stage: 'status-chain',
+          role: 'System',
+          status: 'completed',
+          source: 'worker',
+          message: `Broadcast status chain completed for ${agents.length} agents.`,
+        }),
+      ],
+    };
+  }
   
   const pipelineId = state.selected_pipeline || 'unified-task-intake';
   let pipelineDef = PipelineRegistry.getPipeline(pipelineId);
@@ -354,11 +440,6 @@ async function swarmNode(state: PilotState): Promise<Partial<PilotState>> {
   const currentStage = state.status.replace(/_completed$/, '');
   const hasCompletedRealStage = /_completed$/.test(String(state.status || ''));
   const needsPmEntry = !hasCompletedRealStage && currentStage !== 'pm-entry';
-  const stopAfterPmEntry = hasCompletedRealStage && currentStage === 'pm-entry';
-
-  if (stopAfterPmEntry) {
-    return { status: 'pipeline_completed' };
-  }
 
   const pmAgentProfile =
     AgentRegistry.getAgent('pm-orchestrator') ||

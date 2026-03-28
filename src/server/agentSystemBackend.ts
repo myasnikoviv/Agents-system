@@ -783,6 +783,28 @@ const refreshCatalog = async () => {
   }
 };
 
+const getAgentCallsignMapFromManifest = (): Record<string, string> => {
+  try {
+    const manifestPath = path.resolve(process.cwd(), 'AGENTS.md');
+    if (!fs.existsSync(manifestPath)) return {};
+    const raw = fs.readFileSync(manifestPath, 'utf-8');
+    const map: Record<string, string> = {};
+    const matches = Array.from(
+      raw.matchAll(/-\s*Callsign:\s*`([^`]+)`[\s\S]*?-\s*File:\s*`(\.\/[^`]+\/agents\/[^`]+\.md)`/g),
+    );
+    for (const match of matches) {
+      const callsign = String(match[1] || '').replace(/^`+|`+$/g, '').trim();
+      const relAgentPath = String(match[2] || '').trim();
+      const slug = path.basename(relAgentPath, '.md');
+      if (!slug || !callsign) continue;
+      map[slug] = callsign;
+    }
+    return map;
+  } catch {
+    return {};
+  }
+};
+
 restoreRuntimeStore();
 let normalizedLegacyProjects = false;
 for (const [projectId, project] of projectStore.entries()) {
@@ -849,11 +871,12 @@ app.get('/api/cockpit/catalog', async (_req, res) => {
 
 app.get('/api/cockpit/agents/registry', async (_req, res) => {
   await refreshCatalog();
+  const callsignsBySlug = getAgentCallsignMapFromManifest();
   const agents = AgentRegistry.getAllAgents()
     .map((agent) => ({
       slug: agent.slug,
       title: agent.title || agent.slug,
-      callsign: agent.callsign || agent.title || agent.slug,
+      callsign: callsignsBySlug[agent.slug] || agent.callsign || agent.title || agent.slug,
       sourcePath: agent.sourcePath || '',
       available: true,
     }))
@@ -1306,13 +1329,18 @@ app.post('/api/chat', async (req, res) => {
           : detectedLanguage === 'be'
             ? 'Выкананне завершана.'
             : 'Run completed.';
+    const explicitAssistantMessage = (assistantMessage && assistantMessage.trim()) || '';
     const finalMessage =
-      (assistantMessage && assistantMessage.trim()) ||
-      parseArtifactMessage(lastNonFinalizeArtifact) ||
-      parseArtifactMessage(artifactLogs[artifactLogs.length - 1]) ||
-      localizedRunCompleted;
+      explicitAssistantMessage ||
+      (mode === 'multiple_agents'
+        ? ''
+        : parseArtifactMessage(lastNonFinalizeArtifact) ||
+          parseArtifactMessage(artifactLogs[artifactLogs.length - 1]) ||
+          localizedRunCompleted);
     ensureThreadInProject(projectId, threadId);
-    appendThreadMessage(threadId, 'agent', finalMessage);
+    if (finalMessage) {
+      appendThreadMessage(threadId, 'agent', finalMessage);
+    }
 
     res.json({
       success: true,
@@ -1320,7 +1348,7 @@ app.post('/api/chat', async (req, res) => {
       threadId,
       runId,
       ticketId: finalState.plane_issue_id || null,
-      message: finalMessage,
+      message: finalMessage || null,
       logs: artifactLogs,
       observability: {
         pipeline: finalState.selected_pipeline || 'unified-task-intake',
