@@ -29,6 +29,12 @@ interface RuntimeEvent {
         pipelineId?: string;
         stageId?: string;
         nextStageId?: string;
+        fromStageId?: string;
+        toStageId?: string;
+        fromAgentId?: string;
+        fromAgentTitle?: string;
+        toAgentId?: string;
+        toAgentTitle?: string;
         outcome?: string;
         tool?: string;
         summary?: string;
@@ -69,6 +75,7 @@ interface RailProject {
     id: string;
     label: string;
     worktreePath?: string;
+    agentContextPath?: string;
 }
 interface RailThread {
     id: string;
@@ -259,6 +266,7 @@ export function CockpitPage() {
     const [uploadedAttachments, setUploadedAttachments] = useState<UploadedAttachment[]>([]);
     const [isProjectModalOpen, setIsProjectModalOpen] = useState(false);
     const [projectDirectory, setProjectDirectory] = useState('');
+    const [projectAgentContextDirectory, setProjectAgentContextDirectory] = useState('');
     const [planeProjectOptions, setPlaneProjectOptions] = useState<PlaneProjectOption[]>([]);
     const [selectedPlaneProjectId, setSelectedPlaneProjectId] = useState('');
     const [createPlaneProject, setCreatePlaneProject] = useState(false);
@@ -530,6 +538,11 @@ export function CockpitPage() {
                     if (eventType === 'stage.started') {
                         const stageLabel = String(event.payload?.stageId || event.source_stage || 'n/a').trim();
                         chatText = `Swarm handoff: **${roleLabel}** started stage \`${stageLabel}\`.`;
+                    } else if (eventType === 'swarm_handoff') {
+                        const fromAgent = String(event.payload?.fromAgentTitle || event.payload?.fromAgentId || 'unknown').trim();
+                        const toAgent = String(event.payload?.toAgentTitle || event.payload?.toAgentId || roleLabel || 'unknown').trim();
+                        const toStage = String(event.payload?.toStageId || event.payload?.stageId || event.source_stage || 'n/a').trim();
+                        chatText = `Swarm handoff: **${fromAgent}** -> **${toAgent}** (stage \`${toStage}\`).`;
                     } else if (eventType === 'swarm_stage_completed') {
                         const stageMessage = String(event.payload?.message || '').trim();
                         if (stageMessage) {
@@ -643,7 +656,8 @@ export function CockpitPage() {
             }
         };
         const loadAgentRegistry = async () => {
-            const data = await fetchJsonSafe<{ success?: boolean; agents?: AgentRegistryEntry[] }>('/api/cockpit/agents/registry');
+            const projectQuery = selectedProject ? `?projectId=${encodeURIComponent(selectedProject)}` : '';
+            const data = await fetchJsonSafe<{ success?: boolean; agents?: AgentRegistryEntry[] }>(`/api/cockpit/agents/registry${projectQuery}`);
             if (!data?.success || !Array.isArray(data.agents)) return;
             setAgentRegistry(data.agents);
             setAgentRuntime((prev) => {
@@ -668,7 +682,7 @@ export function CockpitPage() {
         };
         void loadCatalog();
         void loadAgentRegistry();
-    }, []);
+    }, [selectedProject]);
 
     useEffect(() => {
         const loadProviders = async () => {
@@ -1111,7 +1125,7 @@ export function CockpitPage() {
     const handleCreateChain = async (
         projectIdArg?: string,
         labelArg?: string,
-        options?: { projectLabel?: string; worktreePath?: string; planeProjectId?: string; createPlaneProject?: boolean },
+        options?: { projectLabel?: string; worktreePath?: string; agentContextPath?: string; planeProjectId?: string; createPlaneProject?: boolean },
     ): Promise<boolean> => {
         const projectId = projectIdArg || selectedProject;
         if (!projectId) return false;
@@ -1123,6 +1137,7 @@ export function CockpitPage() {
                 label: labelArg || `New chat ${new Date().toLocaleTimeString()}`,
                 projectLabel: options?.projectLabel,
                 worktreePath: options?.worktreePath,
+                agentContextPath: options?.agentContextPath,
                 planeProjectId: options?.planeProjectId,
                 createPlaneProject: options?.createPlaneProject,
             }),
@@ -1266,6 +1281,7 @@ export function CockpitPage() {
 
     const openProjectModal = () => {
         setProjectDirectory('');
+        setProjectAgentContextDirectory('');
         setSelectedPlaneProjectId('');
         setCreatePlaneProject(false);
         setPlaneProjectOptions([]);
@@ -1277,6 +1293,7 @@ export function CockpitPage() {
     const resetProjectModalState = () => {
         setIsProjectModalOpen(false);
         setProjectDirectory('');
+        setProjectAgentContextDirectory('');
         setSelectedPlaneProjectId('');
         setCreatePlaneProject(false);
         setPlaneProjectOptions([]);
@@ -1286,8 +1303,13 @@ export function CockpitPage() {
 
     const handleAddNewProject = async () => {
         const absoluteDirectory = projectDirectory.trim();
+        const absoluteAgentContextDirectory = projectAgentContextDirectory.trim();
         if (!isAbsolutePath(absoluteDirectory)) {
             setProviderMessage('Project directory must be an absolute path.');
+            return;
+        }
+        if (!isAbsolutePath(absoluteAgentContextDirectory)) {
+            setProviderMessage('Agent files directory must be an absolute path.');
             return;
         }
         if (!selectedPlaneProjectId && !createPlaneProject) {
@@ -1300,6 +1322,7 @@ export function CockpitPage() {
         const created = await handleCreateChain(projectId, 'New chat', {
             projectLabel: folderName,
             worktreePath: absoluteDirectory || undefined,
+            agentContextPath: absoluteAgentContextDirectory || undefined,
             planeProjectId: selectedPlaneProjectId || undefined,
             createPlaneProject,
         });
@@ -2148,6 +2171,17 @@ export function CockpitPage() {
                             <div className="cockpit-modal-hint">
                                 Project name: <strong>{getFolderNameFromPath(projectDirectory) || '—'}</strong>
                             </div>
+                            <label htmlFor="agent-context-directory-input" className="cockpit-modal-label">Agent Files Directory</label>
+                            <input
+                                id="agent-context-directory-input"
+                                value={projectAgentContextDirectory}
+                                onChange={(e) => setProjectAgentContextDirectory(e.target.value)}
+                                placeholder="/Users/.../agent-files-repo"
+                                className="cockpit-modal-input"
+                            />
+                            <div className="cockpit-modal-hint">
+                                Absolute path to directory containing <code>AGENTS.md</code> and agent/pipeline docs.
+                            </div>
                             <label htmlFor="plane-project-select" className="cockpit-modal-label">Plane Project</label>
                             <select
                                 id="plane-project-select"
@@ -2195,7 +2229,7 @@ export function CockpitPage() {
                             <button
                                 type="button"
                                 className="cockpit-modal-primary"
-                                disabled={!isAbsolutePath(projectDirectory) || (!selectedPlaneProjectId && !createPlaneProject)}
+                                disabled={!isAbsolutePath(projectDirectory) || !isAbsolutePath(projectAgentContextDirectory) || (!selectedPlaneProjectId && !createPlaneProject)}
                                 onClick={() => { void handleAddNewProject(); }}
                             >
                                 Create Project
