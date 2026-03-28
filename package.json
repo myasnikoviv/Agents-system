@@ -12,7 +12,8 @@
     "git:cleanup": "bash scripts/git/worktree_cleanup_sweep.sh",
     "backend:start": "tsx src/server/agentSystemBackend.ts",
     "dev:standalone": "bash scripts/infra/start_all.sh --standalone",
-    "infra:start": "bash scripts/infra/start_all.sh"
+    "infra:start": "bash scripts/infra/start_all.sh",
+    "infra:restart": "bash scripts/infra/start_all.sh --restart"
   },
   "repository": {
     "type": "git",
