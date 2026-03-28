@@ -1,5 +1,11 @@
 # Worktree Hard-Gate Scripts
 
+## npm Entry Points
+
+- `npm run git:audit`
+- `npm run git:audit:strict`
+- `npm run git:cleanup`
+
 ## scripts/git/worktree_audit.sh
 
 Purpose: detect git drift before mutation/integration.
