@@ -7,6 +7,9 @@
     "test": "npm run verify",
     "verify": "tsx scripts/final_agentic_proof.ts",
     "proof": "tsx scripts/final_agentic_proof.ts",
+    "git:audit": "bash scripts/git/worktree_audit.sh",
+    "git:audit:strict": "bash scripts/git/worktree_audit.sh --strict",
+    "git:cleanup": "bash scripts/git/worktree_cleanup_sweep.sh",
     "backend:start": "tsx src/server/agentSystemBackend.ts",
     "dev:standalone": "bash scripts/infra/start_all.sh --standalone",
     "infra:start": "bash scripts/infra/start_all.sh"
