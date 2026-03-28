@@ -121,6 +121,26 @@ function compactText(value: string, max = 220): string {
   return `${normalized.slice(0, max - 1)}…`;
 }
 
+function buildContractFallbackMessage(state: PilotState, runContext: any, pipelineId: string, stageId: string): string {
+  const callsign = runContext?.agent?.callsign || runContext?.agent?.title || runContext?.agent?.slug || 'Agent';
+  const ticket = String(state.plane_issue_id || '').trim() || 'N/A';
+  return [
+    `Active role: ${callsign}`,
+    `Pipeline: ${pipelineId || 'unified-task-intake'}`,
+    `Stage: ${stageId}`,
+    'Next: pm-orchestrator',
+    `Ticket: ${ticket}`,
+    `Git: branch=n/a | worktree=n/a`,
+    '',
+    'summary',
+    'Відповідь переформатовано системою через порушення контракту формату.',
+    '',
+    'findings',
+    '- Первинна відповідь не пройшла contract guard.',
+    '- Виконано fallback-форматування для стабільності виводу.',
+  ].join('\n');
+}
+
 function extractRetrySeconds(text: string): string | null {
   const retryInMatch = text.match(/retry in\s+([\d.]+)s/i);
   if (retryInMatch?.[1]) return String(Math.ceil(Number(retryInMatch[1])));
@@ -465,6 +485,7 @@ async function swarmNode(state: PilotState): Promise<Partial<PilotState>> {
 
   // Enforce AGENTS.md response contract with a single auto-reprompt recovery.
   let contractValidation = validateAgentResponseContract(result.content);
+  result.content = contractValidation.normalizedText;
   if (!contractValidation.ok) {
     const validationErrors = contractValidation.errors;
     await emitEvent({
@@ -544,6 +565,11 @@ async function swarmNode(state: PilotState): Promise<Partial<PilotState>> {
     }
 
     contractValidation = validateAgentResponseContract(result.content);
+    result.content = contractValidation.normalizedText;
+    if (!contractValidation.ok) {
+      result.content = buildContractFallbackMessage(state, runContext, pipelineId, nextStage.id);
+      contractValidation = validateAgentResponseContract(result.content);
+    }
   }
 
   await emitEvent({

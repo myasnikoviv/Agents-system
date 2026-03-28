@@ -8,6 +8,22 @@ export interface ResponseContractValidationResult {
 
 const REQUIRED_HEADERS = ['Active role', 'Pipeline', 'Stage', 'Next', 'Ticket', 'Git'];
 
+export function normalizeContractResponse(raw: string): string {
+  const source = String(raw || '').trim();
+  if (!source) return '';
+
+  const anchored = source.match(/(?:^|\n)\s*(?:\*\*)?Active role(?:\*\*)?\s*:/i);
+  if (anchored && typeof anchored.index === 'number') {
+    return source.slice(anchored.index).trim();
+  }
+
+  const inlineIdx = source.toLowerCase().indexOf('active role:');
+  if (inlineIdx > 0) {
+    return source.slice(inlineIdx).trim();
+  }
+  return source;
+}
+
 function hasHeader(text: string, header: string): boolean {
   const escaped = header.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const pattern = new RegExp(`^\\s*(?:\\*\\*)?${escaped}(?:\\*\\*)?\\s*:`, 'im');
@@ -29,7 +45,7 @@ function isSyntheticTicket(value: string): boolean {
 }
 
 export function validateAgentResponseContract(raw: string): ResponseContractValidationResult {
-  const normalizedText = String(raw || '').trim();
+  const normalizedText = normalizeContractResponse(raw);
   if (!normalizedText) {
     return { ok: false, errors: ['Empty response'], normalizedText };
   }

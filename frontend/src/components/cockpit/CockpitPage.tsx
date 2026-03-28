@@ -291,6 +291,24 @@ export function CockpitPage() {
         return probe;
     };
 
+    const resolveAgentDisplay = (slug: string) => {
+        const registryAgent = agentRegistryRef.current.find((agent) => agent.slug === slug);
+        return {
+            title: registryAgent?.title || slug,
+            callsign: registryAgent?.callsign || registryAgent?.title || slug,
+        };
+    };
+
+    const sanitizeTaskText = (value: string): string => {
+        const trimmed = String(value || '').trim();
+        if (!trimmed) return 'n/a';
+        const compact = trimmed.replace(/\s+/g, ' ');
+        if (compact.length > 120) {
+            return `${compact.slice(0, 117)}...`;
+        }
+        return compact;
+    };
+
     const agentStatusRows = useMemo<AgentRuntimeStatus[]>(() => {
         return agentRegistry.map((agent) => {
             const current = agentRuntime[agent.slug];
@@ -307,6 +325,19 @@ export function CockpitPage() {
             };
         });
     }, [agentRegistry, agentRuntime]);
+
+    const sortedAgentStatusRows = useMemo<AgentRuntimeStatus[]>(() => {
+        const priority: Record<AgentLiveStatus, number> = {
+            unavailable: 0,
+            active: 1,
+            standby: 2,
+        };
+        return [...agentStatusRows].sort((a, b) => {
+            const byStatus = priority[a.status] - priority[b.status];
+            if (byStatus !== 0) return byStatus;
+            return (a.callsign || a.title || a.slug).localeCompare(b.callsign || b.title || b.slug, 'uk');
+        });
+    }, [agentStatusRows]);
 
     const appendMessagesToThread = (threadId: string | undefined, next: ChatMessage[]) => {
         const key = threadId && threadId.trim().length > 0 ? threadId : activeThreadKey;
@@ -445,10 +476,11 @@ export function CockpitPage() {
                 const resolvedSlug = resolveAgentSlug(roleLabel);
                 if (resolvedSlug && resolvedSlug !== 'system') {
                     setAgentRuntime((prev) => {
+                        const display = resolveAgentDisplay(resolvedSlug);
                         const existing = prev[resolvedSlug] || {
                             slug: resolvedSlug,
-                            title: resolvedSlug,
-                            callsign: resolvedSlug,
+                            title: display.title,
+                            callsign: display.callsign,
                             status: 'standby' as AgentLiveStatus,
                             currentStage: 'n/a',
                             currentTask: 'n/a',
@@ -456,9 +488,9 @@ export function CockpitPage() {
                             threadId: 'n/a',
                             lastUpdated: '',
                         };
-                        const rawStatus = String(event.status || '').trim().toLowerCase();
+                        const isHardFailure = eventType === 'stage.failed' || eventType === 'run.failed';
                         const status: AgentLiveStatus =
-                            rawStatus === 'failed' || eventType === 'stage.failed'
+                            isHardFailure
                                 ? 'unavailable'
                                 : eventType === 'stage.started' || eventType === 'tool.called'
                                     ? 'active'
@@ -467,17 +499,25 @@ export function CockpitPage() {
                                         : existing.status;
                         const currentStage =
                             String(event.payload?.stageId || event.source_stage || existing.currentStage || 'n/a').trim() || 'n/a';
-                        const currentTask =
-                            String(event.payload?.message || event.payload?.summary || existing.currentTask || 'n/a').trim() || 'n/a';
+                        let currentTask = existing.currentTask || 'n/a';
+                        if (eventType === 'stage.started') {
+                            currentTask = `stage: ${currentStage}`;
+                        } else if (eventType === 'tool.called') {
+                            currentTask = `tool: ${String(event.payload?.tool || 'tool').trim()}`;
+                        } else if (eventType === 'swarm_stage_completed' || eventType === 'run.completed') {
+                            currentTask = 'n/a';
+                        }
                         const currentIssue =
                             String(event.plane_issue_id || existing.currentIssue || 'n/a').trim() || 'n/a';
                         return {
                             ...prev,
                             [resolvedSlug]: {
                                 ...existing,
+                                title: display.title,
+                                callsign: display.callsign,
                                 status,
                                 currentStage,
-                                currentTask: status === 'standby' ? 'n/a' : currentTask,
+                                currentTask: status === 'standby' ? 'n/a' : sanitizeTaskText(currentTask),
                                 currentIssue,
                                 threadId: threadKey,
                                 lastUpdated: event.timestamp || new Date().toISOString(),
@@ -819,10 +859,10 @@ export function CockpitPage() {
                 if (data.gitContext) setGitContext(data.gitContext);
 
                 // 1. If we have a direct message (conversational response), show it first
-                if (data.message) {
+                if (data.message && mode !== 'multiple_agents') {
                     appendAgentMessageIfChanged(responseThreadId || threadIdToUse, data.message, new Date());
                     setIsAwaitingAgentReply(false);
-                } 
+                }
                 // 2. For legacy direct/linear modes, display logs
                 else if (Array.isArray(data.logs) && data.logs.length > 0 && (data.status === 'completed' || data.observability?.pipeline === 'openhands-direct' || mode !== 'multiple_agents')) {
                     appendMessagesToThread(responseThreadId || threadIdToUse, data.logs.map((log: string, i: number) => ({
@@ -2029,21 +2069,34 @@ export function CockpitPage() {
 
                 {/* Right Panel: Event Feed & Active Agent */}
                 <section className="right-panel">
-                    <div className="panel-title">
-                        <Activity size={20} />
-                        Live Hive State
-                    </div>
-
-                    <div className="agent-status-card">
-                        <div className="agent-avatar">
-                            <Cpu size={24} color={'white'} />
+                    <div className="right-panel-sticky">
+                        <div className="panel-title">
+                            <Activity size={20} />
+                            Live Hive State
                         </div>
-                        <div className="agent-info">
-                            <div className="agent-name">Swarm Controller</div>
-                            <div className="agent-activity">
-                                {agentStatusRows.length > 0
-                                    ? `${agentStatusRows.filter((row) => row.status === 'active').length} active / ${agentStatusRows.length} total agents`
-                                    : 'No discovered agents yet'}
+
+                        <div className="agent-status-card">
+                            <div className="agent-avatar">
+                                <Cpu size={24} color={'white'} />
+                            </div>
+                            <div className="agent-info">
+                                <div className="agent-name">Swarm Controller</div>
+                                <div className="agent-activity">
+                                    {sortedAgentStatusRows.length > 0
+                                        ? `${sortedAgentStatusRows.filter((row) => row.status === 'active').length} active / ${sortedAgentStatusRows.length} total agents`
+                                        : 'No discovered agents yet'}
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="catalog-card">
+                            <div className="catalog-title">Runtime Summary</div>
+                            <div className="catalog-section">
+                                <span className={statusBadgeClass(status)}>{status || 'idle'}</span>
+                                <span>Active thread: {selectedThread || 'n/a'}</span>
+                                <span>Ticket: {currentTicketId || 'n/a'}</span>
+                                <span>Branch: {gitContext?.activeBranch || runtimeFooter.activeBranch || 'n/a'}</span>
+                                <span>Worktree: {gitContext?.worktreePath || runtimeFooter.worktreePath || 'n/a'}</span>
                             </div>
                         </div>
                     </div>
@@ -2051,10 +2104,10 @@ export function CockpitPage() {
                     <div className="catalog-card">
                         <div className="catalog-title">Agent Runtime Board</div>
                         <div className="agent-board">
-                            {agentStatusRows.length === 0 ? (
+                            {sortedAgentStatusRows.length === 0 ? (
                                 <div className="agent-board-empty">No agent registry data.</div>
                             ) : (
-                                agentStatusRows.map((row) => (
+                                sortedAgentStatusRows.map((row) => (
                                     <div key={row.slug} className="agent-board-row">
                                         <div className={`agent-dot ${row.status}`} />
                                         <div className="agent-board-main">
@@ -2074,16 +2127,6 @@ export function CockpitPage() {
                     </div>
 
                     <div className="feed-container">
-                        <div className="catalog-card">
-                            <div className="catalog-title">Runtime Summary</div>
-                            <div className="catalog-section">
-                                <span className={statusBadgeClass(status)}>{status || 'idle'}</span>
-                                <span>Active thread: {selectedThread || 'n/a'}</span>
-                                <span>Ticket: {currentTicketId || 'n/a'}</span>
-                                <span>Branch: {gitContext?.activeBranch || runtimeFooter.activeBranch || 'n/a'}</span>
-                                <span>Worktree: {gitContext?.worktreePath || runtimeFooter.worktreePath || 'n/a'}</span>
-                            </div>
-                        </div>
                         <div ref={feedEndRef} />
                     </div>
                 </section>
