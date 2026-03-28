@@ -30,7 +30,7 @@ process.on('unhandledRejection', (reason) => {
 });
 
 const settingsStore = new Map<string, unknown>();
-const projectStore = new Map<string, { id: string; label: string; worktreePath?: string }>();
+const projectStore = new Map<string, { id: string; label: string; worktreePath?: string; agentContextPath?: string }>();
 const threadStore = new Map<string, Array<{ id: string; label: string; updatedAt: string }>>();
 type PersistedChatMessage = {
   id: string;
@@ -166,7 +166,8 @@ runtimeDb.exec(`
   CREATE TABLE IF NOT EXISTS cockpit_projects (
     id TEXT PRIMARY KEY,
     label TEXT NOT NULL,
-    worktree_path TEXT
+    worktree_path TEXT,
+    agent_context_path TEXT
   );
   CREATE TABLE IF NOT EXISTS cockpit_threads (
     id TEXT PRIMARY KEY,
@@ -195,6 +196,11 @@ runtimeDb.exec(`
     updated_at TEXT NOT NULL
   );
 `);
+try {
+  runtimeDb.exec(`ALTER TABLE cockpit_projects ADD COLUMN agent_context_path TEXT`);
+} catch {
+  // Column already exists on upgraded instances.
+}
 
 const toPlaneIdentifier = (value: string): string =>
   value
@@ -294,7 +300,7 @@ const persistRuntimeStore = () => {
       runtimeDb.prepare('DELETE FROM cockpit_messages').run();
 
       const insertProject = runtimeDb.prepare(
-        'INSERT INTO cockpit_projects (id, label, worktree_path) VALUES (?, ?, ?)',
+        'INSERT INTO cockpit_projects (id, label, worktree_path, agent_context_path) VALUES (?, ?, ?, ?)',
       );
       const insertThread = runtimeDb.prepare(
         'INSERT INTO cockpit_threads (id, project_id, label, updated_at) VALUES (?, ?, ?, ?)',
@@ -304,7 +310,7 @@ const persistRuntimeStore = () => {
       );
 
       for (const project of projectStore.values()) {
-        insertProject.run(project.id, project.label, project.worktreePath || null);
+        insertProject.run(project.id, project.label, project.worktreePath || null, project.agentContextPath || null);
       }
       for (const [projectId, threads] of threadStore.entries()) {
         for (const thread of threads) {
@@ -337,8 +343,8 @@ const restoreRuntimeStore = () => {
     threadMessageStore.clear();
 
     const projects = runtimeDb.prepare(
-      'SELECT id, label, worktree_path FROM cockpit_projects ORDER BY id',
-    ).all() as Array<{ id: string; label: string; worktree_path: string | null }>;
+      'SELECT id, label, worktree_path, agent_context_path FROM cockpit_projects ORDER BY id',
+    ).all() as Array<{ id: string; label: string; worktree_path: string | null; agent_context_path: string | null }>;
     const threads = runtimeDb.prepare(
       'SELECT id, project_id, label, updated_at FROM cockpit_threads ORDER BY updated_at DESC',
     ).all() as Array<{ id: string; project_id: string; label: string; updated_at: string }>;
@@ -351,6 +357,7 @@ const restoreRuntimeStore = () => {
         id: project.id,
         label: project.label || project.id,
         ...(project.worktree_path ? { worktreePath: project.worktree_path } : {}),
+        ...(project.agent_context_path ? { agentContextPath: project.agent_context_path } : {}),
       });
     }
     for (const thread of threads) {
@@ -381,7 +388,7 @@ const restoreRuntimeStore = () => {
       const raw = fs.readFileSync(RUNTIME_STORE_LEGACY_FILE_PATH, 'utf-8');
       if (raw.trim()) {
         const parsed = JSON.parse(raw) as {
-          projects?: Array<{ id: string; label: string; worktreePath?: string }>;
+          projects?: Array<{ id: string; label: string; worktreePath?: string; agentContextPath?: string }>;
           threadsByProject?: Record<string, Array<{ id: string; label: string; updatedAt: string }>>;
           messagesByThread?: Record<string, PersistedChatMessage[]>;
         };
@@ -391,6 +398,7 @@ const restoreRuntimeStore = () => {
             id: project.id,
             label: project.label || project.id,
             ...(project.worktreePath ? { worktreePath: project.worktreePath } : {}),
+            ...(project.agentContextPath ? { agentContextPath: project.agentContextPath } : {}),
           });
         });
         Object.entries(parsed.threadsByProject || {}).forEach(([projectId, projectThreads]) => {
@@ -635,12 +643,18 @@ const normalizeWorktreePath = (raw?: string): string | undefined => {
   return path.resolve(path.dirname(process.cwd()), value);
 };
 
-const ensureProject = (id: string, label: string, worktreePath?: string) => {
+const ensureProject = (id: string, label: string, worktreePath?: string, agentContextPath?: string) => {
 
   const existing = projectStore.get(id);
   const normalizedWorktree = normalizeWorktreePath(worktreePath);
+  const normalizedAgentContext = normalizeWorktreePath(agentContextPath);
   if (!existing) {
-    projectStore.set(id, { id, label, ...(normalizedWorktree ? { worktreePath: normalizedWorktree } : {}) });
+    projectStore.set(id, {
+      id,
+      label,
+      ...(normalizedWorktree ? { worktreePath: normalizedWorktree } : {}),
+      ...(normalizedAgentContext ? { agentContextPath: normalizedAgentContext } : {}),
+    });
     threadStore.set(id, []);
     persistRuntimeStore();
     return;
@@ -648,6 +662,9 @@ const ensureProject = (id: string, label: string, worktreePath?: string) => {
   existing.label = label;
   if (normalizedWorktree) {
     existing.worktreePath = normalizedWorktree;
+  }
+  if (normalizedAgentContext) {
+    existing.agentContextPath = normalizedAgentContext;
   }
   projectStore.set(id, existing);
   persistRuntimeStore();
@@ -739,6 +756,59 @@ const validateProjectWorktree = (rawPath?: string): { ok: true; absolutePath: st
   return { ok: true, absolutePath: normalized };
 };
 
+const validateAgentContextPath = (
+  rawPath?: string,
+): { ok: true; absolutePath: string } | { ok: false; error: string; message: string } => {
+  const inputPath = String(rawPath || '').trim();
+  if (!inputPath) {
+    return {
+      ok: false,
+      error: 'agent_context_path_required',
+      message: 'Agent files directory is required.',
+    };
+  }
+  if (!path.isAbsolute(inputPath)) {
+    return {
+      ok: false,
+      error: 'agent_context_path_must_be_absolute',
+      message: 'Agent files directory must be an absolute path.',
+    };
+  }
+  const normalized = normalizeWorktreePath(inputPath);
+  if (!normalized || !fs.existsSync(normalized)) {
+    return {
+      ok: false,
+      error: 'agent_context_path_not_found',
+      message: `Agent files directory does not exist: ${normalized || inputPath}`,
+    };
+  }
+  let stat: fs.Stats;
+  try {
+    stat = fs.statSync(normalized);
+  } catch {
+    return {
+      ok: false,
+      error: 'agent_context_path_not_accessible',
+      message: `Agent files directory is not accessible: ${normalized}`,
+    };
+  }
+  if (!stat.isDirectory()) {
+    return {
+      ok: false,
+      error: 'agent_context_path_not_directory',
+      message: `Agent files path is not a directory: ${normalized}`,
+    };
+  }
+  if (!fs.existsSync(path.resolve(normalized, 'AGENTS.md'))) {
+    return {
+      ok: false,
+      error: 'agent_context_manifest_missing',
+      message: `AGENTS.md was not found in agent files directory: ${normalized}`,
+    };
+  }
+  return { ok: true, absolutePath: normalized };
+};
+
 const ensureThreadInProject = (projectId: string, threadId: string, label?: string) => {
   if (!projectStore.has(projectId)) {
     ensureProject(projectId, projectId === '__unbound__' ? 'Unbound' : projectId);
@@ -775,17 +845,17 @@ const appendThreadMessage = (threadId: string, role: 'user' | 'agent', content: 
   persistRuntimeStore();
 };
 
-const refreshCatalog = async () => {
+const refreshCatalog = async (discoveryRoot?: string) => {
   try {
-    await DynamicDiscoveryService.discoverAll(process.cwd());
+    await DynamicDiscoveryService.discoverAll(discoveryRoot || process.cwd());
   } catch (error) {
     console.error('[agent-system-backend] catalog discovery error:', error);
   }
 };
 
-const getAgentCallsignMapFromManifest = (): Record<string, string> => {
+const getAgentCallsignMapFromManifest = (discoveryRoot?: string): Record<string, string> => {
   try {
-    const manifestPath = path.resolve(process.cwd(), 'AGENTS.md');
+    const manifestPath = path.resolve(discoveryRoot || process.cwd(), 'AGENTS.md');
     if (!fs.existsSync(manifestPath)) return {};
     const raw = fs.readFileSync(manifestPath, 'utf-8');
     const map: Record<string, string> = {};
@@ -809,11 +879,25 @@ restoreRuntimeStore();
 let normalizedLegacyProjects = false;
 for (const [projectId, project] of projectStore.entries()) {
   const raw = String(project.worktreePath || '').trim();
-  if (!raw || path.isAbsolute(raw)) continue;
-  const normalized = normalizeWorktreePath(raw);
-  if (!normalized) continue;
-  projectStore.set(projectId, { ...project, worktreePath: normalized });
-  normalizedLegacyProjects = true;
+  const rawAgent = String(project.agentContextPath || '').trim();
+  let next = { ...project };
+  if (raw && !path.isAbsolute(raw)) {
+    const normalized = normalizeWorktreePath(raw);
+    if (normalized) {
+      next.worktreePath = normalized;
+      normalizedLegacyProjects = true;
+    }
+  }
+  if (rawAgent && !path.isAbsolute(rawAgent)) {
+    const normalizedAgent = normalizeWorktreePath(rawAgent);
+    if (normalizedAgent) {
+      next.agentContextPath = normalizedAgent;
+      normalizedLegacyProjects = true;
+    }
+  }
+  if (next !== project) {
+    projectStore.set(projectId, next);
+  }
 }
 if (normalizedLegacyProjects) {
   persistRuntimeStore();
@@ -870,8 +954,11 @@ app.get('/api/cockpit/catalog', async (_req, res) => {
 });
 
 app.get('/api/cockpit/agents/registry', async (_req, res) => {
-  await refreshCatalog();
-  const callsignsBySlug = getAgentCallsignMapFromManifest();
+  const projectId = String(_req.query?.projectId || '').trim();
+  const project = projectStore.get(projectId);
+  const discoveryRoot = project?.agentContextPath || project?.worktreePath || process.cwd();
+  await refreshCatalog(discoveryRoot);
+  const callsignsBySlug = getAgentCallsignMapFromManifest(discoveryRoot);
   const agents = AgentRegistry.getAllAgents()
     .map((agent) => ({
       slug: agent.slug,
@@ -950,6 +1037,7 @@ app.post('/api/cockpit/chains', (req, res) => {
   const projectId = String(req.body?.projectId || '').trim();
   const projectLabel = String(req.body?.projectLabel || '').trim();
   const worktreePath = String(req.body?.worktreePath || '').trim();
+  const agentContextPath = String(req.body?.agentContextPath || '').trim();
   const selectedPlaneProjectId = String(req.body?.planeProjectId || '').trim();
   const createPlaneProject = Boolean(req.body?.createPlaneProject);
   const label = String(req.body?.label || '').trim() || `New chat ${new Date().toLocaleTimeString()}`;
@@ -966,6 +1054,11 @@ app.post('/api/cockpit/chains', (req, res) => {
         res.status(400).json({ success: false, error: validation.error, message: validation.message });
         return;
       }
+      const agentPathValidation = validateAgentContextPath(agentContextPath || undefined);
+      if ('error' in agentPathValidation) {
+        res.status(400).json({ success: false, error: agentPathValidation.error, message: agentPathValidation.message });
+        return;
+      }
 
       if (!selectedPlaneProjectId && !createPlaneProject) {
         res.status(400).json({
@@ -977,8 +1070,8 @@ app.post('/api/cockpit/chains', (req, res) => {
       }
     }
     const derivedLabel = projectId === '__unbound__' ? 'Unbound' : (projectLabel || projectId);
-    ensureProject(projectId, derivedLabel, worktreePath || undefined);
-  } else if (projectLabel || worktreePath) {
+    ensureProject(projectId, derivedLabel, worktreePath || undefined, agentContextPath || undefined);
+  } else if (projectLabel || worktreePath || agentContextPath) {
     if (worktreePath) {
       const validation = validateProjectWorktree(worktreePath);
       if ('error' in validation) {
@@ -986,8 +1079,20 @@ app.post('/api/cockpit/chains', (req, res) => {
         return;
       }
     }
+    if (agentContextPath) {
+      const agentPathValidation = validateAgentContextPath(agentContextPath);
+      if ('error' in agentPathValidation) {
+        res.status(400).json({ success: false, error: agentPathValidation.error, message: agentPathValidation.message });
+        return;
+      }
+    }
     const existing = projectStore.get(projectId)!;
-    ensureProject(projectId, projectLabel || existing.label, worktreePath || existing.worktreePath);
+    ensureProject(
+      projectId,
+      projectLabel || existing.label,
+      worktreePath || existing.worktreePath,
+      agentContextPath || existing.agentContextPath,
+    );
   }
   const project = projectStore.get(projectId);
   if (project) {
@@ -1117,6 +1222,9 @@ app.post('/api/cockpit/projects/select', (req, res) => {
     persistRuntimeStore();
     saveRuntimeState('runtime_footer', runtimeFooter);
   }
+
+  const discoveryRoot = project.agentContextPath || project.worktreePath || process.cwd();
+  void refreshCatalog(discoveryRoot);
 
   res.json({ success: true, project, runtimeFooter });
 });
@@ -1291,7 +1399,10 @@ app.post('/api/chat', async (req, res) => {
   }
 
   try {
-    await refreshCatalog();
+    const project = projectStore.get(projectId);
+    const effectiveWorkspacePath = project?.worktreePath || process.cwd();
+    const effectiveAgentContextPath = project?.agentContextPath || project?.worktreePath || process.cwd();
+    await refreshCatalog(effectiveAgentContextPath);
 
     ensureThreadInProject(projectId, threadId);
     appendThreadMessage(threadId, 'user', message);
@@ -1305,7 +1416,8 @@ app.post('/api/chat', async (req, res) => {
       messages: [{ role: 'user', content: message }],
       artifactLogs: [message],
       projectId,
-      workspacePath: process.cwd(),
+      workspacePath: effectiveWorkspacePath,
+      agentContextPath: effectiveAgentContextPath,
     });
     const finalState = execution.finalState;
 

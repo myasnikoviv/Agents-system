@@ -66,6 +66,10 @@ export const PilotStateAnnotation = Annotation.Root({
     reducer: (x: string, y: string) => y ?? x,
     default: () => process.cwd(),
   }),
+  agentContextPath: Annotation<string>({
+    reducer: (x: string, y: string) => y ?? x,
+    default: () => '',
+  }),
   preferredLanguage: Annotation<DetectedLanguage>({
     reducer: (_: DetectedLanguage, y: DetectedLanguage) => y,
     default: () => 'unknown',
@@ -334,7 +338,7 @@ async function routerNode(state: PilotState): Promise<Partial<PilotState>> {
  * Discovers the next pipeline stage from documentation and executes the corresponding agent via AgentExecutor.
  */
 async function swarmNode(state: PilotState): Promise<Partial<PilotState>> {
-  await ensureDiscovery(state.workspacePath);
+  await ensureDiscovery(state.agentContextPath || state.workspacePath);
 
   if (isAgentStatusChainRequest(state)) {
     const pipelineId = 'unified-task-intake';
@@ -352,6 +356,26 @@ async function swarmNode(state: PilotState): Promise<Partial<PilotState>> {
         pipeline: { id: pipelineId, currentStageId: stageId },
         activeTicketId: state.plane_issue_id || '',
       } as any, { agentId: agent.slug, pipelineId });
+      if (idx > 0) {
+        const fromAgent = agents[idx - 1]!;
+        await emitEvent({
+          event_type: 'swarm_handoff',
+          plane_issue_id: state.plane_issue_id || '',
+          pipeline_run_id: state.pipeline_run_id || '',
+          thread_id: state.thread_id || '',
+          agent_role: agent.slug,
+          source_stage: stageId,
+          status: 'in_progress',
+          correlation_id: state.pipeline_run_id || '',
+          payload: {
+            pipelineId,
+            fromAgentId: fromAgent.slug,
+            fromAgentTitle: fromAgent.title || fromAgent.slug,
+            toAgentId: agent.slug,
+            toAgentTitle: agent.title || agent.slug,
+          },
+        });
+      }
 
       const content = [
         `Active role: ${agent.callsign || agent.title || agent.slug}`,
@@ -472,6 +496,33 @@ async function swarmNode(state: PilotState): Promise<Partial<PilotState>> {
   if (!nextStage) {
     console.log(`[PilotGraph:Swarm] No more stages in pipeline ${pipelineId}.`);
     return { status: 'pipeline_completed' };
+  }
+
+  if (!needsPmEntry) {
+    const previousStage = pipelineDef.stages.find((stage) => stage.id === currentStage);
+    const fromAgent = String(previousStage?.agent || '').trim();
+    const toAgent = String(nextStage.agent || '').trim();
+    if (fromAgent && toAgent && fromAgent !== toAgent) {
+      await emitEvent({
+        event_type: 'swarm_handoff',
+        plane_issue_id: state.plane_issue_id || '',
+        pipeline_run_id: state.pipeline_run_id || '',
+        thread_id: state.thread_id || '',
+        agent_role: toAgent,
+        source_stage: nextStage.id,
+        status: 'in_progress',
+        correlation_id: state.pipeline_run_id || '',
+        payload: {
+          pipelineId,
+          fromStageId: previousStage?.id || '',
+          fromAgentId: fromAgent,
+          fromAgentTitle: AgentRegistry.getAgent(fromAgent)?.title || fromAgent,
+          toStageId: nextStage.id,
+          toAgentId: toAgent,
+          toAgentTitle: AgentRegistry.getAgent(toAgent)?.title || toAgent,
+        },
+      });
+    }
   }
 
   console.log(`[PilotGraph:Swarm] Next stage: ${nextStage.id} (Agent: ${nextStage.agent})`);

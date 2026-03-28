@@ -11,29 +11,44 @@ export { AgentRegistry, PipelineRegistry, SkillRegistry };
 export class DynamicDiscoveryService {
   private static defaultDocsPath = path.join(process.cwd(), 'docs');
   private static defaultManifestPath = path.join(process.cwd(), 'AGENTS.md');
+  private static resolveFromManifestPath(manifestRoot: string, relPath: string, externalAgentsRoot?: string): string {
+    const direct = path.resolve(manifestRoot, relPath);
+    if (fs.existsSync(direct)) return direct;
+    if (externalAgentsRoot && relPath.startsWith('./common-agents/')) {
+      const suffix = relPath.replace(/^\.\/common-agents\/?/, '');
+      const remapped = path.resolve(externalAgentsRoot, suffix);
+      if (fs.existsSync(remapped)) return remapped;
+    }
+    return direct;
+  }
 
-  static async discoverAll(projectRoot?: string) {
+  static async discoverAll(projectRoot?: string, options?: { externalAgentsRoot?: string }) {
     const root = projectRoot || process.cwd();
     const docsPath = path.join(root, 'docs');
     const manifestPath = path.join(root, 'AGENTS.md');
-    const fromManifest = this.parseManifestMetadata(fs.existsSync(manifestPath) ? manifestPath : this.defaultManifestPath);
+    const fromManifest = this.parseManifestMetadata(
+      fs.existsSync(manifestPath) ? manifestPath : this.defaultManifestPath,
+      options,
+    );
+    const externalDocsPath = options?.externalAgentsRoot ? path.join(options.externalAgentsRoot, 'docs') : '';
+    const fallbackDocsPath = externalDocsPath && fs.existsSync(externalDocsPath) ? externalDocsPath : docsPath;
 
     if (fromManifest.agents.length > 0) {
       await this.discoverAgentsFromFiles(fromManifest.agents, fromManifest.callsignsBySlug);
     } else {
-      await this.discoverAgents(docsPath);
+      await this.discoverAgents(fallbackDocsPath);
     }
 
     if (fromManifest.pipelines.length > 0) {
       await this.discoverPipelinesFromFiles(fromManifest.pipelines);
     } else {
-      await this.discoverPipelines(docsPath);
+      await this.discoverPipelines(fallbackDocsPath);
     }
 
     if (fromManifest.skills.length > 0) {
       await this.discoverSkillsFromFiles(fromManifest.skills);
     } else {
-      await this.discoverSkills(docsPath);
+      await this.discoverSkills(fallbackDocsPath);
     }
   }
 
@@ -227,7 +242,7 @@ export class DynamicDiscoveryService {
     }
   }
 
-  private static parseManifestMetadata(manifestPath: string): {
+  private static parseManifestMetadata(manifestPath: string, options?: { externalAgentsRoot?: string }): {
     agents: string[];
     pipelines: string[];
     skills: string[];
@@ -246,7 +261,7 @@ export class DynamicDiscoveryService {
 
     const allTickedPaths = Array.from(raw.matchAll(/`(\.\/[^`]+\.md)`/g)).map((m) => m[1]);
     for (const relPath of allTickedPaths) {
-      const abs = path.resolve(root, relPath);
+      const abs = this.resolveFromManifestPath(root, relPath, options?.externalAgentsRoot);
       if (relPath.includes('/agents/')) agents.push(abs);
       else if (relPath.includes('/pipelines/')) pipelines.push(abs);
       else if (relPath.includes('/skills/')) skills.push(abs);
