@@ -1,0 +1,18 @@
+# Pipeline State: AGSYS-225
+- Pipeline: refactor
+- Mode: full
+- Current Stage: reviewer-handoff
+- Completed Stages: pm-entry, requirements-pack, assumptions-review, git-preflight, postflight-smoke
+- Next Stage: code-review
+- Current Owner: Сокіл-Координатор (PM Orchestrator)
+- Next Owner: Вартовий Якості (Code Reviewer)
+- Ticket: AGSYS-225
+- Thread: cockpit-runtime-thread
+- Last Updated: 2026-03-28T10:19:19+01:00
+- Blocking Gates: none
+- Evidence Links: docs/process/tickets/AGSYS-225-requirements-pack.md; docs/process/tickets/AGSYS-225-assumptions-review.md; docs/process/tests/AGSYS-225.md
+- Plane Status: In Progress
+- Branch: codex/AGSYS-225-swarm-runtime-refinement-closure
+- Worktree: /Users/myasnikoviv/development/agent-system
+- Preflight Token: docs/process/git/preflights/AGSYS-225.env
+- Acceptance Lock: YES
