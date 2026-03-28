@@ -385,6 +385,14 @@
     scrollbar-gutter: stable;
 }
 
+.right-panel-sticky {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    background: #12151d;
+    padding-bottom: 0.2rem;
+}
+
 .panel-title {
     font-size: 0.95rem;
     font-weight: 600;

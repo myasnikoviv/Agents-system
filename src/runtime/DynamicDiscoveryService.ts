@@ -16,10 +16,10 @@ export class DynamicDiscoveryService {
     const root = projectRoot || process.cwd();
     const docsPath = path.join(root, 'docs');
     const manifestPath = path.join(root, 'AGENTS.md');
-    const fromManifest = this.parseManifestPaths(fs.existsSync(manifestPath) ? manifestPath : this.defaultManifestPath);
+    const fromManifest = this.parseManifestMetadata(fs.existsSync(manifestPath) ? manifestPath : this.defaultManifestPath);
 
     if (fromManifest.agents.length > 0) {
-      await this.discoverAgentsFromFiles(fromManifest.agents);
+      await this.discoverAgentsFromFiles(fromManifest.agents, fromManifest.callsignsBySlug);
     } else {
       await this.discoverAgents(docsPath);
     }
@@ -49,8 +49,8 @@ export class DynamicDiscoveryService {
       const slug = path.basename(file, '.md');
       
       // Extract from sections
-      const name = (parsed.raw.split('\n')[0] || '').replace('#', '').trim();
-      const callsign = (parsed.sections['Callsign'] || '').trim() || name;
+      const name = this.normalizeInlineLabel((parsed.raw.split('\n')[0] || '').replace('#', '').trim());
+      const callsign = this.normalizeInlineLabel((parsed.sections['Callsign'] || '').trim()) || name;
       const mission = (parsed.sections['Mission'] || parsed.sections['Purpose'] || '').trim();
       const owns = this.extractList(parsed.sections['Owns']);
       const guardrails = this.extractList(parsed.sections['Guardrails']);
@@ -77,15 +77,18 @@ export class DynamicDiscoveryService {
     }
   }
 
-  static async discoverAgentsFromFiles(files: string[]) {
+  static async discoverAgentsFromFiles(files: string[], callsignsBySlug?: Record<string, string>) {
     AgentRegistry.clear();
     const uniqueFiles = Array.from(new Set(files)).filter((f) => fs.existsSync(f));
     for (const filePath of uniqueFiles) {
       const parsed = MarkdownInterpreter.parse(filePath);
       const slug = path.basename(filePath, '.md');
 
-      const name = (parsed.raw.split('\n')[0] || '').replace('#', '').trim();
-      const callsign = (parsed.sections['Callsign'] || '').trim() || name;
+      const name = this.normalizeInlineLabel((parsed.raw.split('\n')[0] || '').replace('#', '').trim());
+      const callsign =
+        this.normalizeInlineLabel((callsignsBySlug?.[slug] || '').trim()) ||
+        this.normalizeInlineLabel((parsed.sections['Callsign'] || '').trim()) ||
+        name;
       const mission = (parsed.sections['Mission'] || parsed.sections['Purpose'] || '').trim();
       const owns = this.extractList(parsed.sections['Owns']);
       const guardrails = this.extractList(parsed.sections['Guardrails']);
@@ -224,9 +227,14 @@ export class DynamicDiscoveryService {
     }
   }
 
-  private static parseManifestPaths(manifestPath: string): { agents: string[]; pipelines: string[]; skills: string[] } {
+  private static parseManifestMetadata(manifestPath: string): {
+    agents: string[];
+    pipelines: string[];
+    skills: string[];
+    callsignsBySlug: Record<string, string>;
+  } {
     if (!manifestPath || !fs.existsSync(manifestPath)) {
-      return { agents: [], pipelines: [], skills: [] };
+      return { agents: [], pipelines: [], skills: [], callsignsBySlug: {} };
     }
 
     const root = path.dirname(manifestPath);
@@ -234,6 +242,7 @@ export class DynamicDiscoveryService {
     const agents: string[] = [];
     const pipelines: string[] = [];
     const skills: string[] = [];
+    const callsignsBySlug: Record<string, string> = {};
 
     const allTickedPaths = Array.from(raw.matchAll(/`(\.\/[^`]+\.md)`/g)).map((m) => m[1]);
     for (const relPath of allTickedPaths) {
@@ -243,10 +252,23 @@ export class DynamicDiscoveryService {
       else if (relPath.includes('/skills/')) skills.push(abs);
     }
 
+    const sectionMatches = Array.from(
+      raw.matchAll(/-\s*Callsign:\s*`([^`]+)`[\s\S]*?-\s*File:\s*`(\.\/[^`]+\/agents\/[^`]+\.md)`/g),
+    );
+    for (const match of sectionMatches) {
+      const callsign = this.normalizeInlineLabel((match[1] || '').trim());
+      const relAgentPath = (match[2] || '').trim();
+      if (!callsign || !relAgentPath) continue;
+      const slug = path.basename(relAgentPath, '.md');
+      if (!slug) continue;
+      callsignsBySlug[slug] = callsign;
+    }
+
     return {
       agents: Array.from(new Set(agents)),
       pipelines: Array.from(new Set(pipelines)),
       skills: Array.from(new Set(skills)),
+      callsignsBySlug,
     };
   }
 
@@ -257,6 +279,13 @@ export class DynamicDiscoveryService {
       .filter(line => line.startsWith('-') || line.startsWith('*'))
       .map(line => line.replace(/^[-*]\s*/, '').trim())
       .map(line => line.replace(/`/g, '')); // Remove backticks from skill names
+  }
+
+  private static normalizeInlineLabel(value: string): string {
+    const raw = String(value || '').trim();
+    if (!raw) return '';
+    const unwrapped = raw.replace(/^`+|`+$/g, '').trim();
+    return unwrapped;
   }
 
   private static parsePipelineStages(stepsSection: string): PipelineStage[] {
