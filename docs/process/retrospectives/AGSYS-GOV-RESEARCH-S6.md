@@ -4,9 +4,9 @@
 Conduct a comprehensive research sprint (Sprint 6) to audit the governance layer.
 
 ## Outcomes
-- **Contract vs Runtime Matrix** generated.
-- **Critical Gaps** in PM automation scripts identified.
-- **Runtime Evidence** verified (Ledgers, Telemetry).
+- [Governance Audit Report](file:///Users/myasnikoviv/development/agent-system/docs/knowledge/governance-audit-report.md)
+- [Contract vs Runtime Matrix](file:///Users/myasnikoviv/development/agent-system/docs/knowledge/contract-vs-runtime-matrix.md)
+- [Artifact Evidence Matrix](file:///Users/myasnikoviv/development/agent-system/docs/knowledge/artifact-evidence-matrix.md)
 
 ## Lessons Learned
 - Documentation often outpaces runtime scripts in this repository.
