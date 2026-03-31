@@ -2,7 +2,7 @@
 
 This directory stores pipeline evidence.
 
-Canonical entrypoint: `/Users/myasnikoviv/development/trade_bot/docs/process/INDEX.md`
+Canonical entrypoint: `/Users/myasnikoviv/development/agent-system/docs/process/INDEX.md`
 
 - `tickets/` product tickets
 - `designs/` technical designs and architecture notes
