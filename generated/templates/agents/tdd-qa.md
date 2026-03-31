@@ -55,3 +55,17 @@ Write failing tests first and define correctness contracts before implementation
 - If one validation channel is not applicable, the role must record explicit N/A rationale in Plane and in `docs/process/runs/<ticket>.md`.
 - PM must reject closure if postflight evidence is missing, incomplete, or non-reproducible.
 
+## Mandatory Work Package Scope
+- The agent must check `workPackage` in the `RunContext`.
+- Verification work is allowed ONLY for tasks listed in `workPackage.selectedItems` or those dependent on them.
+- If no `workPackage` is present, the agent MUST stop and escalate to `Сокіл-Координатор (PM Orchestrator)`.
+- The agent must reference the specific `taskId` they are verifying in every status report.
+
+## Mandatory Verification Contract (Autonomous)
+- If the `RunContext.mode` is `VERIFICATION`, the agent MUST:
+  1. Read the `Task.acceptanceCriteria` for the current `taskId`.
+  2. Execute all necessary verification steps (CLI, API, or UI smoke via Playwright).
+  3. Produce a `VerificationReport` JSON block in the response.
+  4. Status must be one of: `passed`, `failed`, `manual_review_required`.
+  5. If `failed`, the agent MUST provide specific, actionable feedback for the primary actor.
+  6. The agent MUST NOT mark the task `done` in Plane; it only submits the report to the PM loop.

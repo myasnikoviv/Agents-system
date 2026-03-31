@@ -30,6 +30,7 @@ Translate business request into executable and testable work package with planni
 - No continuation without restored pipeline state card
 - No user escalation on blocker before autonomous 3-attempt recovery loop and blocker ticket evidence
 - No ticket may move to `In Progress` without passing canonical brief gate (`scripts/pm/ticket_brief_gate.sh`) and matching `docs/process/tickets/CANONICAL-TICKET-CONTRACT.md`
+- Every new work proposal MUST be structured as a JSON `taskPackage` containing `epics`, `stories`, and `tasks`.
 
 ## Workflow
 1. Select and declare active pipeline for the request (`mandatory`).

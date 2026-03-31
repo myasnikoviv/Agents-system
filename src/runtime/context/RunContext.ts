@@ -1,4 +1,5 @@
 import { AgentProfile, PipelineDefinition, PipelineStage } from '../DynamicDiscoveryService';
+import { TaskPackage } from '../pm/models/pm-types';
 import { ToolDiscoveryService } from '../ToolDiscoveryService';
 import { BlackboardService } from '../BlackboardService';
 import { DetectedLanguage } from '../LanguageDetection';
@@ -47,6 +48,7 @@ export interface RunContext {
     taskType: string;
     responseLanguage?: DetectedLanguage;
     acceptanceCriteria?: string[];
+    mode?: 'EXECUTION' | 'VERIFICATION';
   };
 
   pipeline: {
@@ -66,6 +68,8 @@ export interface RunContext {
     skills: string[]; // Added for telemetry
     handoffPolicy?: string;
   };
+
+  workPackage?: TaskPackage; // Added for autonomous execution (Sprint 4)
 
   artifacts: {
     priorOutputs: StructuredArtifact[];
@@ -146,6 +150,8 @@ export class RunContextAssembler {
       chainId: memory.threadId || 'default-thread',
       projectId: projectContext?.projectId || process.env.ACTIVE_PROJECT_ID || 'default',
       workspacePath: projectContext?.workspacePath || process.cwd(),
+      
+      workPackage: memory.workPackage, // Hydrated from memory/blackboard
 
       executionTarget: 'langchain', // Default, AgentExecutor will override
       provider: 'openai',
