@@ -1,30 +1,123 @@
-export type ApprovalPolicyMode = 'git-only' | 'strict';
+import * as fs from 'fs';
+import * as yaml from 'js-yaml';
+import { RunContext } from './context/RunContext';
 
-const STRICT_INTERRUPTS = [] as const;
-const GIT_ONLY_INTERRUPTS = [] as const;
+export type ApprovalMode = 'interrupt_before' | 'interrupt_after';
 
-function normalizeNodeName(input: string): string {
-  return String(input || '').trim().toLowerCase();
+export interface ApprovalPolicy {
+  id: string;
+  mode: ApprovalMode;
+  nodes: string[];
+  condition: string;
+  description: string;
 }
 
-export function resolveApprovalPolicyMode(): ApprovalPolicyMode {
-  const raw = String(process.env.PILOT_APPROVAL_POLICY_MODE || '')
-    .trim()
-    .toLowerCase();
-  if (raw === 'strict') return 'strict';
-  return 'git-only';
+export interface ApprovalConfig {
+  version: string;
+  policies: ApprovalPolicy[];
+  default_mode: string;
 }
 
-export function resolveInterruptBeforeNodes(): string[] {
-  const override = String(process.env.PILOT_APPROVAL_INTERRUPT_BEFORE || '').trim();
-  if (override) {
-    const parsed = override
-      .split(',')
-      .map(normalizeNodeName)
-      .filter(Boolean);
-    if (parsed.length > 0) return Array.from(new Set(parsed));
+export class ApprovalPolicyEngine {
+  private static instance: ApprovalPolicyEngine;
+  private config: ApprovalConfig | null = null;
+  private configPath = 'docs/runtime/governance/approval-policy.yaml';
+
+  private constructor() {
+    this.loadConfig();
   }
 
-  return [];
+  static getInstance(): ApprovalPolicyEngine {
+    if (!ApprovalPolicyEngine.instance) {
+      ApprovalPolicyEngine.instance = new ApprovalPolicyEngine();
+    }
+    return ApprovalPolicyEngine.instance;
+  }
+
+  private loadConfig() {
+    try {
+      if (fs.existsSync(this.configPath)) {
+        const fileContent = fs.readFileSync(this.configPath, 'utf8');
+        this.config = yaml.load(fileContent) as ApprovalConfig;
+        console.log(`[ApprovalPolicyEngine] Loaded ${this.config.policies.length} policies from ${this.configPath}`);
+      } else {
+        console.warn(`[ApprovalPolicyEngine] Config file not found at ${this.configPath}. Using defaults.`);
+      }
+    } catch (err) {
+      console.error('[ApprovalPolicyEngine] Failed to load config:', err);
+    }
+  }
+
+  /**
+   * Evaluates if a node should be interrupted based on the active policies.
+   */
+  shouldInterrupt(nodeName: string, context: RunContext, mode: ApprovalMode): boolean {
+    if (!this.config) return false;
+
+    const activePolicies = this.config.policies.filter(p => 
+      p.mode === mode && 
+      p.nodes.map(n => n.toLowerCase()).includes(nodeName.toLowerCase())
+    );
+
+    for (const policy of activePolicies) {
+      if (this.evaluateCondition(policy.condition, context)) {
+        console.log(`[ApprovalPolicyEngine] HITL Interrupt: Policy ${policy.id} matched for node ${nodeName}. ${policy.description}`);
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  private evaluateCondition(condition: string, context: RunContext): boolean {
+    switch (condition) {
+      case 'any_git_mutation':
+        // Check if the agent is the git flow manager or has git skills
+        return context.agent.slug === 'git-flow-manager' || 
+               context.agent.skills.some(s => s.toLowerCase().includes('git'));
+      
+      case 'high_complexity_task':
+        // Basic heuristic: check taskType or user input length/keywords
+        const isComplexType = ['new-feature', 'refactor', 'bug-fix'].includes(context.task.taskType);
+        const hasComplexityMarkers = context.memory.sharedFacts?.complexity === 'high' || 
+                                    context.task.rawUserInput.length > 500;
+        return isComplexType || hasComplexityMarkers;
+
+      case 'ambiguous_request':
+        // Check if a previous node (like research) flagged ambiguity
+        return !!context.memory.sharedFacts?.is_ambiguous;
+
+      default:
+        // If condition is "always" or unknown, we might want to default to true for safety
+        return condition === 'always';
+    }
+  }
+
+  /**
+   * Helper to resolve the mode (mostly for back compat or global overrides)
+   */
+  getGlobalMode(): string {
+    return process.env.PILOT_APPROVAL_POLICY_MODE || this.config?.default_mode || 'git-only';
+  }
+
+  /**
+   * Returns a list of nodes that should ALWAYS be interrupted before (static).
+   * This is used for backward compatibility with the graph's compile() config.
+   */
+  getStaticInterruptBeforeNodes(): string[] {
+    const override = process.env.PILOT_APPROVAL_INTERRUPT_BEFORE;
+    if (override) {
+      return override.split(',').map(n => n.trim().toLowerCase()).filter(Boolean);
+    }
+    // By default, we might not have any static interrupts if we depend on dynamic conditions.
+    return [];
+  }
+}
+
+/**
+ * Backward compatibility export for PilotQuasiLinearGraph.ts
+ */
+export function resolveInterruptBeforeNodes(): string[] {
+  return ApprovalPolicyEngine.getInstance().getStaticInterruptBeforeNodes();
 }
 

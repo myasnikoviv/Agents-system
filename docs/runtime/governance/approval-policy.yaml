@@ -1,0 +1,22 @@
+version: "1.0"
+policies:
+  - id: git_safety_check
+    mode: "interrupt_before"
+    nodes: ["git-flow-manager"]
+    condition: "any_git_mutation"
+    description: "Requires manual approval before any Git commit or push."
+
+  - id: qa_signoff
+    mode: "interrupt_before"
+    nodes: ["tdd-qa"]
+    condition: "high_complexity_task"
+    description: "Requires manual approval before starting automated QA for complex tasks."
+
+  - id: research_gate
+    mode: "interrupt_before"
+    nodes: ["research-agent"]
+    condition: "ambiguous_request"
+    description: "Requires manual approval if the initial research plan is ambiguous."
+
+# Default mode if no specific policy matches
+default_mode: "git-only"

@@ -6,7 +6,7 @@ import path from 'path';
 import { execSync } from 'child_process';
 import Database from 'better-sqlite3';
 import { v4 as uuidv4 } from 'uuid';
-import { executeRuntimeRun } from '../runtime/graphs/RuntimeExecutionRouter';
+import { executeRuntimeRun, resumeRuntimeRun } from '../runtime/graphs/RuntimeExecutionRouter';
 import { detectLanguage } from '../runtime/LanguageDetection';
 import { fetchRecentEvents } from '../runtime/events/EventBus';
 import { updateCockpitExecutorConfig, getCockpitExecutorConfig } from '../runtime/CockpitExecutorConfig';
@@ -1425,6 +1425,18 @@ app.post('/api/chat', async (req, res) => {
       });
       const finalState = execution.finalState;
       
+      if (finalState.__interrupt__) {
+        console.log(`[agent-system-backend] Run ${runId} interrupted for HITL:`, finalState.__interrupt__[0].value);
+        res.json({
+          success: true,
+          interrupted: true,
+          interrupt: finalState.__interrupt__[0].value,
+          threadId,
+          runId
+        });
+        return;
+      }
+
       RunManager.completeRun(threadId, runId);
 
       const assistantMessage = [...(finalState.messages || [])]
@@ -1509,16 +1521,42 @@ app.post('/api/chat', async (req, res) => {
   }
 });
 
-app.post('/api/chat/approve', (_req, res) => {
-  const threadId = String(_req.body?.threadId || '').trim();
-  if (threadId) {
-    appendThreadMessage(threadId, 'agent', 'Approval acknowledged');
+app.post('/api/chat/approve', async (req, res) => {
+  const { threadId, decision } = req.body;
+
+  if (!threadId) {
+    res.status(400).json({ success: false, error: 'threadId_required' });
+    return;
   }
-  res.json({
-    success: true,
-    status: 'approved',
-    logs: [{ stage: 'approval', role: 'assistant', status: 'completed', message: 'Approval acknowledged' }],
-  });
+
+  try {
+    const execution = await resumeRuntimeRun(threadId, decision || 'approved');
+    const finalState = execution.finalState;
+
+    if (finalState.__interrupt__) {
+      res.json({
+        success: true,
+        interrupted: true,
+        interrupt: finalState.__interrupt__[0].value,
+        threadId,
+      });
+      return;
+    }
+
+    // Logic to handle final completion after resumption
+    const assistantMessage = [...(finalState.messages || [])]
+      .reverse()
+      .find((m: { role: string; content: string }) => m.role === 'assistant')?.content;
+
+    res.json({
+      success: true,
+      message: assistantMessage || 'Resumed and completed.',
+      finalState
+    });
+  } catch (error: any) {
+    console.error('[agent-system-backend] /api/chat/approve error:', error);
+    res.status(500).json({ success: false, error: 'internal_error', message: error.message });
+  }
 });
 
 app.get('/api/events/stream', (req, res) => {

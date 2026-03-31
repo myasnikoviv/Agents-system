@@ -1,4 +1,4 @@
-import { executeQuasiLinearRun, type PilotState } from './PilotQuasiLinearGraph';
+import { executeQuasiLinearRun, resumeQuasiLinearRun, type PilotState } from './PilotQuasiLinearGraph';
 
 export type RuntimeExecutionMode = 'mock' | 'linear' | 'multiple_agents';
 
@@ -63,4 +63,12 @@ export async function executeRuntimeRun(initialState: Partial<PilotState>): Prom
     engine: 'pilot-unified-graph',
   };
 }
-
+export async function resumeRuntimeRun(threadId: string, decision: any): Promise<RuntimeExecutionResult> {
+  const finalState = await resumeQuasiLinearRun(threadId, decision);
+  return {
+    finalState,
+    modeRequested: 'multiple_agents',
+    modeApplied: 'multiple_agents',
+    engine: 'pilot-unified-graph',
+  };
+}
