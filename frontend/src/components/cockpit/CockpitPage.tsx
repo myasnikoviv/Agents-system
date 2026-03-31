@@ -1,8 +1,7 @@
 import React, { useMemo, useState, useEffect, useRef } from 'react';
 import { Mic, Send, Cpu, Activity, LayoutDashboard, Terminal, Settings, PanelLeftClose, PanelLeftOpen, Globe2, ChevronDown, Plus, PencilLine, Folder, FolderPlus, Laptop, ShieldCheck, GitBranch, RefreshCw, Trash2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
+import { ArtifactRenderer } from './ArtifactRenderer';
 import { apiUrl, fetchJsonSafe } from '../../lib/http';
 import { StreamRenderer, type RuntimeEvent } from './StreamRenderer';
 import './CockpitPage.css';
@@ -1562,9 +1561,7 @@ export function CockpitPage() {
                                     <span>{m.timestamp.toLocaleTimeString()}</span>
                                 </div>
                                 <div className="chat-markdown">
-                                    <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                                        {toRenderableMarkdown(m.content)}
-                                    </ReactMarkdown>
+                                    <ArtifactRenderer content={toRenderableMarkdown(m.content)} />
                                 </div>
                             </div>
                         ))}

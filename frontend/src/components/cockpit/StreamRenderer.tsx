@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { Wrench, GitBranch, TerminalSquare, AlertTriangle, CheckCircle2, ChevronRight, ChevronDown, Activity, Brain, MessageSquare } from 'lucide-react';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
+import { ArtifactRenderer } from './ArtifactRenderer';
 
 export interface RuntimeEvent {
     event_id: string;
@@ -136,11 +135,7 @@ const StreamEventCard: React.FC<StreamEventCardProps> = ({ event }) => {
             </div>
             {hasBody && expanded && (
                 <div className="p-3 border-t border-white/5 bg-black/20 text-slate-300 prose prose-sm prose-invert max-w-none prose-pre:bg-black/30 prose-pre:p-2 prose-pre:rounded-md">
-                    <ReactMarkdown 
-                        remarkPlugins={[remarkGfm]}
-                    >
-                        {bodyText}
-                    </ReactMarkdown>
+                    <ArtifactRenderer content={bodyText} />
                 </div>
             )}
         </div>
