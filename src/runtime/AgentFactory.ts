@@ -1,5 +1,6 @@
 import fs from 'fs/promises';
 import path from 'path';
+import { AgentValidator } from './validators/AgentValidator';
 
 export interface AgentDefinition {
     callsign: string;
@@ -19,13 +20,18 @@ export class AgentFactory {
         const filePath = path.join(this.AGENTS_DIR, `${roleSlug}.md`);
         const content = await fs.readFile(filePath, 'utf-8');
 
-        return {
+        const agent = {
             callsign: this.extractSection(content, 'Callsign') || roleSlug,
             mission: this.extractSection(content, 'Mission'),
             owns: this.extractListSection(content, 'Owns'),
             guardrails: this.extractListSection(content, 'Guardrails'),
             fullInstructions: content,
         };
+
+        // Sprint 3: Strict Schema Enforcement
+        AgentValidator.validateAgent(agent);
+
+        return agent;
     }
 
     private static extractSection(content: string, sectionTitle: string): string {

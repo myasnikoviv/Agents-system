@@ -1,3 +1,5 @@
+import { AgentValidator } from '../validators/AgentValidator';
+
 export interface AgentProfile {
   slug: string;
   name: string;
@@ -18,6 +20,8 @@ export class AgentRegistry {
   private static agents: Map<string, AgentProfile> = new Map();
 
   static register(profile: AgentProfile) {
+    // Sprint 3: Model Hardening - Validate profile before registration
+    AgentValidator.validateAgent(profile as any);
     this.agents.set(profile.slug, profile);
   }
 
