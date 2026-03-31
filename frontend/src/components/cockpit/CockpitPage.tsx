@@ -4,43 +4,15 @@ import { useNavigate } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { apiUrl, fetchJsonSafe } from '../../lib/http';
+import { StreamRenderer, type RuntimeEvent } from './StreamRenderer';
 import './CockpitPage.css';
 const RUNTIME_MODE_KEY = 'cockpit.runtime.mode.v1';
 
-interface ChatMessage {
+export interface ChatMessage {
     id: string;
     role: 'user' | 'agent';
     content: string;
     timestamp: Date;
-}
-
-interface RuntimeEvent {
-    event_id: string;
-    event_type: string;
-    timestamp: string;
-    pipeline_run_id?: string;
-    agent_role: string;
-    source_stage: string;
-    target_stage?: string;
-    status: string;
-    plane_issue_id: string;
-    thread_id?: string;
-    payload?: {
-        pipelineId?: string;
-        stageId?: string;
-        nextStageId?: string;
-        fromStageId?: string;
-        toStageId?: string;
-        fromAgentId?: string;
-        fromAgentTitle?: string;
-        toAgentId?: string;
-        toAgentTitle?: string;
-        outcome?: string;
-        tool?: string;
-        summary?: string;
-        message?: string;
-        errors?: string[];
-    };
 }
 
 interface ObservabilityState {
@@ -205,7 +177,7 @@ export function CockpitPage() {
     const [messagesByThread, setMessagesByThread] = useState<Record<string, ChatMessage[]>>({});
     const [input, setInput] = useState('');
     const [isRecording, setIsRecording] = useState(false);
-    const [, setEventsByThread] = useState<Record<string, RuntimeEvent[]>>({});
+    const [eventsByThread, setEventsByThread] = useState<Record<string, RuntimeEvent[]>>({});
     const [isProcessing, setIsProcessing] = useState(false);
     const [isAwaitingAgentReply, setIsAwaitingAgentReply] = useState(false);
     const [ghostText, setGhostText] = useState('');
@@ -535,15 +507,7 @@ export function CockpitPage() {
 
                 if (shouldPropagateToChat) {
                     let chatText: string | null = null;
-                    if (eventType === 'stage.started') {
-                        const stageLabel = String(event.payload?.stageId || event.source_stage || 'n/a').trim();
-                        chatText = `Swarm handoff: **${roleLabel}** started stage \`${stageLabel}\`.`;
-                    } else if (eventType === 'swarm_handoff') {
-                        const fromAgent = String(event.payload?.fromAgentTitle || event.payload?.fromAgentId || 'unknown').trim();
-                        const toAgent = String(event.payload?.toAgentTitle || event.payload?.toAgentId || roleLabel || 'unknown').trim();
-                        const toStage = String(event.payload?.toStageId || event.payload?.stageId || event.source_stage || 'n/a').trim();
-                        chatText = `Swarm handoff: **${fromAgent}** -> **${toAgent}** (stage \`${toStage}\`).`;
-                    } else if (eventType === 'swarm_stage_completed') {
+                    if (eventType === 'swarm_stage_completed') {
                         const stageMessage = String(event.payload?.message || '').trim();
                         if (stageMessage) {
                             chatText = stageMessage;
@@ -551,19 +515,6 @@ export function CockpitPage() {
                             const stageLabel = String(event.payload?.stageId || event.source_stage || 'n/a').trim();
                             chatText = `Swarm update: **${roleLabel}** completed stage \`${stageLabel}\`.`;
                         }
-                    } else if (eventType === 'tool.called') {
-                        const tool = String(event.payload?.tool || 'tool').trim();
-                        const summary = String(event.payload?.summary || '').trim();
-                        const toolBody = summary || 'Tool executed.';
-                        chatText = `**${roleLabel}** used \`${tool}\`\n\n${toolBody}`;
-                    } else if (eventType === 'contract_reprompt') {
-                        chatText = `Contract guard: **${roleLabel}** is reformatting the response to match AGENTS.md.`;
-                    } else if (eventType === 'contract_fail') {
-                        const errors = Array.isArray(event.payload?.errors) ? event.payload.errors : [];
-                        const bullets = errors.slice(0, 4).map((err: string) => `- ${err}`).join('\n');
-                        chatText = `Contract guard flagged response format issues.${bullets ? `\n${bullets}` : ''}`;
-                    } else if (eventType === 'contract_pass') {
-                        chatText = `Contract guard passed for **${roleLabel}**.`;
                     } else if (eventType === 'run.completed' && threadKey === activeThreadKeyRef.current) {
                         setStatus('completed');
                         setIsAwaitingAgentReply(false);
@@ -2142,6 +2093,7 @@ export function CockpitPage() {
                     </div>
 
                     <div className="feed-container">
+                        <StreamRenderer events={eventsByThread[activeThreadKey] || []} />
                         <div ref={feedEndRef} />
                     </div>
                 </section>
