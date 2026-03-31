@@ -98,13 +98,35 @@ export class GeminiAdapter implements ExecutionAdapter {
     const url = `${this.baseUrl}/${this.modelName}:generateContent?key=${this.apiKey}`;
     
     try {
-      const response = await axios.post(url, {
-        contents,
-        system_instruction: systemInstruction,
-        tools
-      });
+      const { wrapLLMCall } = await import('../llm/LLMWrapper');
+      
+      const responseText = await wrapLLMCall(
+        {
+          runId: context.runId,
+          projectId: context.projectId || 'none',
+          chainId: context.chainId || 'none',
+          model: this.modelName,
+          provider: 'google-gemini',
+          source: 'agent'
+        },
+        JSON.stringify({ systemInstruction, contents, tools }),
+        async () => {
+          const res = await axios.post(url, {
+            contents,
+            system_instruction: systemInstruction,
+            tools
+          });
+          
+          return {
+            response: JSON.stringify(res.data),
+            tokensInput: res.data.usageMetadata?.promptTokenCount || 0,
+            tokensOutput: res.data.usageMetadata?.candidatesTokenCount || 0
+          };
+        }
+      );
 
-      const candidate = response.data.candidates?.[0];
+      const responseData = JSON.parse(responseText);
+      const candidate = responseData.candidates?.[0];
       const parts = candidate?.content?.parts || [];
       const toolCalls = [];
       let finalContent = '';
@@ -129,9 +151,9 @@ export class GeminiAdapter implements ExecutionAdapter {
         toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
         rawParts: parts,
         usage: {
-          inputTokens: response.data.usageMetadata?.promptTokenCount || 0,
-          outputTokens: response.data.usageMetadata?.candidatesTokenCount || 0,
-          totalTokens: response.data.usageMetadata?.totalTokenCount || 0
+          inputTokens: responseData.usageMetadata?.promptTokenCount || 0,
+          outputTokens: responseData.usageMetadata?.candidatesTokenCount || 0,
+          totalTokens: responseData.usageMetadata?.totalTokenCount || 0
         }
       };
     } catch (e: any) {

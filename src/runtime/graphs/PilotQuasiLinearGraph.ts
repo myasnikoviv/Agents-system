@@ -280,6 +280,10 @@ function localizeSystemMessage(
 // ---------------------------------------------------------
 
 async function routerNode(state: PilotState): Promise<Partial<PilotState>> {
+  if (state.pipeline_run_id) {
+    const { RunManager } = await import('../context/RunManager');
+    RunManager.checkCancellation(state.pipeline_run_id);
+  }
   const lastUserMessage = [...(state.messages || [])].filter((m) => m.role === 'user').pop();
   const userMessage =
     (lastUserMessage?.content || state.artifactLogs[0] || '').replace(/^User Message:\s*/i, '');
@@ -338,6 +342,10 @@ async function routerNode(state: PilotState): Promise<Partial<PilotState>> {
  * Discovers the next pipeline stage from documentation and executes the corresponding agent via AgentExecutor.
  */
 async function swarmNode(state: PilotState): Promise<Partial<PilotState>> {
+  if (state.pipeline_run_id) {
+    const { RunManager } = await import('../context/RunManager');
+    RunManager.checkCancellation(state.pipeline_run_id);
+  }
   await ensureDiscovery(state.agentContextPath || state.workspacePath);
 
   if (isAgentStatusChainRequest(state)) {
@@ -349,30 +357,27 @@ async function swarmNode(state: PilotState): Promise<Partial<PilotState>> {
       const agent = agents[idx]!;
       const stageId = `status-chain-${idx + 1}`;
 
-      await emitSwarmEvent('stage.started', {
-        runId: state.pipeline_run_id || '',
-        threadId: state.thread_id || '',
-        agent: { slug: agent.slug },
-        pipeline: { id: pipelineId, currentStageId: stageId },
-        activeTicketId: state.plane_issue_id || '',
-      } as any, { agentId: agent.slug, pipelineId });
+      await emitEvent({
+        type: 'agent.started',
+        runId: state.pipeline_run_id,
+        projectId: state.projectId,
+        chainId: state.thread_id,
+        actor: { type: 'agent', id: agent.slug, role: agent.slug },
+        payload: { pipelineId, stageId },
+      });
+
       if (idx > 0) {
         const fromAgent = agents[idx - 1]!;
         await emitEvent({
-          event_type: 'swarm_handoff',
-          plane_issue_id: state.plane_issue_id || '',
-          pipeline_run_id: state.pipeline_run_id || '',
-          thread_id: state.thread_id || '',
-          agent_role: agent.slug,
-          source_stage: stageId,
-          status: 'in_progress',
-          correlation_id: state.pipeline_run_id || '',
+          type: 'swarm.handoff',
+          runId: state.pipeline_run_id,
+          projectId: state.projectId,
+          chainId: state.thread_id,
+          actor: { type: 'system', id: 'swarm' },
           payload: {
             pipelineId,
             fromAgentId: fromAgent.slug,
-            fromAgentTitle: fromAgent.title || fromAgent.slug,
             toAgentId: agent.slug,
-            toAgentTitle: agent.title || agent.slug,
           },
         });
       }
@@ -393,21 +398,15 @@ async function swarmNode(state: PilotState): Promise<Partial<PilotState>> {
       ].join('\n');
 
       await emitEvent({
-        event_type: 'swarm_stage_completed',
-        plane_issue_id: state.plane_issue_id || '',
-        pipeline_run_id: state.pipeline_run_id || '',
-        thread_id: state.thread_id || '',
-        agent_role: agent.slug,
-        source_stage: stageId,
-        status: 'success',
-        correlation_id: state.pipeline_run_id || '',
+        type: 'agent.completed',
+        runId: state.pipeline_run_id,
+        projectId: state.projectId,
+        chainId: state.thread_id,
+        actor: { type: 'agent', id: agent.slug, role: agent.slug },
         payload: {
-          agentId: agent.slug,
-          agentTitle: agent.title,
           pipelineId,
           stageId,
           outcome: 'success',
-          message: content,
         },
       });
 
@@ -504,22 +503,15 @@ async function swarmNode(state: PilotState): Promise<Partial<PilotState>> {
     const toAgent = String(nextStage.agent || '').trim();
     if (fromAgent && toAgent && fromAgent !== toAgent) {
       await emitEvent({
-        event_type: 'swarm_handoff',
-        plane_issue_id: state.plane_issue_id || '',
-        pipeline_run_id: state.pipeline_run_id || '',
-        thread_id: state.thread_id || '',
-        agent_role: toAgent,
-        source_stage: nextStage.id,
-        status: 'in_progress',
-        correlation_id: state.pipeline_run_id || '',
+        type: 'swarm.handoff',
+        runId: state.pipeline_run_id,
+        projectId: state.projectId,
+        chainId: state.thread_id,
+        actor: { type: 'system', id: 'swarm' },
         payload: {
           pipelineId,
-          fromStageId: previousStage?.id || '',
           fromAgentId: fromAgent,
-          fromAgentTitle: AgentRegistry.getAgent(fromAgent)?.title || fromAgent,
-          toStageId: nextStage.id,
           toAgentId: toAgent,
-          toAgentTitle: AgentRegistry.getAgent(toAgent)?.title || toAgent,
         },
       });
     }
@@ -527,18 +519,17 @@ async function swarmNode(state: PilotState): Promise<Partial<PilotState>> {
 
   console.log(`[PilotGraph:Swarm] Next stage: ${nextStage.id} (Agent: ${nextStage.agent})`);
 
-  await emitSwarmEvent('stage.started', {
-    runId: state.pipeline_run_id || '',
-    threadId: state.thread_id || '',
-    agent: { slug: nextStage.agent },
-    pipeline: { id: pipelineId, currentStageId: nextStage.id },
-    activeTicketId: state.plane_issue_id
-  } as any, { agentId: nextStage.agent, pipelineId });
-
-  // --- Step 2.3: Semantic Intake Gate (Simplified for Swarm) ---
-  if (nextStage.id === 'intake') {
-    // Semantic gate logic here if needed, or delegated to PM agent
-  }
+  await emitEvent({
+    type: 'agent.started',
+    runId: state.pipeline_run_id,
+    projectId: state.projectId,
+    chainId: state.thread_id,
+    actor: { type: 'agent', id: nextStage.agent, role: nextStage.agent },
+    payload: {
+      pipelineId,
+      stageId: nextStage.id,
+    },
+  });
 
   // Assemble the execution context
   const history = (state.messages || [])
@@ -621,33 +612,15 @@ async function swarmNode(state: PilotState): Promise<Partial<PilotState>> {
   if (!contractValidation.ok) {
     const validationErrors = contractValidation.errors;
     await emitEvent({
-      event_type: 'contract_fail',
-      plane_issue_id: state.plane_issue_id || '',
-      pipeline_run_id: state.pipeline_run_id || '',
-      thread_id: state.thread_id || '',
-      agent_role: runContext.agent.slug,
-      source_stage: nextStage.id,
-      status: 'failed',
-      correlation_id: state.pipeline_run_id || '',
+      type: 'agent.failed',
+      runId: state.pipeline_run_id,
+      projectId: state.projectId,
+      chainId: state.thread_id,
+      actor: { type: 'agent', id: runContext.agent.slug, role: runContext.agent.slug },
       payload: {
         pipelineId,
         stageId: nextStage.id,
         errors: validationErrors,
-      },
-    });
-
-    await emitEvent({
-      event_type: 'contract_reprompt',
-      plane_issue_id: state.plane_issue_id || '',
-      pipeline_run_id: state.pipeline_run_id || '',
-      thread_id: state.thread_id || '',
-      agent_role: runContext.agent.slug,
-      source_stage: nextStage.id,
-      status: 'in_progress',
-      correlation_id: state.pipeline_run_id || '',
-      payload: {
-        pipelineId,
-        stageId: nextStage.id,
         reason: 'response_contract_violation',
       },
     });
@@ -705,18 +678,16 @@ async function swarmNode(state: PilotState): Promise<Partial<PilotState>> {
   }
 
   await emitEvent({
-    event_type: contractValidation.ok ? 'contract_pass' : 'contract_fail',
-    plane_issue_id: state.plane_issue_id || '',
-    pipeline_run_id: state.pipeline_run_id || '',
-    thread_id: state.thread_id || '',
-    agent_role: runContext.agent.slug,
-    source_stage: nextStage.id,
-    status: contractValidation.ok ? 'success' : 'failed',
-    correlation_id: state.pipeline_run_id || '',
+    type: contractValidation.ok ? 'agent.completed' : 'agent.failed',
+    runId: state.pipeline_run_id,
+    projectId: state.projectId,
+    chainId: state.thread_id,
+    actor: { type: 'agent', id: runContext.agent.slug, role: runContext.agent.slug },
     payload: {
       pipelineId,
       stageId: nextStage.id,
       errors: contractValidation.ok ? [] : contractValidation.errors,
+      outcome: contractValidation.ok ? 'success' : 'failed',
     },
   });
 
@@ -739,25 +710,6 @@ async function swarmNode(state: PilotState): Promise<Partial<PilotState>> {
       ],
     };
   }
-
-  emitEvent({
-    event_type: 'swarm_stage_completed',
-    plane_issue_id: state.plane_issue_id || '',
-    pipeline_run_id: state.pipeline_run_id || '',
-    thread_id: state.thread_id || '',
-    agent_role: runContext.agent.slug,
-    source_stage: nextStage.id,
-    status: 'success',
-    correlation_id: state.pipeline_run_id || '',
-    payload: {
-      agentId: nextStage.agent,
-      agentTitle: runContext.agent.title,
-      pipelineId,
-      stageId: nextStage.id,
-      outcome: 'success',
-      message: result.content,
-    }
-  });
 
   return {
     status: `${nextStage.id}_completed`,
@@ -786,28 +738,18 @@ function routeSwarm(state: PilotState): string {
  * Finalize node for closing the pipeline.
  */
 async function finalizeNode(state: PilotState): Promise<Partial<PilotState>> {
-    console.log(`[PilotGraph:Finalize] Strategy/Feature lifecycle complete.`);
-    
-    await emitSwarmEvent('run.completed', {
-        runId: state.pipeline_run_id || '',
-        threadId: state.thread_id || '',
-        agent: { slug: 'system' },
-        pipeline: { id: state.selected_pipeline || 'runtime', currentStageId: 'finalize' },
-        activeTicketId: state.plane_issue_id || '',
-    } as any, { status: 'completed' });
+  console.log(`[PilotGraph:Finalize] Strategy/Feature lifecycle complete.`);
+  
+  await emitEvent({
+    type: 'run.completed',
+    runId: state.pipeline_run_id,
+    projectId: state.projectId,
+    chainId: state.thread_id,
+    actor: { type: 'system', id: 'system-core' },
+    payload: { status: 'completed' },
+  });
 
-    return {
-        status: 'completed',
-        artifactLogs: [
-            buildArtifactLog({
-                stage: 'finalize',
-                role: 'System',
-                status: 'completed',
-                source: 'llm',
-                message: localizeSystemMessage(state.preferredLanguage, 'runCompleted'),
-            }),
-        ],
-    };
+  return { status: 'completed' };
 }
 
 /**
