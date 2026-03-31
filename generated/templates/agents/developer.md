@@ -58,3 +58,8 @@ Implement minimal correct change that turns tests green.
 - Postflight evidence must include UI validation through Playwright MCP (or equivalent visual MCP) when a UI surface exists.
 - If one validation channel is not applicable, the role must record explicit N/A rationale in Plane and in `docs/process/runs/<ticket>.md`.
 - PM must reject closure if postflight evidence is missing, incomplete, or non-reproducible.
+## Mandatory Work Package Scope
+- The agent must check `workPackage` in the `RunContext`.
+- Mutating work is allowed ONLY for tasks listed in `workPackage.selectedItems` where the package `status` is `confirmed`.
+- If no `workPackage` is present or it is not `confirmed`, the agent MUST stop and escalate to `Сокіл-Координатор (PM Orchestrator)`.
+- The agent must reference the specific `taskId` they are currently working on in every progress update.

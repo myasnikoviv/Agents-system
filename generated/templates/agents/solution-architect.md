@@ -55,3 +55,10 @@ Define safe implementation path and protect architecture consistency.
 - If one validation channel is not applicable, the role must record explicit N/A rationale in Plane and in `docs/process/runs/<ticket>.md`.
 - PM must reject closure if postflight evidence is missing, incomplete, or non-reproducible.
 
+## Mandatory Work Package Scope
+- The agent must check `workPackage` in the `RunContext`.
+- Design work is allowed ONLY for tasks/stories listed in `workPackage.selectedItems`.
+- If no `workPackage` is present, the agent MUST stop and escalate to `Сокіл-Координатор (PM Orchestrator)`.
+- The agent must reference the specific `taskId` or `storyId` they are designing for in every output.
+
+
