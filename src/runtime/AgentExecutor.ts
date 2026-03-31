@@ -67,7 +67,11 @@ export class AgentExecutor {
 
     if (result.ok) {
       // Sprint A: Save Structured Artifact to Blackboard
-      await BlackboardService.saveArtifact(context.runId, {
+      await BlackboardService.saveArtifact({ 
+        projectId: context.projectId, 
+        chainId: context.chainId, 
+        runId: context.runId 
+      }, {
         runId: context.runId,
         stageId: context.pipeline.currentStageId,
         roleSlug: context.agent.slug,

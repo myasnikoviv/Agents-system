@@ -562,7 +562,7 @@ async function swarmNode(state: PilotState): Promise<Partial<PilotState>> {
     executionPipelineDef as any,
     nextStage.id,
     state.artifactLogs[0] || 'Execute project task',
-    { history },
+    { history, threadId: state.thread_id, runId: state.pipeline_run_id },
     { preferredLanguage: state.preferredLanguage },
     { projectId: state.projectId, workspacePath: state.workspacePath }
   );
