@@ -32,6 +32,7 @@ export interface StructuredArtifact {
 export interface RunContext {
   runId: string;
   threadId: string;
+  chainId: string;
   projectId: string;
   workspacePath: string;
 
@@ -142,6 +143,7 @@ export class RunContextAssembler {
     const ctx: RunContext = {
       runId: memory.runId || `run_${Date.now()}`,
       threadId: memory.threadId || 'default-thread',
+      chainId: memory.threadId || 'default-thread',
       projectId: projectContext?.projectId || process.env.ACTIVE_PROJECT_ID || 'default',
       workspacePath: projectContext?.workspacePath || process.cwd(),
 

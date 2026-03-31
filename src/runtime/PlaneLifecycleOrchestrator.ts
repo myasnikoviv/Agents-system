@@ -31,28 +31,21 @@ export function shouldSyncIssueRef(issueRef: string): boolean {
 }
 
 export function mapRuntimeEventToPlaneStateId(event: RuntimeEvent): string | null {
-  if (event.status === 'failed') return TODO_STATE_ID;
-  if (event.status === 'pending' || event.status === 'in_progress') return IN_PROGRESS_STATE_ID;
-  if (event.event_type === 'docs.completed') return DONE_STATE_ID;
-  if (event.event_type.endsWith('.completed') && event.target_stage === 'end') return DONE_STATE_ID;
-  if (event.event_type.endsWith('.completed')) return REVIEW_STATE_ID;
-  if (event.event_type.startsWith('pipeline.') || event.event_type.startsWith('task.')) {
-    return IN_PROGRESS_STATE_ID;
-  }
+  if (event.type === 'run.failed') return TODO_STATE_ID;
+  if (event.type === 'run.started' || event.type === 'agent.started') return IN_PROGRESS_STATE_ID;
+  if (event.type === 'agent.completed' && event.payload?.status === 'success') return REVIEW_STATE_ID;
+  if (event.type === 'run.completed') return DONE_STATE_ID;
   return null;
 }
 
 export function buildLifecycleComment(event: RuntimeEvent): string {
   const lines = [
-    `<p><strong>Cockpit lifecycle update:</strong> ${event.event_type}</p>`,
+    `<p><strong>Cockpit lifecycle update:</strong> ${event.type}</p>`,
     `<ul>`,
-    `<li><strong>Status:</strong> ${event.status}</li>`,
-    `<li><strong>Role:</strong> ${event.agent_role}</li>`,
-    `<li><strong>From:</strong> ${event.source_stage}</li>`,
-    `<li><strong>To:</strong> ${event.target_stage || '-'}</li>`,
-    `<li><strong>Run:</strong> ${event.pipeline_run_id}</li>`,
-    `<li><strong>Thread:</strong> ${event.thread_id}</li>`,
-    `<li><strong>Correlation:</strong> ${event.correlation_id}</li>`,
+    `<li><strong>Actor:</strong> ${event.actor?.id || 'system'} (${event.actor?.type || 'system'})</li>`,
+    `<li><strong>Run:</strong> ${event.runId}</li>`,
+    `<li><strong>Chain:</strong> ${event.chainId}</li>`,
+    `<li><strong>Project:</strong> ${event.projectId}</li>`,
     `</ul>`,
   ];
   if (event.payload) {
@@ -126,12 +119,12 @@ async function resolveIssueId(issueRef: string, client: AxiosInstance): Promise<
 }
 
 export async function syncPlaneLifecycleForEvent(event: RuntimeEvent): Promise<void> {
-  if (!shouldSyncIssueRef(event.plane_issue_id)) return;
+  if (!shouldSyncIssueRef(event.projectId)) return;
   const client = getPlaneClient();
   if (!client) return;
 
   try {
-    const issueId = await resolveIssueId(event.plane_issue_id, client);
+    const issueId = await resolveIssueId(event.projectId, client);
     const issueResp = await client.get(`/issues/${issueId}/`);
     const issue = issueResp.data as PlaneIssueDetails;
     let parentExists = true;
@@ -160,7 +153,7 @@ export async function syncPlaneLifecycleForEvent(event: RuntimeEvent): Promise<v
     }
   } catch (error: any) {
     console.warn(
-      `[PlaneLifecycle] Failed to sync event ${event.event_type} for ${event.plane_issue_id}: ${error?.message || error}`,
+      `[PlaneLifecycle] Failed to sync event ${event.type} for ${event.projectId}: ${error?.message || error}`,
     );
   }
 }

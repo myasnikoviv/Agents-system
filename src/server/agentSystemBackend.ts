@@ -1407,78 +1407,96 @@ app.post('/api/chat', async (req, res) => {
     ensureThreadInProject(projectId, threadId);
     appendThreadMessage(threadId, 'user', message);
 
-    const execution = await executeRuntimeRun({
-      plane_issue_id: String(req.body?.ticketId || '').trim(),
-      pipeline_run_id: runId,
-      thread_id: threadId,
-      status: 'initialized',
-      executionOptions: { mode },
-      messages: [{ role: 'user', content: message }],
-      artifactLogs: [message],
-      projectId,
-      workspacePath: effectiveWorkspacePath,
-      agentContextPath: effectiveAgentContextPath,
-    });
-    const finalState = execution.finalState;
+    const { RunManager } = await import('../runtime/context/RunManager');
+    RunManager.registerRun(threadId, runId);
 
-    const assistantMessage = [...(finalState.messages || [])]
-      .reverse()
-      .find((m: { role: string; content: string }) => m.role === 'assistant')?.content;
-    const artifactLogs = Array.isArray(finalState.artifactLogs) ? finalState.artifactLogs : [];
-    const parseArtifactMessage = (log?: string): string | null => {
-      if (!log) return null;
-      const match = String(log).match(/message=(.*)$/);
-      return (match?.[1] || '').trim() || null;
-    };
-    const lastNonFinalizeArtifact = [...artifactLogs]
-      .reverse()
-      .find((entry) => !String(entry).includes('[stage:finalize]'));
-    const localizedRunCompleted =
-      detectedLanguage === 'uk'
-        ? 'Виконання завершено.'
-        : detectedLanguage === 'ru'
-          ? 'Выполнение завершено.'
-          : detectedLanguage === 'be'
-            ? 'Выкананне завершана.'
-            : 'Run completed.';
-    const explicitAssistantMessage = (assistantMessage && assistantMessage.trim()) || '';
-    const finalMessage =
-      explicitAssistantMessage ||
-      (mode === 'multiple_agents'
-        ? ''
-        : parseArtifactMessage(lastNonFinalizeArtifact) ||
-          parseArtifactMessage(artifactLogs[artifactLogs.length - 1]) ||
-          localizedRunCompleted);
-    ensureThreadInProject(projectId, threadId);
-    if (finalMessage) {
-      appendThreadMessage(threadId, 'agent', finalMessage);
+    try {
+      const execution = await executeRuntimeRun({
+        plane_issue_id: String(req.body?.ticketId || '').trim(),
+        pipeline_run_id: runId,
+        thread_id: threadId,
+        status: 'initialized',
+        executionOptions: { mode },
+        messages: [{ role: 'user', content: message }],
+        artifactLogs: [message],
+        projectId,
+        workspacePath: effectiveWorkspacePath,
+        agentContextPath: effectiveAgentContextPath,
+      });
+      const finalState = execution.finalState;
+      
+      RunManager.completeRun(threadId, runId);
+
+      const assistantMessage = [...(finalState.messages || [])]
+        .reverse()
+        .find((m: { role: string; content: string }) => m.role === 'assistant')?.content;
+      const artifactLogs = Array.isArray(finalState.artifactLogs) ? finalState.artifactLogs : [];
+      const parseArtifactMessage = (log?: string): string | null => {
+        if (!log) return null;
+        const match = String(log).match(/message=(.*)$/);
+        return (match?.[1] || '').trim() || null;
+      };
+      const lastNonFinalizeArtifact = [...artifactLogs]
+        .reverse()
+        .find((entry) => !String(entry).includes('[stage:finalize]'));
+      const localizedRunCompleted =
+        detectedLanguage === 'uk'
+          ? 'Виконання завершено.'
+          : detectedLanguage === 'ru'
+            ? 'Выполнение завершено.'
+            : detectedLanguage === 'be'
+              ? 'Выкананне завершана.'
+              : 'Run completed.';
+      const explicitAssistantMessage = (assistantMessage && assistantMessage.trim()) || '';
+      const finalMessage =
+        explicitAssistantMessage ||
+        (mode === 'multiple_agents'
+          ? ''
+          : parseArtifactMessage(lastNonFinalizeArtifact) ||
+            parseArtifactMessage(artifactLogs[artifactLogs.length - 1]) ||
+            localizedRunCompleted);
+      ensureThreadInProject(projectId, threadId);
+      if (finalMessage) {
+        appendThreadMessage(threadId, 'agent', finalMessage);
+      }
+
+      res.json({
+        success: true,
+        status: finalState.status || 'completed',
+        threadId,
+        runId,
+        ticketId: finalState.plane_issue_id || null,
+        message: finalMessage || null,
+        logs: artifactLogs,
+        observability: {
+          pipeline: finalState.selected_pipeline || 'unified-task-intake',
+          stage: finalState.status || 'completed',
+          nextStage: finalState.status === 'pipeline_completed' ? 'finalize' : 'swarm',
+          blockingGates: '',
+          approvalRequired: false,
+          approvalReason: '',
+          modeRequested: execution.modeRequested,
+          modeApplied: execution.modeApplied,
+          engine: execution.engine,
+        },
+        gitContext: {
+          activeBranch: runtimeFooter.activeBranch,
+          worktreePath: runtimeFooter.worktreePath,
+          preflightToken: runtimeFooter.preflightToken,
+        },
+      });
+    } catch (error: any) {
+      if (error.message?.includes('was cancelled')) {
+        console.log(`[agent-system-backend] Request for run ${runId} was cancelled:`, error.message);
+        // Do not return error to user if they just sent a new message, 
+        // but the XHR might have already closed or we might want to return 204 or similar.
+        // For now, let's just return success: false with a clear error.
+        res.status(409).json({ success: false, error: 'run_cancelled', message: 'Current run was cancelled by a newer request.' });
+      } else {
+        console.error('[agent-system-backend] chat error:', error);
+        res.status(500).json({ success: false, error: 'internal_error', message: error.message });
+      }
     }
-
-    res.json({
-      success: true,
-      status: finalState.status || 'completed',
-      threadId,
-      runId,
-      ticketId: finalState.plane_issue_id || null,
-      message: finalMessage || null,
-      logs: artifactLogs,
-      observability: {
-        pipeline: finalState.selected_pipeline || 'unified-task-intake',
-        stage: finalState.status || 'completed',
-        nextStage: finalState.status === 'pipeline_completed' ? 'finalize' : 'swarm',
-        blockingGates: '',
-        approvalRequired: false,
-        approvalReason: '',
-        modeRequested: execution.modeRequested,
-        modeApplied: execution.modeApplied,
-        engine: execution.engine,
-      },
-      gitContext: {
-        activeBranch: runtimeFooter.activeBranch,
-        worktreePath: runtimeFooter.worktreePath,
-        preflightToken: runtimeFooter.preflightToken,
-      },
-    });
   } catch (error: any) {
     console.error('[agent-system-backend] /api/chat error:', error);
     res.status(500).json({
@@ -1512,22 +1530,35 @@ app.get('/api/events/stream', (req, res) => {
   const seenEventIds = new Set<string>();
   let streamClosed = false;
 
-  const sendEvent = (payload: unknown) => {
+  const sendEvent = (payload: any) => {
     if (streamClosed) return;
     res.write(`data: ${JSON.stringify(payload)}\n\n`);
   };
 
-  sendEvent({ event_type: 'runtime.idle', status: 'ok', timestamp: new Date().toISOString() });
+  // Initial heartbeat/idle event using new schema
+  sendEvent({
+    id: uuidv4(),
+    runId: 'none',
+    projectId: 'none',
+    chainId: 'none',
+    type: 'system.thought', // or a new 'system.idle' if we add it
+    actor: { type: 'system', id: 'backend' },
+    payload: { message: 'Runtime stream initialized' },
+    timestamp: Date.now()
+  });
 
   const pollRecentEvents = async () => {
     try {
-      const recent = await fetchRecentEvents(25);
+      const recent = await fetchRecentEvents(50);
       const chronological = recent.reverse();
       for (const event of chronological) {
-        const id = `${event.event_id}:${event.timestamp}`;
-        if (seenEventIds.has(id)) continue;
-        seenEventIds.add(id);
-        if (seenEventIds.size > 300) {
+        // New schema uses 'id' and numeric 'timestamp'
+        const uniqueKey = `${event.id}:${event.timestamp}`;
+        if (seenEventIds.has(uniqueKey)) continue;
+        seenEventIds.add(uniqueKey);
+        
+        // LRU-style cleanup for the seen set
+        if (seenEventIds.size > 500) {
           const first = seenEventIds.values().next().value as string | undefined;
           if (first) seenEventIds.delete(first);
         }
@@ -1542,7 +1573,7 @@ app.get('/api/events/stream', (req, res) => {
 
   const eventsPoller = setInterval(() => {
     void pollRecentEvents();
-  }, 1500);
+  }, 1000); // Poll slightly faster for better responsiveness
 
   const keepAlive = setInterval(() => {
     if (streamClosed) return;

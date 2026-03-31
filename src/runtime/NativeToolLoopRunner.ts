@@ -43,18 +43,32 @@ export class NativeToolLoopRunner {
     let currentContext = { ...context };
     let lastResult: ExecutionResult | null = null;
 
+    const { Guardrails } = await import('./guards/Guardrails');
+
     while (iteration < this.maxIterations) {
       iteration++;
       
-      console.log(`[NativeToolLoop] Starting iteration ${iteration}/${this.maxIterations} for role ${context.agent.slug}`);
-      
+      // 0. Update and check guardrails
+      const { RunManager } = await import('./context/RunManager');
+      RunManager.checkCancellation(context.runId);
+
+      Guardrails.checkTimeLimit(context.runId);
+      Guardrails.recordLLMCall(context.runId);
+
       const result = await this.adapter.execute(currentContext);
       lastResult = result;
 
       console.log(`[AUDIT] model_step_${iteration}_raw:`, JSON.stringify(result.content || ""));
 
       if (!result.ok) {
-        return result;
+        try {
+          const attempt = Guardrails.incrementRetry(context.runId, `step_${iteration}`);
+          console.log(`[NativeToolLoop] Retrying step_${iteration}, attempt ${attempt}`);
+          iteration--; // Backtrack one iteration to retry the same logical step
+          continue;
+        } catch (guardError: any) {
+          return result; // Max retries exceeded, return the original failure
+        }
       }
 
       // 1. Check if the model wants to call a tool
@@ -68,7 +82,7 @@ export class NativeToolLoopRunner {
           console.log(`[AUDIT] tool_result_raw:`, JSON.stringify(toolResult.content));
           toolResults.push(toolResult);
           
-          await emitSwarmEvent('tool.called', context, {
+          await emitSwarmEvent('tool.call', context, {
             tool: call.tool,
             status: toolResult.status,
             summary: toolResult.summary
