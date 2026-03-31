@@ -18,6 +18,7 @@ export type RuntimeEventType =
   | 'llm.request'
   | 'llm.response'
   | 'agent.failed'
+  | 'agent.waiting_for_approval'
   | 'run.failed';
 
 export interface RuntimeEvent {

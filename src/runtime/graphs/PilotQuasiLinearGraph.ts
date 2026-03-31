@@ -1,5 +1,5 @@
 import * as path from 'path';
-import { StateGraph, START, END, MemorySaver, Annotation } from '@langchain/langgraph';
+import { StateGraph, START, END, MemorySaver, Annotation, interrupt, Command } from '@langchain/langgraph';
 import { classifyRequest } from '../IntakeClassifier';
 import { DynamicDiscoveryService } from '../DynamicDiscoveryService';
 import { AgentRegistry } from '../registries/AgentRegistry';
@@ -8,7 +8,7 @@ import { emitEvent, emitSwarmEvent } from '../events/EventBus';
 import { RunContextAssembler } from '../context/RunContext';
 import { AgentExecutor } from '../AgentExecutor';
 import { BlackboardService } from '../BlackboardService';
-import { resolveInterruptBeforeNodes } from '../ApprovalPolicyEngine';
+import { resolveInterruptBeforeNodes, ApprovalPolicyEngine } from '../ApprovalPolicyEngine';
 import { loadConfig } from '../CockpitExecutorConfig';
 import { ReclassificationCheckpoint } from '../context/ReclassificationCheckpoint';
 import { detectLanguage, type DetectedLanguage } from '../LanguageDetection';
@@ -578,6 +578,32 @@ async function swarmNode(state: PilotState): Promise<Partial<PilotState>> {
         : backend === 'openhands-sdk'
           ? 'OpenHands'
           : 'Execution provider';
+
+  // Ticket 315: Dynamic HITL Interrupts based on ApprovalPolicyEngine
+  if (ApprovalPolicyEngine.getInstance().shouldInterrupt(agent.slug, runContext, 'interrupt_before')) {
+    await emitEvent({
+      type: 'agent.waiting_for_approval' as any, // Need to add this to union or cast
+      runId: state.pipeline_run_id,
+      projectId: state.projectId,
+      chainId: state.thread_id,
+      actor: { type: 'agent', id: agent.slug, role: agent.slug },
+      payload: {
+        pipelineId,
+        stageId: nextStage.id,
+        reason: 'Policy-based HITL trigger',
+      },
+    });
+
+    const decision = interrupt({
+      reason: 'approval_required',
+      agent: agent.slug,
+      stageId: nextStage.id,
+      message: `Approving ${agent.slug} for stage ${nextStage.id}`,
+    });
+    
+    console.log(`[PilotGraph:Swarm] Resumed after HITL interrupt for ${agent.slug}. Decision:`, decision);
+  }
+
   try {
     result = await executor.run(runContext);
   } catch (error: any) {
@@ -808,5 +834,15 @@ export const pilotGraph = new StateGraph(PilotStateAnnotation)
 export async function executeQuasiLinearRun(initialState: Partial<PilotState>) {
   const threadConfig = { configurable: { thread_id: initialState.thread_id || 'default' } };
   const finalState = await pilotGraph.invoke(initialState, threadConfig);
+  return finalState;
+}
+
+/**
+ * Resumes an interrupted run.
+ */
+export async function resumeQuasiLinearRun(threadId: string, decision: any) {
+  const threadConfig = { configurable: { thread_id: threadId } };
+  // Use Command({ resume: decision }) to pass value back to interrupt()
+  const finalState = await pilotGraph.invoke(new Command({ resume: decision }), threadConfig);
   return finalState;
 }
