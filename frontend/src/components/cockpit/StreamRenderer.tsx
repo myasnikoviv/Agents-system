@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Wrench, GitBranch, TerminalSquare, AlertTriangle, CheckCircle2, ChevronRight, ChevronDown, Activity } from 'lucide-react';
+import { Wrench, GitBranch, TerminalSquare, AlertTriangle, CheckCircle2, ChevronRight, ChevronDown, Activity, Brain, MessageSquare } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
@@ -28,6 +28,7 @@ export interface RuntimeEvent {
         tool?: string;
         summary?: string;
         message?: string;
+        content?: string;
         errors?: string[];
     };
 }
@@ -41,30 +42,33 @@ const StreamEventCard: React.FC<StreamEventCardProps> = ({ event }) => {
     
     // We only care about specific technical events: tool.called, stage.started, swarm_handoff
     const eventType = String(event.event_type || '').trim();
-    if (!['tool.called', 'stage.started', 'swarm_handoff', 'contract_reprompt', 'contract_fail', 'contract_pass'].includes(eventType)) {
+    if (!['tool.called', 'stage.started', 'swarm_handoff', 'contract_reprompt', 'contract_fail', 'contract_pass', 'system.thought', 'agent.message'].includes(eventType)) {
         return null;
     }
 
     const roleLabel = String(event.agent_role || 'system').trim();
-    const timeFormatted = new Date(event.timestamp || Date.now()).toLocaleTimeString();
+    const timeFormatted = event.timestamp ? new Date(event.timestamp).toLocaleTimeString() : '';
     
     let title = '';
     let icon = <Activity size={14} />;
     let bodyText = '';
     let iconColorClass = 'text-slate-400';
+    let containerClass = 'border border-white/10 rounded-md bg-slate-900/40 overflow-hidden text-sm';
 
     if (eventType === 'stage.started') {
         const stageLabel = String(event.payload?.stageId || event.source_stage || 'n/a').trim();
         title = `Agent ${roleLabel} started stage: ${stageLabel}`;
         icon = <TerminalSquare size={14} />;
         iconColorClass = 'text-purple-500';
+        containerClass = 'border border-purple-500/20 rounded-md bg-slate-900/60 overflow-hidden text-sm';
     } else if (eventType === 'swarm_handoff') {
         const fromAgent = String(event.payload?.fromAgentTitle || event.payload?.fromAgentId || 'unknown').trim();
         const toAgent = String(event.payload?.toAgentTitle || event.payload?.toAgentId || roleLabel || 'unknown').trim();
         const toStage = String(event.payload?.toStageId || event.payload?.stageId || event.source_stage || 'n/a').trim();
         title = `Handoff: ${fromAgent} \u2192 ${toAgent} (stage: ${toStage})`;
         icon = <GitBranch size={14} />;
-        iconColorClass = 'text-amber-500';
+        iconColorClass = 'text-amber-400';
+        containerClass = 'border border-amber-500/30 rounded-md bg-amber-500/10 overflow-hidden text-sm text-amber-200';
     } else if (eventType === 'tool.called') {
         const tool = String(event.payload?.tool || 'tool').trim();
         const summary = String(event.payload?.summary || '').trim();
@@ -72,26 +76,44 @@ const StreamEventCard: React.FC<StreamEventCardProps> = ({ event }) => {
         bodyText = summary || '(No summary available)';
         icon = <Wrench size={14} />;
         iconColorClass = 'text-blue-500';
+        containerClass = 'border border-blue-500/20 rounded-md bg-slate-950/80 overflow-hidden text-sm font-mono';
     } else if (eventType === 'contract_reprompt') {
         title = `Contract Guard: ${roleLabel} is reformatting response`;
         icon = <AlertTriangle size={14} />;
         iconColorClass = 'text-amber-500';
+        containerClass = 'border border-amber-500/20 rounded-md bg-slate-900/60 overflow-hidden text-sm';
     } else if (eventType === 'contract_fail') {
         const errors = Array.isArray(event.payload?.errors) ? event.payload.errors : [];
         title = `Contract Guard Flagged Issues`;
         bodyText = errors.map((err) => `- ${err}`).join('\n');
         icon = <AlertTriangle size={14} />;
         iconColorClass = 'text-red-500';
+        containerClass = 'border border-red-500/20 rounded-md bg-red-950/30 overflow-hidden text-sm text-red-100';
     } else if (eventType === 'contract_pass') {
         title = `Contract Guard Passed for ${roleLabel}`;
         icon = <CheckCircle2 size={14} />;
         iconColorClass = 'text-emerald-500';
+        containerClass = 'border border-emerald-500/20 rounded-md bg-emerald-950/30 overflow-hidden text-sm text-emerald-100';
+    } else if (eventType === 'system.thought') {
+        const message = String(event.payload?.message || event.payload?.content || '').trim();
+        title = `Thought: ${roleLabel}`;
+        bodyText = message || '(No details available)';
+        icon = <Brain size={14} />;
+        iconColorClass = 'text-slate-500';
+        containerClass = 'border border-transparent rounded-md bg-slate-800/30 overflow-hidden text-sm text-slate-400';
+    } else if (eventType === 'agent.message') {
+        const message = String(event.payload?.message || event.payload?.content || '').trim();
+        title = `Message: ${roleLabel}`;
+        bodyText = message || '(Empty message)';
+        icon = <MessageSquare size={14} />;
+        iconColorClass = 'text-slate-300';
+        containerClass = 'border border-white/10 rounded-md bg-slate-800/60 overflow-hidden text-sm text-slate-200';
     }
 
     const hasBody = !!bodyText;
 
     return (
-        <div className="border border-white/10 rounded-md bg-slate-900/40 overflow-hidden text-sm">
+        <div className={containerClass}>
             <div 
                 className="flex items-center gap-2 px-3 py-2 cursor-pointer select-none bg-white/5 transition-colors duration-200 hover:bg-white/10" 
                 onClick={() => hasBody && setExpanded(!expanded)}
