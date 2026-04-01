@@ -1,5 +1,12 @@
 import { executeQuasiLinearRun, resumeQuasiLinearRun, type PilotState } from './PilotQuasiLinearGraph';
 import { runGovernancePhase } from '../governance/GovernanceEngineCore';
+import { analyzeTaskForCompliance } from '../compliance/TaskAnalyzer';
+import { buildExecutionPlan } from '../compliance/ExecutionPlanBuilder';
+import { collectComplianceActualEvidence } from '../compliance/ComplianceEvidenceCollector';
+import { evaluateCompliance } from '../compliance/ComplianceEvaluator';
+import { applyComplianceEnforcement } from '../compliance/ComplianceEnforcementLoop';
+import { writeComplianceLedger } from '../compliance/ComplianceLedger';
+import { logGovernance } from '../governance/GovernanceLogger';
 
 export type RuntimeExecutionMode = 'mock' | 'linear' | 'multiple_agents';
 
@@ -46,10 +53,42 @@ export async function executeRuntimeRun(initialState: Partial<PilotState>): Prom
   const chainId = initialState.threadId || `thread-${Date.now()}`;
   const projectId = initialState.projectId || 'agent_system';
   const workspacePath = initialState.workspacePath || process.cwd();
+  const userMessage =
+    [...(initialState.messages || [])]
+      .reverse()
+      .find((m) => m.role === 'user')?.content || '';
 
   // Sprint 5.5 — Identify if pipeline involves mutating actions (ENF-001 logic)
   const mutatingPipelines = ['new-feature', 'bug-fix', 'hotfix', 'refactor', 'strategy-tuning', 'release', 'rollback-incident'];
   const hasMutatingAction = mutatingPipelines.includes(pipeline) && modeRequested !== 'mock';
+
+  const analyzedPlan = analyzeTaskForCompliance({
+    runId,
+    projectId,
+    ticketId: ticket,
+    message: userMessage,
+    requestedPipeline: pipeline,
+    requestedAgents: initialState.customAgents || [],
+  });
+  const executionPlan = buildExecutionPlan(analyzedPlan);
+  const planRequired = Boolean(
+    executionPlan.pipeline &&
+      executionPlan.agents.length > 0 &&
+      executionPlan.skills.length > 0 &&
+      executionPlan.stages.length > 0,
+  );
+  if (!planRequired) {
+    logGovernance({
+      rule: 'plan_required',
+      status: 'fail',
+      action: 'block',
+      ticket,
+      runId,
+      chainId,
+      detail: 'pre_execution_plan_missing_or_incomplete',
+    });
+    throw new Error(`[CompliancePhase:before_execution] blocked ticket=${ticket} reason=plan_required`);
+  }
 
   const beforeExecution = await runGovernancePhase('before_execution', {
     runId,
@@ -95,6 +134,24 @@ export async function executeRuntimeRun(initialState: Partial<PilotState>): Prom
     workspacePath,
     pipelineId: pipeline,
     hasMutatingAction,
+  });
+
+  const actual = await collectComplianceActualEvidence({
+    runId,
+    fallbackPipeline: pipeline,
+    workspacePath,
+  });
+  const compliance = evaluateCompliance(executionPlan, actual);
+  const decision = applyComplianceEnforcement(compliance);
+  const complianceLedgerPath = writeComplianceLedger(compliance, decision, workspacePath);
+  logGovernance({
+    rule: 'compliance_engine',
+    status: compliance.passed ? 'pass' : 'fail',
+    action: decision.action === 'allow' ? 'allow' : decision.action === 'retry' ? 'retry' : 'warn',
+    ticket,
+    runId,
+    chainId,
+    detail: `decision=${decision.action};ledger=${complianceLedgerPath}`,
   });
 
   // 2. ENF-006 — Pipeline Usage Soft Gate (log classification result from router node)
