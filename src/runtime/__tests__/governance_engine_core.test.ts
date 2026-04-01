@@ -12,37 +12,37 @@ function makeWorkspace(): string {
     [
       'rules:',
       '  - id: git_preflight',
-      '    triggerPhases: [before_execution]',
+      '    triggerPhases: [BEFORE_RUN]',
       '    evidence: [docs/process/git/preflights/<ticket>.env]',
       '    evaluationType: deterministic',
       '    enforcementMode: hard',
       '    enabledByDefault: true',
       '  - id: postflight_evidence',
-      '    triggerPhases: [before_task_close]',
+      '    triggerPhases: [AFTER_RUN]',
       '    evidence: [docs/process/tests/<ticket>.md]',
       '    evaluationType: deterministic',
       '    enforcementMode: hard',
       '    enabledByDefault: true',
       '  - id: improvement_loop',
-      '    triggerPhases: [after_execution]',
+      '    triggerPhases: [AFTER_RUN]',
       '    evidence: [docs/process/retrospectives/**]',
       '    evaluationType: deterministic',
       '    enforcementMode: soft',
       '    enabledByDefault: true',
       '  - id: required_agent_usage',
-      '    triggerPhases: [after_execution]',
+      '    triggerPhases: [AFTER_STEP]',
       '    evidence: [agent.started events]',
       '    evaluationType: deterministic',
       '    enforcementMode: soft',
       '    enabledByDefault: true',
       '  - id: required_pipeline_usage',
-      '    triggerPhases: [after_execution]',
+      '    triggerPhases: [AFTER_STEP]',
       '    evidence: [stage.started events]',
       '    evaluationType: deterministic',
       '    enforcementMode: soft',
       '    enabledByDefault: true',
       '  - id: cost_guard_light',
-      '    triggerPhases: [after_execution]',
+      '    triggerPhases: [AFTER_RUN]',
       '    evidence: [token telemetry]',
       '    evaluationType: deterministic',
       '    enforcementMode: advisory',
@@ -86,7 +86,7 @@ function makeWorkspace(): string {
 
 async function test_hard_gate_blocks_without_preflight(): Promise<void> {
   const workspace = makeWorkspace();
-  const result = await runGovernancePhase('before_execution', {
+  const result = await runGovernancePhase('BEFORE_RUN', {
     runId: 'run-hard-1',
     projectId: 'agent_system',
     ticketId: 'AGSYS-TEST-1',
@@ -102,7 +102,7 @@ async function test_hard_gate_blocks_without_preflight(): Promise<void> {
 
 async function test_soft_gate_requests_retry(): Promise<void> {
   const workspace = makeWorkspace();
-  const result = await runGovernancePhase('after_execution', {
+  const result = await runGovernancePhase('AFTER_STEP', {
     runId: 'run-soft-1',
     projectId: 'agent_system',
     ticketId: 'AGSYS-TEST-2',
@@ -128,13 +128,13 @@ async function test_phase_alias_pre_execution_supported(): Promise<void> {
     hasMutatingAction: true,
   });
   console.assert(result.blocked === true, 'expected alias pre_execution to map to hard gate checks');
-  console.assert(result.phase === 'before_execution', 'expected normalized phase before_execution');
+  console.assert(result.phase === 'BEFORE_RUN', 'expected normalized phase BEFORE_RUN');
   console.log('[PASS] core supports governance phase alias pre_execution');
 }
 
 async function test_before_task_close_blocks_without_report(): Promise<void> {
   const workspace = makeWorkspace();
-  const result = await runGovernancePhase('before_task_close', {
+  const result = await runGovernancePhase('AFTER_RUN', {
     runId: 'run-close-1',
     projectId: 'agent_system',
     ticketId: 'AGSYS-TEST-3',

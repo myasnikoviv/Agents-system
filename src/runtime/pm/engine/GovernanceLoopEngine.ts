@@ -37,7 +37,7 @@ export class GovernanceLoopEngine {
     updatedTask.verificationResults = [...(task.verificationResults || []), report];
 
     if (report.status === 'passed') {
-      const phase = await runGovernancePhase('before_task_close', {
+      const phase = await runGovernancePhase('AFTER_RUN', {
         runId: report.packageId || `run-${Date.now()}`,
         ticketId: task.id,
         chainId: report.taskId || `task-${task.id}`,

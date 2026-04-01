@@ -14,11 +14,12 @@ function softRetryKey(ctx: GovernanceEngineContext, ruleId: string) {
   return `${ctx.runId}:${ctx.ticketId}:${ruleId}`;
 }
 
-function normalizePhaseAlias(phase: GovernancePhase): 'before_execution' | 'after_execution' | 'before_task_close' {
-  if (phase === 'pre_execution') return 'before_execution';
-  if (phase === 'post_execution') return 'after_execution';
-  if (phase === 'pre_task_close') return 'before_task_close';
-  return phase;
+function normalizePhaseAlias(phase: GovernancePhase): 'BEFORE_RUN' | 'AFTER_STEP' | 'AFTER_RUN' {
+  if (phase === 'BEFORE_RUN' || phase === 'AFTER_STEP' || phase === 'AFTER_RUN') return phase;
+  if (phase === 'pre_execution' || phase === 'before_execution') return 'BEFORE_RUN';
+  if (phase === 'post_execution' || phase === 'after_execution') return 'AFTER_STEP';
+  if (phase === 'pre_task_close' || phase === 'before_task_close') return 'AFTER_RUN';
+  return 'AFTER_RUN';
 }
 
 export async function runGovernancePhase(
