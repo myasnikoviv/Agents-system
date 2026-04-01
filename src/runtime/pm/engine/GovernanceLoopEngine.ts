@@ -6,7 +6,8 @@ import { enforcePostflightGate } from '../../governance/PostflightEnforcer';
  * It manages transitions between 'pending', 'in_progress', 'verifying', and 'done'.
  */
 export class GovernanceLoopEngine {
-  private readonly MAX_RETRIES = 3;
+  // Keep retry policy aligned with runtime guardrails (MAX_RETRIES_PER_STEP = 2).
+  private readonly MAX_RETRIES = 2;
 
   /**
    * Inspects the TaskPackage and returns the next task that requires action.
