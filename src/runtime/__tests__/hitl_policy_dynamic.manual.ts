@@ -29,8 +29,8 @@ async function testDynamicHITL() {
   try {
     console.log('\n[Phase 1] Executing until interrupt...');
     const result1 = await executeRuntimeRun({
-      pipeline_run_id: runId,
-      thread_id: threadId,
+      runId: runId,
+      threadId: threadId,
       projectId: 'test-project',
       workspacePath: process.cwd(),
       messages: [{ role: 'user', content: userInput }],
@@ -54,7 +54,7 @@ async function testDynamicHITL() {
     }
   }
 
-  // To truly verify resumption, we'd need to call the graph again with the same thread_id and checkpointer.
+  // To truly verify resumption, we'd need to call the graph again with the same threadId and checkpointer.
   // The executeRuntimeRun currently doesn't expose the underlying graph/checkpointer easily for external resumption in a single call.
   // But we can check the RunLedger/EventBus for the 'agent.waiting_for_approval' event.
 }

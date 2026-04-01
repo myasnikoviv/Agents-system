@@ -16,9 +16,9 @@ async function runDistributedTest() {
   // We will run the graph in the background
   console.log(`[Test] Kicking off graph execution. It should block at researchNode...`);
   const graphPromise = executeQuasiLinearRun({
-    plane_issue_id: mockIssueId,
-    pipeline_run_id: runId,
-    thread_id: threadId,
+    ticketId: mockIssueId,
+    runId: runId,
+    threadId: threadId,
     status: 'initialized',
     artifactLogs: ['Test Setup']
   });
@@ -40,7 +40,7 @@ async function runDistributedTest() {
           if (!payloadStr) continue;
           
           const ev = JSON.parse(payloadStr);
-          if (ev.pipeline_run_id === runId && ev.event_type === 'task.research.assigned') {
+          if (ev.runId === runId && ev.type === 'task.research.assigned') {
               taskFound = true;
               console.log(`[Test] ✅ Verified worker payload emitted to queue.`);
               break;
@@ -56,13 +56,13 @@ async function runDistributedTest() {
   // 2. Simulate worker finishing its job and dropping the completion event on the hub
   console.log(`[Test] Simulating external worker completion...`);
   await emitEvent({
-        event_type: 'research.completed',
-        plane_issue_id: mockIssueId,
-        pipeline_run_id: runId,
-        thread_id: threadId,
-        agent_role: 'Research Agent',
-        source_stage: 'research',
-        target_stage: 'planning',
+        type: 'research.completed',
+        ticketId: mockIssueId,
+        runId: runId,
+        threadId: threadId,
+        actorRole: 'Research Agent',
+        sourceStage: 'research',
+        targetStage: 'planning',
         status: 'success',
         correlation_id: mockIssueId,
         payload: {

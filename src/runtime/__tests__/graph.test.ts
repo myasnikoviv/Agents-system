@@ -21,9 +21,9 @@ describe('PilotQuasiLinearGraph Test', () => {
 
     it('should complete the quasi-linear execution flow', async () => {
         const finalState = await executeQuasiLinearRun({
-            plane_issue_id: issueId,
-            pipeline_run_id: runId,
-            thread_id: threadId,
+            ticketId: issueId,
+            runId: runId,
+            threadId: threadId,
             status: 'initialized',
             artifactLogs: [],
             executionOptions: { mode: 'linear' } // Use linear to test synchronous flow
@@ -41,7 +41,7 @@ describe('PilotQuasiLinearGraph Test', () => {
         await new Promise(resolve => setTimeout(resolve, 1000));
         const events = await fetchRecentEvents(20);
         
-        const runEvents = events.filter(e => e.pipeline_run_id === runId);
+        const runEvents = events.filter(e => e.runId === runId);
         console.log(`Found ${runEvents.length} events for runId ${runId}`);
         
         // We expect at least some events if the execution options were correct
