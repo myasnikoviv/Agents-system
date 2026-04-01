@@ -10,6 +10,7 @@
  */
 
 import { getCockpitExecutorConfig } from './CockpitExecutorConfig';
+import { wrapLLMCall } from './llm/LLMWrapper';
 
 export type IntentType =
   | 'conversational'    // Legacy label; mapped to PM intake pipeline
@@ -289,7 +290,22 @@ User message: "${message.replace(/"/g, "'")}"`;
         throw new Error(`Gemini HTTP ${response.status}: ${raw.slice(0, 200)}`);
       }
       const payload = await response.json() as any;
-      const content = String(payload?.candidates?.[0]?.content?.parts?.[0]?.text || '').trim();
+      const content = await wrapLLMCall(
+        {
+          runId: 'intake-classifier',
+          projectId: 'none',
+          chainId: 'none',
+          model,
+          provider: 'google',
+          source: 'system',
+        },
+        classifyPrompt,
+        async () => ({
+          response: String(payload?.candidates?.[0]?.content?.parts?.[0]?.text || '').trim(),
+          tokensInput: Number(payload?.usageMetadata?.promptTokenCount || 0),
+          tokensOutput: Number(payload?.usageMetadata?.candidatesTokenCount || 0),
+        })
+      );
       const parsed = JSON.parse(content.replace(/```json|```/g, '').trim());
       const intent = (parsed.intent || 'new-feature') as IntentType;
       return {
@@ -312,8 +328,26 @@ User message: "${message.replace(/"/g, "'")}"`;
       maxTokens: 300,
     });
 
-    const response = await model.invoke(classifyPrompt);
-    const content = String(response.content || '').trim();
+    const content = await wrapLLMCall(
+      {
+        runId: 'intake-classifier',
+        projectId: 'none',
+        chainId: 'none',
+        model: 'gpt-4o-mini',
+        provider: 'openai',
+        source: 'system',
+      },
+      classifyPrompt,
+      async (prompt) => {
+        const response = await model.invoke(prompt);
+        const usage = (response as any)?.usage_metadata || {};
+        return {
+          response: String(response.content || '').trim(),
+          tokensInput: Number(usage.input_tokens || 0),
+          tokensOutput: Number(usage.output_tokens || 0),
+        };
+      }
+    );
 
     // Parse JSON response
     const parsed = JSON.parse(content.replace(/```json|```/g, '').trim());
