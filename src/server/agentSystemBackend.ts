@@ -1412,9 +1412,9 @@ app.post('/api/chat', async (req, res) => {
 
     try {
       const execution = await executeRuntimeRun({
-        plane_issue_id: String(req.body?.ticketId || '').trim(),
-        pipeline_run_id: runId,
-        thread_id: threadId,
+        ticketId: String(req.body?.ticketId || '').trim(),
+        runId,
+        threadId,
         status: 'initialized',
         executionOptions: { mode },
         messages: [{ role: 'user', content: message }],
@@ -1477,7 +1477,7 @@ app.post('/api/chat', async (req, res) => {
         status: finalState.status || 'completed',
         threadId,
         runId,
-        ticketId: finalState.plane_issue_id || null,
+        ticketId: finalState.ticketId || null,
         message: finalMessage || null,
         logs: artifactLogs,
         observability: {

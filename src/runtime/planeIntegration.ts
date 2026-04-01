@@ -98,9 +98,9 @@ export async function triggerPipelineFromPlane(issueId: string) {
   const issueData = await getIssueFromPlane(issueId);
 
   const initialState: Partial<PilotState> = {
-    plane_issue_id: issueData.id,
-    pipeline_run_id: runId,
-    thread_id: threadId,
+    ticketId: issueData.id,
+    runId: runId,
+    threadId: threadId,
     status: 'initialized',
     artifactLogs: [`Intake initiated for: ${issueData.name}`]
   };
