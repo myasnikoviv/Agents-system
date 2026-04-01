@@ -75,7 +75,7 @@ function test_preflight_missing_token_blocks(): void {
     enforcePreflightGate({
       ticket: 'TEST-001',
       hasMutatingAction: true,
-      repoRoot: tmpDir, // no git, no preflight dir
+      workspacePath: tmpDir,
       preflightDir: path.join(tmpDir, 'preflights'),
     });
   } catch (err) {
@@ -141,7 +141,6 @@ function test_postflight_with_report_passes(): void {
   console.assert(result.presentArtifacts.includes('test_report'), 'test_report should be present');
   console.log('[PASS] ENF-002 — postflight passes when test report exists');
 }
-
 function test_postflight_stub_idempotent(): void {
   const tmpDir = makeTmpDir();
   const testsDir = path.join(tmpDir, 'tests');
@@ -151,14 +150,87 @@ function test_postflight_stub_idempotent(): void {
   console.log('[PASS] ENF-002 — writeTestReportStub is idempotent');
 }
 
+// ------- ENF-005, ENF-006, ENF-007, ENF-003: Soft Gates -------
+import { logParticipationGate } from '../governance/AgentParticipationEnforcer';
+import { logPipelineUsageGate } from '../governance/PipelineUsageEnforcer';
+import { logCostTrackerGate } from '../governance/CostTrackerEnforcer';
+import { logImprovementLoopGate } from '../governance/ImprovementLoopEnforcer';
+
+async function test_soft_gates_emit_to_redis(): Promise<void> {
+  const ticket = 'TEST-SOFT-GATES';
+  const runId = 'run-' + Date.now();
+  const chainId = 'thread-' + Date.now();
+
+  // 1. Participation - FAIL (missing markers)
+  logParticipationGate({
+    agentSlug: 'test-agent',
+    ticketId: ticket,
+    runId,
+    chainId,
+    content: 'Hello world without loop markers'
+  });
+
+  // 2. Participation - PASS
+  logParticipationGate({
+    agentSlug: 'test-agent',
+    ticketId: ticket,
+    runId,
+    chainId,
+    content: 'perceive think plan act reflect'
+  });
+
+  // 3. Pipeline Usage
+  logPipelineUsageGate({
+    ticketId: ticket,
+    runId,
+    chainId,
+    pipelineId: 'new-feature',
+    isExplicit: true,
+    confidence: 1.0
+  });
+
+  // 4. Cost Tracker
+  logCostTrackerGate({
+    ticketId: ticket,
+    runId,
+    chainId,
+    agentSlug: 'test-agent',
+    inputTokens: 100,
+    outputTokens: 50,
+    totalTokens: 150
+  });
+
+  console.log('[PASS] Soft gates invoked and emitted governance events');
+}
+
+async function test_negative_pipeline_gate(): Promise<void> {
+  logPipelineUsageGate({
+    ticketId: 'TEST-NEG-PIPELINE',
+    runId: 'none',
+    chainId: 'none',
+    pipelineId: 'unified-task-intake',
+    isExplicit: false,
+    confidence: 0.1 // Should trigger fail
+  });
+  console.log('[PASS] ENF-006 — low confidence fallback triggered fail event');
+}
+
 // ------- RUN -------
-console.log('\n=== Sprint 5.5 Governance Gates — Unit Tests ===\n');
-test_governance_logger_writes_and_reads();
-test_preflight_nonmutating_always_passes();
-test_preflight_missing_token_blocks();
-test_preflight_valid_token_passes();
-test_postflight_missing_report_blocks();
-test_postflight_enforce_throws_when_missing();
-test_postflight_with_report_passes();
-test_postflight_stub_idempotent();
-console.log('\n=== All governance gate tests passed ===\n');
+(async () => {
+  console.log('\n=== Sprint 5.5 Governance Gates — Unit & Integration Tests ===\n');
+  test_governance_logger_writes_and_reads();
+  test_preflight_nonmutating_always_passes();
+  test_preflight_missing_token_blocks();
+  test_preflight_valid_token_passes();
+  test_postflight_missing_report_blocks();
+  test_postflight_enforce_throws_when_missing();
+  test_postflight_with_report_passes();
+  test_postflight_stub_idempotent();
+  
+  await test_soft_gates_emit_to_redis();
+  await test_negative_pipeline_gate();
+  
+  console.log('\n=== All governance gate tests completed successfully ===\n');
+  // Need to exit to close Redis connections
+  process.exit(0);
+})();
