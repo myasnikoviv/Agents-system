@@ -3,13 +3,14 @@ import { checkImprovementArtifact, checkPreflightToken, checkTestReport } from '
 import { collectEventEvidence } from './EventEvidenceCollector';
 import { readTelemetry } from './TelemetryReader';
 
-export async function evaluateDeterministic(
+type DeterministicHandler = (
   rule: GovernanceRule,
   ctx: GovernanceEngineContext,
-): Promise<GovernanceRuleEvaluation> {
-  const workspacePath = ctx.workspacePath || process.cwd();
+  workspacePath: string,
+) => Promise<GovernanceRuleEvaluation>;
 
-  if (rule.id === 'git_preflight') {
+const DETERMINISTIC_HANDLERS: Record<string, DeterministicHandler> = {
+  preflight_token: async (rule, ctx, workspacePath) => {
     if (!ctx.hasMutatingAction) {
       return { ruleId: rule.id, verdict: 'pass', reason: 'non_mutating_action', evidenceSummary: 'skip preflight for non-mutation' };
     }
@@ -20,9 +21,8 @@ export async function evaluateDeterministic(
       reason: r.found ? 'preflight_token_present' : 'preflight_token_missing',
       evidenceSummary: r.matchedPath || 'none',
     };
-  }
-
-  if (rule.id === 'postflight_evidence') {
+  },
+  postflight_report: async (rule, ctx, workspacePath) => {
     const r = checkTestReport(workspacePath, ctx.ticketId);
     return {
       ruleId: rule.id,
@@ -30,9 +30,8 @@ export async function evaluateDeterministic(
       reason: r.found ? 'test_report_present' : 'test_report_missing',
       evidenceSummary: r.matchedPath || 'none',
     };
-  }
-
-  if (rule.id === 'improvement_loop') {
+  },
+  improvement_artifact: async (rule, ctx, workspacePath) => {
     if (String(process.env.GOVERNANCE_SMART_SKIP_IMPROVEMENT_LOOP || '').toLowerCase() === 'true') {
       return {
         ruleId: rule.id,
@@ -48,9 +47,8 @@ export async function evaluateDeterministic(
       reason: r.found ? 'improvement_artifact_present' : 'improvement_artifact_missing',
       evidenceSummary: r.matchedPath || 'none',
     };
-  }
-
-  if (rule.id === 'required_agent_usage') {
+  },
+  agent_usage_events: async (rule, ctx) => {
     const e = await collectEventEvidence(ctx.runId);
     return {
       ruleId: rule.id,
@@ -58,9 +56,8 @@ export async function evaluateDeterministic(
       reason: e.agentStarted > 0 ? 'agents_detected' : 'no_agent_started_events',
       evidenceSummary: `agent.started=${e.agentStarted}`,
     };
-  }
-
-  if (rule.id === 'required_pipeline_usage') {
+  },
+  pipeline_usage_events: async (rule, ctx) => {
     const e = await collectEventEvidence(ctx.runId);
     return {
       ruleId: rule.id,
@@ -68,9 +65,8 @@ export async function evaluateDeterministic(
       reason: e.stageStarted > 0 ? 'stages_detected' : 'no_stage_started_events',
       evidenceSummary: `stage.started=${e.stageStarted}`,
     };
-  }
-
-  if (rule.id === 'cost_guard_light') {
+  },
+  cost_guard_tokens: async (rule, ctx, workspacePath) => {
     const t = readTelemetry(workspacePath, ctx.runId);
     const threshold = Number(process.env.GOVERNANCE_COST_GUARD_MAX_TOKENS || '120000');
     const pass = t.totalTokens <= threshold;
@@ -80,6 +76,18 @@ export async function evaluateDeterministic(
       reason: pass ? 'under_cost_threshold' : 'cost_threshold_exceeded',
       evidenceSummary: `tokens=${t.totalTokens},threshold=${threshold},entries=${t.entries}`,
     };
+  },
+};
+
+export async function evaluateDeterministic(
+  rule: GovernanceRule,
+  ctx: GovernanceEngineContext,
+): Promise<GovernanceRuleEvaluation> {
+  const workspacePath = ctx.workspacePath || process.cwd();
+  const checkKey = String(rule.deterministicCheck || '');
+  const handler = DETERMINISTIC_HANDLERS[checkKey];
+  if (handler) {
+    return handler(rule, ctx, workspacePath);
   }
 
   return { ruleId: rule.id, verdict: 'unknown', reason: 'unsupported_rule', evidenceSummary: 'no deterministic evaluator' };
