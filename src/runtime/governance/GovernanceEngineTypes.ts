@@ -1,4 +1,7 @@
 export type GovernancePhase =
+  | 'BEFORE_RUN'
+  | 'AFTER_STEP'
+  | 'AFTER_RUN'
   | 'before_execution'
   | 'after_execution'
   | 'before_task_close'

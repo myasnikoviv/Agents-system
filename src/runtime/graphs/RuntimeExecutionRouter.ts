@@ -140,7 +140,7 @@ export async function executeRuntimeRun(initialState: Partial<PilotState>): Prom
     throw new Error(`[CompliancePhase:before_execution] blocked ticket=${ticket} reason=plan_required`);
   }
 
-  const beforeExecution = await runGovernancePhase('before_execution', {
+  const beforeExecution = await runGovernancePhase('BEFORE_RUN', {
     runId,
     ticketId: ticket,
     chainId,
@@ -180,7 +180,16 @@ export async function executeRuntimeRun(initialState: Partial<PilotState>): Prom
   // Current production engine for both linear and multiple_agents modes.
   const finalState = await executeQuasiLinearRun(initialState);
 
-  await runGovernancePhase('after_execution', {
+  await runGovernancePhase('AFTER_STEP', {
+    runId,
+    ticketId: ticket,
+    chainId,
+    projectId,
+    workspacePath,
+    pipelineId: pipeline,
+    hasMutatingAction,
+  });
+  await runGovernancePhase('AFTER_RUN', {
     runId,
     ticketId: ticket,
     chainId,

@@ -1,7 +1,7 @@
 rules:
   - id: git_preflight
     triggerPhases:
-      - before_execution
+      - BEFORE_RUN
     evidence:
       - docs/process/git/preflights/<ticket>.env
     evaluationType: deterministic
@@ -10,7 +10,7 @@ rules:
 
   - id: postflight_evidence
     triggerPhases:
-      - before_task_close
+      - AFTER_RUN
     evidence:
       - docs/process/tests/<ticket>.md
     evaluationType: deterministic
@@ -19,7 +19,7 @@ rules:
 
   - id: improvement_loop
     triggerPhases:
-      - after_execution
+      - AFTER_RUN
     evidence:
       - docs/process/retrospectives/**
       - docs/knowledge/lessons-learned/**
@@ -29,7 +29,7 @@ rules:
 
   - id: required_agent_usage
     triggerPhases:
-      - after_execution
+      - AFTER_STEP
     evidence:
       - agent.started events
     evaluationType: deterministic
@@ -38,7 +38,7 @@ rules:
 
   - id: required_pipeline_usage
     triggerPhases:
-      - after_execution
+      - AFTER_STEP
     evidence:
       - stage.started events
     evaluationType: deterministic
@@ -47,7 +47,7 @@ rules:
 
   - id: cost_guard_light
     triggerPhases:
-      - after_execution
+      - AFTER_RUN
     evidence:
       - token telemetry
     evaluationType: deterministic
