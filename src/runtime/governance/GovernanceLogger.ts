@@ -15,6 +15,8 @@ export interface GovernanceLogEntry {
   status: GovernanceStatus;
   action: GovernanceAction;
   ticket?: string;
+  runId?: string;
+  chainId?: string;
   detail?: string;
   ts: string;
 }
@@ -31,6 +33,7 @@ function ensureLogDir(): void {
  * Write a governance log entry to:
  * - stdout (structured JSON, always)
  * - docs/runtime/governance/logs/<ticket|global>.jsonl (append)
+ * - Redis Event Stream via EventBus
  */
 export function logGovernance(entry: Omit<GovernanceLogEntry, 'ts'>): GovernanceLogEntry {
   const full: GovernanceLogEntry = { ...entry, ts: new Date().toISOString() };
@@ -50,6 +53,12 @@ export function logGovernance(entry: Omit<GovernanceLogEntry, 'ts'>): Governance
     // non-blocking: log failure does not stop execution
     console.warn('[GOVERNANCE] Failed to write log to file');
   }
+
+  // Redis Event Stream — background emission
+  const { emitGovernanceEvent } = require('../events/EventBus');
+  emitGovernanceEvent(full).catch((err: any) => {
+    console.warn('[GOVERNANCE] Failed to emit event to Redis:', err.message);
+  });
 
   return full;
 }

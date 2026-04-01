@@ -303,6 +303,8 @@ async function routerNode(state: PilotState): Promise<Partial<PilotState>> {
     const { logPipelineUsageGate } = await import('../governance/PipelineUsageEnforcer');
     logPipelineUsageGate({
       ticketId: state.plane_issue_id || 'AGSYS-UNKNOWN',
+      runId: state.pipeline_run_id,
+      chainId: state.thread_id,
       pipelineId: pipeline,
       isExplicit,
       confidence: classified.confidence || 1.0,
@@ -779,6 +781,8 @@ async function finalizeNode(state: PilotState): Promise<Partial<PilotState>> {
   const { logImprovementLoopGate } = await import('../governance/ImprovementLoopEnforcer');
   logImprovementLoopGate({
     ticket: state.plane_issue_id || 'AGSYS-UNKNOWN',
+    runId: state.pipeline_run_id,
+    chainId: state.thread_id,
     projectId: state.projectId,
     workspacePath: state.workspacePath
   });

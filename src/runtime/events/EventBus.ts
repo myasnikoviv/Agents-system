@@ -91,3 +91,22 @@ export const emitSwarmEvent = async (
     payload
   });
 };
+
+/**
+ * Helper to emit governance events for UI observability.
+ */
+export const emitGovernanceEvent = async (
+  entry: Record<string, any>
+): Promise<string> => {
+  return emitEvent({
+    type: 'governance.rule_check',
+    runId: entry.runId || 'none',
+    projectId: entry.ticket || 'none',
+    chainId: entry.chainId || 'none',
+    actor: {
+      type: 'system',
+      id: 'governance-engine',
+    },
+    payload: entry
+  });
+};

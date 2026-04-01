@@ -12,6 +12,8 @@ import { logGovernance } from './GovernanceLogger';
 export interface ParticipationCheckInput {
   agentSlug: string;
   ticketId: string;
+  runId?: string;
+  chainId?: string;
   content: string;
 }
 
@@ -34,6 +36,8 @@ export function logParticipationGate(input: ParticipationCheckInput) {
       status: 'pass',
       action: 'allow',
       ticket: input.ticketId,
+      runId: input.runId,
+      chainId: input.chainId,
       detail: `agent=${input.agentSlug}, cognitive_loop_markers_detected`,
     });
   } else {
@@ -43,6 +47,8 @@ export function logParticipationGate(input: ParticipationCheckInput) {
       status: 'fail',
       action: 'allow',
       ticket: input.ticketId,
+      runId: input.runId,
+      chainId: input.chainId,
       detail: `agent=${input.agentSlug}, cognitive_loop_markers_missing`,
     });
   }

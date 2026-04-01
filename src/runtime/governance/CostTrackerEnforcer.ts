@@ -10,6 +10,7 @@ import { logGovernance } from './GovernanceLogger';
 export interface CostTrackerInput {
   ticketId: string;
   runId: string;
+  chainId?: string;
   agentSlug: string;
   inputTokens: number;
   outputTokens: number;
@@ -26,6 +27,8 @@ export function logCostTrackerGate(input: CostTrackerInput) {
     status: 'pass',
     action: 'allow',
     ticket: input.ticketId,
+    runId: input.runId,
+    chainId: input.chainId,
     // Add multiple details as a single text for structured log (or add an object to logEntry later)
     detail: `agent=${input.agentSlug}, runId=${input.runId}, tokens=${input.totalTokens}, est_cost=$${estimatedCostUsd.toFixed(4)}`,
   });

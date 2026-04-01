@@ -21,6 +21,8 @@ import { logGovernance } from './GovernanceLogger';
 export interface PreflightCheckInput {
   /** The ticket being executed, e.g. AGSYS-ENF-001 */
   ticket: string;
+  runId?: string;
+  chainId?: string;
   /** Whether this run includes any mutating actions */
   hasMutatingAction: boolean;
   /** Override workspace root (default: process.cwd()) */
@@ -50,6 +52,8 @@ export function enforcePreflightGate(input: PreflightCheckInput): PreflightCheck
       status: 'skip',
       action: 'allow',
       ticket: input.ticket,
+      runId: input.runId,
+      chainId: input.chainId,
       detail: 'non_mutating_action',
     });
     return { ok: true, context };
@@ -67,6 +71,8 @@ export function enforcePreflightGate(input: PreflightCheckInput): PreflightCheck
       status: 'pass',
       action: 'allow',
       ticket: input.ticket,
+      runId: input.runId,
+      chainId: input.chainId,
       detail: `branch=${context.branch}`,
     });
     return { ok: true, context };
@@ -78,6 +84,8 @@ export function enforcePreflightGate(input: PreflightCheckInput): PreflightCheck
     status: 'fail',
     action: 'block',
     ticket: input.ticket,
+    runId: input.runId,
+    chainId: input.chainId,
     detail: check.reason,
   });
 
