@@ -25,8 +25,10 @@ import {
   buildImprovementTicketDrafts,
   enqueueImprovementJob,
   evaluateLearningEffectKpi,
+  evaluateLearningTrendKpi,
   generateImprovementSignals,
   queueIsolationKeys,
+  writeTemplateUpdateProposal,
   writeImprovementArtifacts,
 } from '../improvement/ImprovementEngine';
 import { emitGuardBlockEvent } from '../events/EventBus';
@@ -279,6 +281,13 @@ export async function executeRuntimeRun(initialState: Partial<PilotState>): Prom
     signals: aggregatedSignals,
     tickets: ticketDrafts,
   });
+  const templateUpdateProposal = writeTemplateUpdateProposal({
+    workspacePath,
+    runId,
+    sourceArtifacts: improvementArtifacts,
+    targetRelativePath: 'generated/templates/process/contracts/auditability-policy.md',
+    summary: 'Governed improvement proposal generated from latest runtime signals.',
+  });
   const queues = queueIsolationKeys(projectId);
   const enqueuedImprovementId = await enqueueImprovementJob({
     runId,
@@ -295,7 +304,7 @@ export async function executeRuntimeRun(initialState: Partial<PilotState>): Prom
     ticket,
     runId,
     chainId,
-    detail: `signals=${aggregatedSignals.length};tickets=${ticketDrafts.length};signalsPath=${improvementArtifacts.signalsPath};ticketsPath=${improvementArtifacts.ticketsPath}`,
+    detail: `signals=${aggregatedSignals.length};tickets=${ticketDrafts.length};signalsPath=${improvementArtifacts.signalsPath};ticketsPath=${improvementArtifacts.ticketsPath};proposalPath=${templateUpdateProposal.proposalPath}`,
   });
   logGovernance({
     rule: 'async_execution_isolation',
@@ -320,6 +329,20 @@ export async function executeRuntimeRun(initialState: Partial<PilotState>): Prom
     runId,
     chainId,
     detail: `score=${learningKpi.score.toFixed(2)};${learningKpi.reason}`,
+  });
+  const learningTrend = evaluateLearningTrendKpi({
+    workspacePath,
+    projectId,
+    runId,
+  });
+  logGovernance({
+    rule: 'learning_effect_trend_gate',
+    status: learningTrend.pass ? 'pass' : 'fail',
+    action: learningTrend.pass ? 'allow' : 'warn',
+    ticket,
+    runId,
+    chainId,
+    detail: `score=${learningTrend.score.toFixed(2)};${learningTrend.reason};report=${learningTrend.reportPath};alarm=${learningTrend.regressionAlarmPath || 'none'}`,
   });
   const costLimit = enforceHardCostLimit(cost, workspacePath);
   logGovernance({
