@@ -11,6 +11,13 @@ export type GovernancePhase =
 
 export type GovernanceEvaluationType = 'deterministic' | 'hybrid' | 'llm';
 export type GovernanceEnforcementMode = 'hard' | 'soft' | 'advisory';
+export type GovernanceDeterministicCheck =
+  | 'preflight_token'
+  | 'postflight_report'
+  | 'improvement_artifact'
+  | 'agent_usage_events'
+  | 'pipeline_usage_events'
+  | 'cost_guard_tokens';
 
 export interface GovernanceRule {
   id:
@@ -23,6 +30,7 @@ export interface GovernanceRule {
   triggerPhases: GovernancePhase[];
   evidence: string[];
   evaluationType: GovernanceEvaluationType;
+  deterministicCheck?: GovernanceDeterministicCheck;
   enforcementMode: GovernanceEnforcementMode;
   enabledByDefault: boolean;
 }

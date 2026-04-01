@@ -5,6 +5,7 @@ rules:
     evidence:
       - docs/process/git/preflights/<ticket>.env
     evaluationType: deterministic
+    deterministicCheck: preflight_token
     enforcementMode: hard
     enabledByDefault: true
 
@@ -14,6 +15,7 @@ rules:
     evidence:
       - docs/process/tests/<ticket>.md
     evaluationType: deterministic
+    deterministicCheck: postflight_report
     enforcementMode: hard
     enabledByDefault: true
 
@@ -24,6 +26,7 @@ rules:
       - docs/process/retrospectives/**
       - docs/knowledge/lessons-learned/**
     evaluationType: deterministic
+    deterministicCheck: improvement_artifact
     enforcementMode: soft
     enabledByDefault: true
 
@@ -33,6 +36,7 @@ rules:
     evidence:
       - agent.started events
     evaluationType: deterministic
+    deterministicCheck: agent_usage_events
     enforcementMode: soft
     enabledByDefault: true
 
@@ -42,6 +46,7 @@ rules:
     evidence:
       - stage.started events
     evaluationType: deterministic
+    deterministicCheck: pipeline_usage_events
     enforcementMode: soft
     enabledByDefault: true
 
@@ -51,5 +56,6 @@ rules:
     evidence:
       - token telemetry
     evaluationType: deterministic
+    deterministicCheck: cost_guard_tokens
     enforcementMode: advisory
     enabledByDefault: true
