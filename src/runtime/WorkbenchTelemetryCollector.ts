@@ -9,6 +9,9 @@ export interface WorkbenchTelemetryEntry {
   toolId: string;
   action: 'request' | 'acquired' | 'queued' | 'blocked' | 'executed' | 'released' | 'failed';
   status: 'success' | 'failed';
+  startedAt?: string;
+  endedAt?: string;
+  durationMs?: number;
   detail?: string;
 }
 

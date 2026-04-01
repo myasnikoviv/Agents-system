@@ -27,6 +27,7 @@ import {
   queueIsolationKeys,
   writeImprovementArtifacts,
 } from '../improvement/ImprovementEngine';
+import { emitGuardBlockEvent } from '../events/EventBus';
 
 export type RuntimeExecutionMode = 'mock' | 'linear' | 'multiple_agents';
 
@@ -130,6 +131,10 @@ export async function executeRuntimeRun(initialState: Partial<PilotState>): Prom
       chainId,
       detail: 'pre_execution_plan_missing_or_incomplete',
     });
+    await emitGuardBlockEvent(
+      { runId, projectId, chainId },
+      { stage: 'compliance.before_execution', rule: 'plan_required', reason: 'plan_missing_or_incomplete' },
+    ).catch(() => undefined);
     throw new Error(`[CompliancePhase:before_execution] blocked ticket=${ticket} reason=plan_required`);
   }
 
@@ -143,6 +148,10 @@ export async function executeRuntimeRun(initialState: Partial<PilotState>): Prom
     hasMutatingAction,
   });
   if (beforeExecution.blocked) {
+    await emitGuardBlockEvent(
+      { runId, projectId, chainId },
+      { stage: 'governance.before_execution', action: beforeExecution.action, entries: beforeExecution.entries },
+    ).catch(() => undefined);
     throw new Error(
       `[GovernancePhase:before_execution] blocked ticket=${ticket} action=${beforeExecution.action}`,
     );
@@ -266,6 +275,16 @@ export async function executeRuntimeRun(initialState: Partial<PilotState>): Prom
     detail: `tokens=${cost.tokens};threshold=${costLimit.threshold};retries=${cost.retries};loops=${cost.loops};ledger=${costLedgerPath}`,
   });
   if (!costLimit.allowed) {
+    await emitGuardBlockEvent(
+      { runId, projectId, chainId },
+      {
+        stage: 'cost.hard_limit',
+        tokens: cost.tokens,
+        threshold: costLimit.threshold,
+        retries: cost.retries,
+        loops: cost.loops,
+      },
+    ).catch(() => undefined);
     throw new Error(
       `[CostPhase:hard_limit] blocked ticket=${ticket} run=${runId} tokens=${cost.tokens} threshold=${costLimit.threshold}`,
     );
