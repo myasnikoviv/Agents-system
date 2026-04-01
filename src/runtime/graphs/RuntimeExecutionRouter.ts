@@ -46,11 +46,34 @@ function normalizeMode(modeRaw: unknown): RuntimeExecutionMode {
   return 'multiple_agents';
 }
 
+function hasStrictTicketContext(ticketId: string): boolean {
+  const value = String(ticketId || '').trim();
+  if (!value || value === 'AGSYS-UNKNOWN' || value.toLowerCase() === 'none') return false;
+  return /^[A-Z][A-Z0-9_-]*-\d+$/.test(value);
+}
+
 function buildMockFinalState(initialState: Partial<PilotState>) {
   const userMessage =
     [...(initialState.messages || [])]
       .reverse()
       .find((m) => m.role === 'user')?.content || '';
+
+  if (!hasStrictTicketContext(ticket)) {
+    logGovernance({
+      rule: 'ticket_context_required',
+      status: 'fail',
+      action: 'block',
+      ticket,
+      runId,
+      chainId,
+      detail: `invalid_ticket_context:${ticket}`,
+    });
+    await emitGuardBlockEvent(
+      { runId, projectId, chainId },
+      { stage: 'governance.before_run', rule: 'ticket_context_required', reason: 'invalid_or_missing_ticket_context' },
+    ).catch(() => undefined);
+    throw new Error(`[GovernancePhase:BEFORE_RUN] blocked ticket=${ticket} reason=ticket_context_required`);
+  }
 
   const mockResponse = userMessage
     ? `Mock mode is enabled. Request captured: "${userMessage.slice(0, 180)}${userMessage.length > 180 ? '…' : ''}".`

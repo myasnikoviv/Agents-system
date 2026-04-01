@@ -9,6 +9,16 @@ rules:
     enforcementMode: hard
     enabledByDefault: true
 
+  - id: ticket_context_required
+    triggerPhases:
+      - BEFORE_RUN
+    evidence:
+      - runtime ticket context
+    evaluationType: deterministic
+    deterministicCheck: ticket_context_present
+    enforcementMode: hard
+    enabledByDefault: true
+
   - id: postflight_evidence
     triggerPhases:
       - AFTER_RUN
@@ -58,4 +68,15 @@ rules:
     evaluationType: deterministic
     deterministicCheck: cost_guard_tokens
     enforcementMode: advisory
+    enabledByDefault: true
+
+  - id: loop_guard_hard
+    triggerPhases:
+      - AFTER_RUN
+    evidence:
+      - guard.retry events
+      - governance.rule_check events
+    evaluationType: deterministic
+    deterministicCheck: loop_pressure_hard
+    enforcementMode: hard
     enabledByDefault: true
