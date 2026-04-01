@@ -7,6 +7,11 @@ export interface TelemetrySnapshot {
   hasSkillTelemetry: boolean;
 }
 
+export interface LoopPressureSnapshot {
+  retries: number;
+  governanceChecks: number;
+}
+
 export function readTelemetry(workspacePath: string, runId: string): TelemetrySnapshot {
   const ledgerFile = path.resolve(workspacePath, 'docs/process/runs/ledger', `${runId}.jsonl`);
   let totalTokens = 0;
@@ -30,4 +35,24 @@ export function readTelemetry(workspacePath: string, runId: string): TelemetrySn
     entries,
     hasSkillTelemetry: fs.existsSync(skillTelemetryPath),
   };
+}
+
+export function readLoopPressure(workspacePath: string, runId: string): LoopPressureSnapshot {
+  const ledgerFile = path.resolve(workspacePath, 'docs/process/runs/ledger', `${runId}.jsonl`);
+  let retries = 0;
+  let governanceChecks = 0;
+  if (fs.existsSync(ledgerFile)) {
+    const lines = fs.readFileSync(ledgerFile, 'utf-8').split('\n').filter(Boolean);
+    for (const line of lines) {
+      try {
+        const ev = JSON.parse(line);
+        const type = String(ev?.type || '');
+        if (type === 'guard.retry') retries += 1;
+        if (type === 'governance.rule_check') governanceChecks += 1;
+      } catch {
+        // ignore malformed lines
+      }
+    }
+  }
+  return { retries, governanceChecks };
 }

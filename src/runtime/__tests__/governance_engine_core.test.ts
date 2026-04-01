@@ -18,6 +18,13 @@ function makeWorkspace(): string {
       '    deterministicCheck: preflight_token',
       '    enforcementMode: hard',
       '    enabledByDefault: true',
+      '  - id: ticket_context_required',
+      '    triggerPhases: [BEFORE_RUN]',
+      '    evidence: [runtime ticket context]',
+      '    evaluationType: deterministic',
+      '    deterministicCheck: ticket_context_present',
+      '    enforcementMode: hard',
+      '    enabledByDefault: true',
       '  - id: postflight_evidence',
       '    triggerPhases: [AFTER_RUN]',
       '    evidence: [docs/process/tests/<ticket>.md]',
@@ -53,6 +60,13 @@ function makeWorkspace(): string {
       '    deterministicCheck: cost_guard_tokens',
       '    enforcementMode: advisory',
       '    enabledByDefault: true',
+      '  - id: loop_guard_hard',
+      '    triggerPhases: [AFTER_RUN]',
+      '    evidence: [guard.retry events]',
+      '    evaluationType: deterministic',
+      '    deterministicCheck: loop_pressure_hard',
+      '    enforcementMode: hard',
+      '    enabledByDefault: true',
       '',
     ].join('\n'),
     'utf-8',
@@ -63,21 +77,25 @@ function makeWorkspace(): string {
       {
         defaultEnabledRules: [
           'git_preflight',
+          'ticket_context_required',
           'postflight_evidence',
           'improvement_loop',
           'required_agent_usage',
           'required_pipeline_usage',
           'cost_guard_light',
+          'loop_guard_hard',
         ],
         projects: {
           agent_system: {
             enabledRules: [
               'git_preflight',
+              'ticket_context_required',
               'postflight_evidence',
               'improvement_loop',
               'required_agent_usage',
               'required_pipeline_usage',
               'cost_guard_light',
+              'loop_guard_hard',
             ],
           },
         },
@@ -154,12 +172,59 @@ async function test_before_task_close_blocks_without_report(): Promise<void> {
   console.log('[PASS] core blocks task close without postflight evidence');
 }
 
+async function test_ticket_context_hard_gate_blocks_invalid_ticket(): Promise<void> {
+  const workspace = makeWorkspace();
+  const result = await runGovernancePhase('BEFORE_RUN', {
+    runId: 'run-ticket-ctx-1',
+    projectId: 'agent_system',
+    ticketId: 'invalid-ticket',
+    chainId: 'thread-ticket-ctx',
+    workspacePath: workspace,
+    pipelineId: 'refactor',
+    hasMutatingAction: false,
+  });
+  console.assert(result.blocked === true, 'expected invalid ticket context to block');
+  console.assert(result.action === 'block', 'expected block action for invalid ticket context');
+  console.log('[PASS] ticket context hard gate blocks invalid ticket');
+}
+
+async function test_loop_guard_hard_blocks_excessive_retry_pressure(): Promise<void> {
+  const workspace = makeWorkspace();
+  fs.mkdirSync(path.join(workspace, 'docs/process/tests'), { recursive: true });
+  fs.mkdirSync(path.join(workspace, 'docs/process/retrospectives'), { recursive: true });
+  fs.mkdirSync(path.join(workspace, 'docs/process/runs/ledger'), { recursive: true });
+  fs.writeFileSync(path.join(workspace, 'docs/process/tests/AGSYS-LOOP-1.md'), '# ok', 'utf-8');
+  fs.writeFileSync(path.join(workspace, 'docs/process/retrospectives/AGSYS-LOOP-1.md'), '# ok', 'utf-8');
+  const ledgerRows = Array.from({ length: 5 }).map(() => JSON.stringify({ type: 'guard.retry', payload: {} }));
+  fs.writeFileSync(
+    path.join(workspace, 'docs/process/runs/ledger/run-loop-1.jsonl'),
+    `${ledgerRows.join('\n')}\n`,
+    'utf-8',
+  );
+
+  process.env.GOVERNANCE_MAX_RETRY_LOOPS = '3';
+  const result = await runGovernancePhase('AFTER_RUN', {
+    runId: 'run-loop-1',
+    projectId: 'agent_system',
+    ticketId: 'AGSYS-LOOP-1',
+    chainId: 'thread-loop',
+    workspacePath: workspace,
+    pipelineId: 'sprint-integration',
+    hasMutatingAction: false,
+  });
+  console.assert(result.blocked === true, 'expected loop pressure hard gate to block');
+  console.assert(result.action === 'block', 'expected hard block on excessive retries');
+  console.log('[PASS] loop guard hard gate blocks excessive retry pressure');
+}
+
 (async () => {
   console.log('\n=== Governance Engine Core Tests ===\n');
   await test_hard_gate_blocks_without_preflight();
   await test_soft_gate_requests_retry();
   await test_phase_alias_pre_execution_supported();
   await test_before_task_close_blocks_without_report();
+  await test_ticket_context_hard_gate_blocks_invalid_ticket();
+  await test_loop_guard_hard_blocks_excessive_retry_pressure();
   console.log('\n=== Governance Engine Core tests completed successfully ===\n');
   process.exit(0);
 })();

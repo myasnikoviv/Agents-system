@@ -17,7 +17,9 @@ export type GovernanceDeterministicCheck =
   | 'improvement_artifact'
   | 'agent_usage_events'
   | 'pipeline_usage_events'
-  | 'cost_guard_tokens';
+  | 'cost_guard_tokens'
+  | 'loop_pressure_hard'
+  | 'ticket_context_present';
 
 export interface GovernanceRule {
   id:
@@ -26,7 +28,9 @@ export interface GovernanceRule {
     | 'improvement_loop'
     | 'required_agent_usage'
     | 'required_pipeline_usage'
-    | 'cost_guard_light';
+    | 'cost_guard_light'
+    | 'loop_guard_hard'
+    | 'ticket_context_required';
   triggerPhases: GovernancePhase[];
   evidence: string[];
   evaluationType: GovernanceEvaluationType;

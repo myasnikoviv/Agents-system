@@ -1,13 +1,19 @@
 import { GovernanceEngineContext, GovernanceRule, GovernanceRuleEvaluation } from './GovernanceEngineTypes';
 import { checkImprovementArtifact, checkPreflightToken, checkTestReport } from './ArtifactEvidenceChecker';
 import { collectEventEvidence } from './EventEvidenceCollector';
-import { readTelemetry } from './TelemetryReader';
+import { readLoopPressure, readTelemetry } from './TelemetryReader';
 
 type DeterministicHandler = (
   rule: GovernanceRule,
   ctx: GovernanceEngineContext,
   workspacePath: string,
 ) => Promise<GovernanceRuleEvaluation>;
+
+function isValidTicketContext(ticketId: string): boolean {
+  const value = String(ticketId || '').trim();
+  if (!value || value === 'AGSYS-UNKNOWN' || value.toLowerCase() === 'none') return false;
+  return /^[A-Z][A-Z0-9_-]*-\d+$/.test(value);
+}
 
 const DETERMINISTIC_HANDLERS: Record<string, DeterministicHandler> = {
   preflight_token: async (rule, ctx, workspacePath) => {
@@ -20,6 +26,15 @@ const DETERMINISTIC_HANDLERS: Record<string, DeterministicHandler> = {
       verdict: r.found ? 'pass' : 'fail',
       reason: r.found ? 'preflight_token_present' : 'preflight_token_missing',
       evidenceSummary: r.matchedPath || 'none',
+    };
+  },
+  ticket_context_present: async (rule, ctx) => {
+    const pass = isValidTicketContext(ctx.ticketId);
+    return {
+      ruleId: rule.id,
+      verdict: pass ? 'pass' : 'fail',
+      reason: pass ? 'ticket_context_valid' : 'ticket_context_invalid',
+      evidenceSummary: pass ? ctx.ticketId : 'none',
     };
   },
   postflight_report: async (rule, ctx, workspacePath) => {
@@ -75,6 +90,18 @@ const DETERMINISTIC_HANDLERS: Record<string, DeterministicHandler> = {
       verdict: pass ? 'pass' : 'fail',
       reason: pass ? 'under_cost_threshold' : 'cost_threshold_exceeded',
       evidenceSummary: `tokens=${t.totalTokens},threshold=${threshold},entries=${t.entries}`,
+    };
+  },
+  loop_pressure_hard: async (rule, ctx, workspacePath) => {
+    const lp = readLoopPressure(workspacePath, ctx.runId);
+    const maxRetries = Number(process.env.GOVERNANCE_MAX_RETRY_LOOPS || '3');
+    const maxGovernanceChecks = Number(process.env.GOVERNANCE_MAX_GOVERNANCE_LOOPS || '20');
+    const pass = lp.retries <= maxRetries && lp.governanceChecks <= maxGovernanceChecks;
+    return {
+      ruleId: rule.id,
+      verdict: pass ? 'pass' : 'fail',
+      reason: pass ? 'loop_pressure_within_bounds' : 'loop_pressure_exceeded',
+      evidenceSummary: `retries=${lp.retries}/${maxRetries},governanceChecks=${lp.governanceChecks}/${maxGovernanceChecks}`,
     };
   },
 };
