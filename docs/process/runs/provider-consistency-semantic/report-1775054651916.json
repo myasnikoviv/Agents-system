@@ -1,0 +1,51 @@
+{
+  "generatedAt": "2026-04-01T14:44:11.915Z",
+  "source": "ledger",
+  "threshold": 0.15,
+  "comparablePairs": 7,
+  "pass": true,
+  "pairs": [
+    {
+      "providerA": "codex_default",
+      "providerB": "codex_gpt5",
+      "score": 0.1956521739130435,
+      "pass": true
+    },
+    {
+      "providerA": "codex_default",
+      "providerB": "codex_ro",
+      "score": 0.1702127659574468,
+      "pass": true
+    },
+    {
+      "providerA": "codex_gpt5",
+      "providerB": "codex_ro",
+      "score": 0.3953488372093023,
+      "pass": true
+    },
+    {
+      "providerA": "codex_gpt5",
+      "providerB": "codex_default",
+      "score": 0.15384615384615385,
+      "pass": true
+    },
+    {
+      "providerA": "codex_gpt5",
+      "providerB": "codex_ro",
+      "score": 0.49019607843137253,
+      "pass": true
+    },
+    {
+      "providerA": "codex_default",
+      "providerB": "codex_ro",
+      "score": 0.2,
+      "pass": true
+    },
+    {
+      "providerA": "codex_ro",
+      "providerB": "codex_default",
+      "score": 0.25,
+      "pass": true
+    }
+  ]
+}

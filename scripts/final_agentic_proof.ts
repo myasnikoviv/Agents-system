@@ -5,6 +5,7 @@ import { PipelineRegistry } from '../src/runtime/registries/PipelineRegistry';
 import { DynamicDiscoveryService } from '../src/runtime/DynamicDiscoveryService';
 import { BlackboardService } from '../src/runtime/BlackboardService';
 import { ExecutionAdapter, ExecutionResult } from '../src/runtime/adapters/ExecutionAdapter';
+import { closeRedisClient } from '../src/runtime/redisClient';
 import * as dotenv from 'dotenv';
 import * as path from 'path';
 
@@ -94,7 +95,11 @@ async function runFinalProof() {
   console.log(result.content);
 
   // SAVE TO BLACKBOARD FOR REAL CROSS-AGENT IMPACT
-  await BlackboardService.saveArtifact(runId, {
+  await BlackboardService.saveArtifact({
+    projectId: context.projectId,
+    chainId: context.chainId,
+    runId,
+  }, {
     runId,
     stageId: 'comparison',
     roleSlug: 'pm-orchestrator',
@@ -104,9 +109,22 @@ async function runFinalProof() {
   });
 
   console.log('\n--- BLACKBOARD AUDIT ---');
-  const artifacts = await BlackboardService.getArtifacts(runId);
+  const artifacts = await BlackboardService.getArtifacts({
+    projectId: context.projectId,
+    chainId: context.chainId,
+    runId,
+  });
   console.log(`Saved artifacts: ${artifacts.length}`);
   console.log(`Last finding: ${artifacts[0]?.findings?.[0] || 'None'}`);
 }
 
-runFinalProof().catch(console.error);
+runFinalProof()
+  .then(async () => {
+    await closeRedisClient();
+    process.exit(0);
+  })
+  .catch(async (err) => {
+    console.error(err);
+    await closeRedisClient();
+    process.exit(1);
+  });

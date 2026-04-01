@@ -1,0 +1,54 @@
+{
+  "runId": "trend-1775054651816",
+  "projectId": "agent_system",
+  "windowSize": 5,
+  "points": [
+    {
+      "runId": "zz-real-1775054542865-6xuh5u",
+      "projectId": "agent_system",
+      "retries": 4,
+      "loops": 8
+    },
+    {
+      "runId": "zz-real-1775054556020-hcmi1f",
+      "projectId": "agent_system",
+      "retries": 3,
+      "loops": 7
+    },
+    {
+      "runId": "zz-real-1775054566791-led6tw",
+      "projectId": "agent_system",
+      "retries": 2,
+      "loops": 6
+    },
+    {
+      "runId": "zz-real-1775054579584-jinrs4",
+      "projectId": "agent_system",
+      "retries": 1,
+      "loops": 5
+    },
+    {
+      "runId": "zz-real-1775054593403-soz4wk",
+      "projectId": "agent_system",
+      "retries": 0,
+      "loops": 4
+    }
+  ],
+  "first": {
+    "runId": "zz-real-1775054542865-6xuh5u",
+    "projectId": "agent_system",
+    "retries": 4,
+    "loops": 8
+  },
+  "last": {
+    "runId": "zz-real-1775054593403-soz4wk",
+    "projectId": "agent_system",
+    "retries": 0,
+    "loops": 4
+  },
+  "retriesImproved": true,
+  "loopsImproved": true,
+  "trendScore": 1,
+  "pass": true,
+  "generatedAt": "2026-04-01T14:44:11.817Z"
+}
