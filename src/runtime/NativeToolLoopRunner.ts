@@ -1,7 +1,7 @@
 import { RunContext } from './context/RunContext';
 import { ExecutionAdapter, ExecutionResult } from './adapters/ExecutionAdapter';
 import { emitSwarmEvent } from './events/EventBus';
-import { ToolExecutor } from './ToolExecutor';
+import { executeViaWorkbench } from './WorkbenchGateway';
 
 export interface ToolResult {
   tool: string;
@@ -107,16 +107,41 @@ export class NativeToolLoopRunner {
 
   private async executeTool(name: string, args: any, context: RunContext): Promise<ToolResult> {
     console.log(`[NativeToolLoop] Executing tool: ${name} with args:`, args);
-    
-    // This is where the actual tool execution logic goes.
-    // For now, we'll map common tools to their implementation or return a stub.
+
     try {
-      const toolResult = await ToolExecutor.execute(name, args, context);
+      const toolResult = await executeViaWorkbench(name, args, context);
+      if (toolResult.status === 'queued') {
+        return {
+          tool: name,
+          status: 'failed',
+          content: null,
+          summary: toolResult.summary,
+          error: 'tool_queued',
+        };
+      }
+      if (toolResult.status === 'blocked') {
+        return {
+          tool: name,
+          status: 'failed',
+          content: null,
+          summary: toolResult.summary,
+          error: 'tool_blocked',
+        };
+      }
+      if (toolResult.status === 'failed') {
+        return {
+          tool: name,
+          status: 'failed',
+          content: null,
+          summary: toolResult.summary,
+          error: toolResult.error || 'tool_failed',
+        };
+      }
       return {
         tool: name,
         status: 'success',
-        content: toolResult,
-        summary: this.summarizeToolContent(toolResult, `Successfully called ${name}`)
+        content: toolResult.content,
+        summary: this.summarizeToolContent(toolResult.content, `Successfully called ${name}`),
       };
     } catch (err: any) {
       return {

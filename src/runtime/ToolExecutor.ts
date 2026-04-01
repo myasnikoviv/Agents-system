@@ -3,13 +3,23 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 export class ToolExecutor {
-  static async execute(name: string, args: any, context: RunContext): Promise<any> {
+  static async execute(
+    name: string,
+    args: any,
+    context: RunContext,
+    meta?: { viaWorkbench?: boolean; isolatedWorkspacePath?: string },
+  ): Promise<any> {
+    const enforceGateway = String(process.env.WORKBENCH_ENFORCE_GATEWAY || 'true').toLowerCase() !== 'false';
+    if (enforceGateway && !meta?.viaWorkbench) {
+      throw new Error(`direct_tool_access_blocked:${name}`);
+    }
+
     console.log(`[ToolExecutor] Routing tool: ${name}`);
 
     // Map common tools to real implementations.
     const resolvePath = (p: string) => {
       if (path.isAbsolute(p)) return p;
-      return path.join(context.workspacePath, p);
+      return path.join(meta?.isolatedWorkspacePath || context.workspacePath, p);
     };
 
     switch (name) {
