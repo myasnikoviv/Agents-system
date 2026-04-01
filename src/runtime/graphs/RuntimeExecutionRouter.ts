@@ -20,6 +20,13 @@ import {
   routeModelForTask,
   writeAdaptiveLog,
 } from '../adaptive/AdaptiveIntelligenceEngine';
+import {
+  aggregateSignals,
+  buildImprovementTicketDrafts,
+  generateImprovementSignals,
+  queueIsolationKeys,
+  writeImprovementArtifacts,
+} from '../improvement/ImprovementEngine';
 
 export type RuntimeExecutionMode = 'mock' | 'linear' | 'multiple_agents';
 
@@ -219,6 +226,34 @@ export async function executeRuntimeRun(initialState: Partial<PilotState>): Prom
     runId,
     chainId,
     detail: `retryLimit=${adaptivePolicy.retryLimit};improvementLoop=${adaptivePolicy.enableImprovementLoop};preferredTier=${adaptivePolicy.preferredTier};ledger=${adaptiveLogPath}`,
+  });
+  const rawSignals = generateImprovementSignals({ workspacePath, runId, projectId });
+  const aggregatedSignals = aggregateSignals(rawSignals);
+  const ticketDrafts = buildImprovementTicketDrafts(aggregatedSignals);
+  const improvementArtifacts = writeImprovementArtifacts({
+    workspacePath,
+    runId,
+    signals: aggregatedSignals,
+    tickets: ticketDrafts,
+  });
+  const queues = queueIsolationKeys(projectId);
+  logGovernance({
+    rule: 'improvement_signal_generator',
+    status: 'pass',
+    action: 'log',
+    ticket,
+    runId,
+    chainId,
+    detail: `signals=${aggregatedSignals.length};tickets=${ticketDrafts.length};signalsPath=${improvementArtifacts.signalsPath};ticketsPath=${improvementArtifacts.ticketsPath}`,
+  });
+  logGovernance({
+    rule: 'async_execution_isolation',
+    status: 'pass',
+    action: 'log',
+    ticket,
+    runId,
+    chainId,
+    detail: `runtimeQueue=${queues.runtimeQueue};improvementQueue=${queues.improvementQueue}`,
   });
   const costLimit = enforceHardCostLimit(cost, workspacePath);
   logGovernance({
