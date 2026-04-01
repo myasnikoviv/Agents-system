@@ -7,6 +7,12 @@ import { evaluateCompliance } from '../compliance/ComplianceEvaluator';
 import { applyComplianceEnforcement } from '../compliance/ComplianceEnforcementLoop';
 import { writeComplianceLedger } from '../compliance/ComplianceLedger';
 import { logGovernance } from '../governance/GovernanceLogger';
+import {
+  collectRunCostMetrics,
+  decideAdaptiveOptimization,
+  enforceHardCostLimit,
+  writeCostLedger,
+} from '../cost/CostOptimizationEngine';
 
 export type RuntimeExecutionMode = 'mock' | 'linear' | 'multiple_agents';
 
@@ -53,6 +59,9 @@ export async function executeRuntimeRun(initialState: Partial<PilotState>): Prom
   const chainId = initialState.threadId || `thread-${Date.now()}`;
   const projectId = initialState.projectId || 'agent_system';
   const workspacePath = initialState.workspacePath || process.cwd();
+  const adaptive = decideAdaptiveOptimization(workspacePath, projectId);
+  process.env.RUNTIME_MAX_RETRIES_PER_STEP = String(adaptive.suggestedMaxRetriesPerStep);
+  process.env.GOVERNANCE_SMART_SKIP_IMPROVEMENT_LOOP = adaptive.lowRisk ? 'true' : 'false';
   const userMessage =
     [...(initialState.messages || [])]
       .reverse()
@@ -153,6 +162,24 @@ export async function executeRuntimeRun(initialState: Partial<PilotState>): Prom
     chainId,
     detail: `decision=${decision.action};ledger=${complianceLedgerPath}`,
   });
+
+  const cost = collectRunCostMetrics(workspacePath, runId, projectId);
+  const costLedgerPath = writeCostLedger(cost, workspacePath);
+  const costLimit = enforceHardCostLimit(cost, workspacePath);
+  logGovernance({
+    rule: 'cost_optimization_engine',
+    status: costLimit.allowed ? 'pass' : 'fail',
+    action: costLimit.allowed ? 'allow' : 'block',
+    ticket,
+    runId,
+    chainId,
+    detail: `tokens=${cost.tokens};threshold=${costLimit.threshold};retries=${cost.retries};loops=${cost.loops};ledger=${costLedgerPath}`,
+  });
+  if (!costLimit.allowed) {
+    throw new Error(
+      `[CostPhase:hard_limit] blocked ticket=${ticket} run=${runId} tokens=${cost.tokens} threshold=${costLimit.threshold}`,
+    );
+  }
 
   // 2. ENF-006 — Pipeline Usage Soft Gate (log classification result from router node)
   // This is best logged inside routerNode in PilotQuasiLinearGraph, 

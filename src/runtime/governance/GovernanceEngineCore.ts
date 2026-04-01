@@ -33,7 +33,12 @@ export async function runGovernancePhase(
   for (const rule of rules) {
     let result = await evaluateDeterministic(rule, ctx);
 
-    if (result.verdict === 'unknown' && (rule.evaluationType === 'hybrid' || rule.evaluationType === 'llm')) {
+    const allowLlmFallback = String(process.env.GOVERNANCE_ENABLE_LLM_FALLBACK || '').toLowerCase() === 'true';
+    if (
+      result.verdict === 'unknown' &&
+      allowLlmFallback &&
+      (rule.evaluationType === 'hybrid' || rule.evaluationType === 'llm')
+    ) {
       result = await runHybridVerifier(rule, ctx, result.reason);
     }
 
