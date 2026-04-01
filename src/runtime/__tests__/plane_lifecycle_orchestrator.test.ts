@@ -11,14 +11,14 @@ import type { RuntimeEvent } from '../events/EventBus';
 function baseEvent(overrides: Partial<RuntimeEvent> = {}): RuntimeEvent {
   return {
     event_id: 'ev-1',
-    event_type: 'pipeline.intake.started',
+    type: 'pipeline.intake.started',
     timestamp: new Date().toISOString(),
-    plane_issue_id: 'TRADE-74',
-    pipeline_run_id: 'run-1',
-    thread_id: 'thread-1',
-    agent_role: 'PM Orchestrator',
-    source_stage: 'intake',
-    target_stage: 'research',
+    ticketId: 'TRADE-74',
+    runId: 'run-1',
+    threadId: 'thread-1',
+    actorRole: 'PM Orchestrator',
+    sourceStage: 'intake',
+    targetStage: 'research',
     status: 'in_progress',
     correlation_id: 'TRADE-74',
     ...overrides,
@@ -36,7 +36,7 @@ describe('PlaneLifecycleOrchestrator', () => {
       'a527fbdc-21ad-4839-b1ec-0480b062aa44',
     );
     expect(
-      mapRuntimeEventToPlaneStateId(baseEvent({ event_type: 'docs.completed', status: 'success' })),
+      mapRuntimeEventToPlaneStateId(baseEvent({ type: 'docs.completed', status: 'success' })),
     ).toBe('fff4dba0-d863-4a59-ab55-fd6f8bee9c79');
     expect(mapRuntimeEventToPlaneStateId(baseEvent({ status: 'failed' }))).toBe(
       '226d57d1-0aeb-4c05-b961-23527ae34d33',
@@ -45,7 +45,7 @@ describe('PlaneLifecycleOrchestrator', () => {
 
   it('builds deterministic lifecycle comment payload', () => {
     const html = buildLifecycleComment(
-      baseEvent({ event_type: 'research.completed', status: 'success', agent_role: 'Research Agent' }),
+      baseEvent({ type: 'research.completed', status: 'success', actorRole: 'Research Agent' }),
     );
     expect(html).toContain('research.completed');
     expect(html).toContain('Research Agent');
@@ -86,7 +86,7 @@ describe('PlaneLifecycleOrchestrator', () => {
 
   it('blocks terminal transition when continuity issues are present', () => {
     const blocked = shouldBlockTerminalTransition({
-      event: baseEvent({ event_type: 'docs.completed', status: 'success' }),
+      event: baseEvent({ type: 'docs.completed', status: 'success' }),
       continuity: { issues: ['missing_owner'], warnings: [] },
     });
     expect(blocked).toBe(true);

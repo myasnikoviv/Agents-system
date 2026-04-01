@@ -39,9 +39,9 @@ describe('PilotGraph approve continuation with quota errors', () => {
 
     const threadId = `thread-${Date.now()}`;
     const initialState = {
-      plane_issue_id: 'TKT-59',
-      pipeline_run_id: `run-${Date.now()}`,
-      thread_id: threadId,
+      ticketId: 'TKT-59',
+      runId: `run-${Date.now()}`,
+      threadId: threadId,
       status: 'initialized',
       artifactLogs: [],
       executionOptions: { mode: 'linear' as const },
@@ -55,7 +55,7 @@ describe('PilotGraph approve continuation with quota errors', () => {
       ),
     ).toBe(true);
 
-    const threadConfig = { configurable: { thread_id: threadId } };
+    const threadConfig = { configurable: { threadId: threadId } };
 
     // Continue from interrupt-before-git to completion.
     const resumed = await pilotGraph.invoke(null, threadConfig);
