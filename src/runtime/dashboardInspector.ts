@@ -26,27 +26,30 @@ async function dashboardRunInspector(): Promise<void> {
   // Group by Pipeline Run ID
   const groupings: Record<string, RuntimeEvent[]> = {};
   for (const e of events) {
-      if (!groupings[e.pipeline_run_id]) {
-          groupings[e.pipeline_run_id] = [];
+      if (!groupings[e.runId]) {
+          groupings[e.runId] = [];
       }
-      groupings[e.pipeline_run_id]!.push(e);
+      groupings[e.runId]!.push(e);
   }
 
   // Display grouped timeline
   for (const [runId, runEvents] of Object.entries(groupings)) {
-      const planeIssue = runEvents[0]?.plane_issue_id || 'Unknown';
+      const planeIssue = runEvents[0]?.projectId || 'Unknown';
       console.log(`\n======================================================`);
       console.log(`Pipeline Run: ${runId}`);
       console.log(`Plane Issue:  ${planeIssue}`);
-      console.log(`Thread ID:    ${runEvents[0]?.thread_id}`);
+      console.log(`Thread ID:    ${runEvents[0]?.chainId}`);
       console.log(`======================================================`);
       
       // Sort oldest to newest for timeline presentation
-      runEvents.sort((a: RuntimeEvent, b: RuntimeEvent) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+      runEvents.sort((a: RuntimeEvent, b: RuntimeEvent) => a.timestamp - b.timestamp);
 
       runEvents.forEach((e: RuntimeEvent) => {
         const time = new Date(e.timestamp).toLocaleTimeString();
-        console.log(`[${time}] [${e.agent_role.padEnd(20)}] Stage: ${e.source_stage} -> ${e.event_type} (${e.status.toUpperCase()})`);
+        const actor = String(e.actor?.role || e.actor?.id || 'system');
+        const sourceStage = String(e.payload?.sourceStage || 'n/a');
+        const status = String(e.payload?.status || 'success').toUpperCase();
+        console.log(`[${time}] [${actor.padEnd(20)}] Stage: ${sourceStage} -> ${e.type} (${status})`);
       });
   }
 }

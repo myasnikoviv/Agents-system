@@ -22,28 +22,28 @@ async function mainWorkerLoop() {
         continue;
       }
 
-      console.log(`\n[ResearchWorker] -> Received Job ${taskObj.id} for Run: ${taskObj.event.pipeline_run_id}`);
+      console.log(`\n[ResearchWorker] -> Received Job ${taskObj.id} for Run: ${taskObj.event.runId}`);
       
       const event: RuntimeEvent = taskObj.event;
 
       // Simulate heavy AI work / LLM processing
-      console.log(`[ResearchWorker] Processing issue: ${event.plane_issue_id}...`);
+      console.log(`[ResearchWorker] Processing issue: ${event.projectId}...`);
       await new Promise(resolve => setTimeout(resolve, 3000));
       console.log(`[ResearchWorker] Analysis complete. Returning results to central Hub.`);
 
       // Push completion event to main Orchestrator runtime hub
       await emitEvent({
-        event_type: 'research.completed',
-        plane_issue_id: event.plane_issue_id,
-        pipeline_run_id: event.pipeline_run_id,
-        thread_id: event.thread_id,
-        agent_role: 'Research Agent',
-        source_stage: 'research',
-        target_stage: 'planning',
-        status: 'success',
-        correlation_id: event.plane_issue_id,
-        causation_id: taskObj.id,
+        type: 'research.completed',
+        runId: event.runId || 'none',
+        projectId: event.projectId || 'none',
+        chainId: event.chainId || 'none',
+        actor: { type: 'agent', id: 'research-agent', role: 'Research Agent' },
         payload: {
+          sourceStage: 'research',
+          targetStage: 'planning',
+          status: 'success',
+          correlationId: event.projectId || 'none',
+          causationId: taskObj.id,
           findings: ['Discovered standard alternative approaches in Memory.', 'Built context envelope for Architect.']
         }
       });
