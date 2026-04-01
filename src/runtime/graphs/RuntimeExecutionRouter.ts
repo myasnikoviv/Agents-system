@@ -23,6 +23,8 @@ import {
 import {
   aggregateSignals,
   buildImprovementTicketDrafts,
+  enqueueImprovementJob,
+  evaluateLearningEffectKpi,
   generateImprovementSignals,
   queueIsolationKeys,
   writeImprovementArtifacts,
@@ -246,6 +248,14 @@ export async function executeRuntimeRun(initialState: Partial<PilotState>): Prom
     tickets: ticketDrafts,
   });
   const queues = queueIsolationKeys(projectId);
+  const enqueuedImprovementId = await enqueueImprovementJob({
+    runId,
+    projectId,
+    chainId,
+    workspacePath,
+    signalsPath: improvementArtifacts.signalsPath,
+    ticketsPath: improvementArtifacts.ticketsPath,
+  });
   logGovernance({
     rule: 'improvement_signal_generator',
     status: 'pass',
@@ -257,12 +267,27 @@ export async function executeRuntimeRun(initialState: Partial<PilotState>): Prom
   });
   logGovernance({
     rule: 'async_execution_isolation',
-    status: 'pass',
+    status: enqueuedImprovementId ? 'pass' : 'skip',
     action: 'log',
     ticket,
     runId,
     chainId,
-    detail: `runtimeQueue=${queues.runtimeQueue};improvementQueue=${queues.improvementQueue}`,
+    detail: `runtimeQueue=${queues.runtimeQueue};improvementQueue=${queues.improvementQueue};jobId=${enqueuedImprovementId || 'none'}`,
+  });
+  const learningKpi = evaluateLearningEffectKpi({
+    signals: aggregatedSignals,
+    tickets: ticketDrafts,
+    complianceFailures: signals.complianceFailures,
+    retries: cost.retries,
+  });
+  logGovernance({
+    rule: 'learning_effect_kpi_gate',
+    status: learningKpi.pass ? 'pass' : 'fail',
+    action: learningKpi.pass ? 'allow' : 'warn',
+    ticket,
+    runId,
+    chainId,
+    detail: `score=${learningKpi.score.toFixed(2)};${learningKpi.reason}`,
   });
   const costLimit = enforceHardCostLimit(cost, workspacePath);
   logGovernance({
