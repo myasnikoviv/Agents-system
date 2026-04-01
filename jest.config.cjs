@@ -1,26 +1,12 @@
-/** @type {import('ts-jest').JestConfigWithTsJest} */
 module.exports = {
-  preset: 'ts-jest/presets/default-esm',
+  preset: 'ts-jest',
   testEnvironment: 'node',
-  moduleNameMapper: {
-    '^(\\.{1,2}/.*)\\.js$': '$1',
+  roots: ['<rootDir>/src/runtime/__tests__'],
+  moduleFileExtensions: ['ts', 'js', 'json'],
+  globals: {
+    'ts-jest': {
+      isolatedModules: true,
+      diagnostics: false,
+    },
   },
-  transform: {
-    '^.+\\.tsx?$': [
-      'ts-jest',
-      {
-        useESM: true,
-        isolatedModules: true,
-        tsconfig: {
-          module: 'ESNext',
-          moduleResolution: 'NodeNext',
-        },
-      },
-    ],
-  },
-  testMatch: ['**/__tests__/**/*.test.ts'],
-  extensionsToTreatAsEsm: ['.ts'],
-  transformIgnorePatterns: [
-    'node_modules/(?!(@langchain|langsmith|langgraph)/)',
-  ],
 };

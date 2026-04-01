@@ -17,10 +17,22 @@ export interface LedgerEntry {
 }
 
 export function classifyFailureReason(event: RuntimeEvent): string {
+  const status = String((event as any)?.status || event.payload?.status || '').toLowerCase();
+  if (status === 'success' || status === 'passed' || status === 'ok') {
+    return 'none';
+  }
   if (event.type !== 'run.failed' && !event.payload?.error) {
     return 'none';
   }
   const raw = String(event.payload?.error || event.payload?.reason || '').toLowerCase();
+  if (
+    raw.includes('main_branch_mutation_forbidden') ||
+    raw.includes('preflight') ||
+    raw.includes('branch') ||
+    raw.includes('worktree')
+  ) {
+    return 'governance_git_policy';
+  }
   if (raw.includes('auth') || raw.includes('unauthorized')) return 'auth_error';
   if (raw.includes('quota') || raw.includes('rate')) return 'quota_or_rate_limit';
   if (raw.includes('timeout')) return 'timeout';
@@ -37,4 +49,3 @@ export async function appendRunLedger(event: RuntimeEvent): Promise<void> {
     console.error(`[RunLedger] Failed to append to ledger ${filePath}:`, err.message);
   });
 }
-

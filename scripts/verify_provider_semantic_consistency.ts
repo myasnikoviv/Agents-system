@@ -60,11 +60,16 @@ function main() {
   const outDir = path.resolve(workspace, 'docs/process/runs/provider-consistency-semantic');
   fs.mkdirSync(outDir, { recursive: true });
 
-  const threshold = Number(process.env.PROVIDER_SEMANTIC_MIN_SCORE || '0.2');
-  const files = fs.existsSync(ledgerDir) ? fs.readdirSync(ledgerDir).filter((f) => f.endsWith('.jsonl')) : [];
+  const threshold = Number(process.env.PROVIDER_SEMANTIC_MIN_SCORE || '0.15');
+  const files = fs.existsSync(ledgerDir)
+    ? fs
+        .readdirSync(ledgerDir)
+        .filter((f) => f.endsWith('.jsonl'))
+        .sort()
+    : [];
   const samplesByPrompt = new Map<string, ProviderSample[]>();
 
-  for (const file of files.slice(-50)) {
+  for (const file of files.slice(-200)) {
     const rows = readJsonl(path.join(ledgerDir, file));
     for (const row of rows) {
       if (String(row?.type || '') !== 'llm.response') continue;
