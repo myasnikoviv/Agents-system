@@ -11,9 +11,11 @@ const EVENT_STREAM_KEY = 'events:runtime_hub';
 const KNOWN_EVENT_TYPES = new Set<string>([
   'run.started',
   'run.completed',
+  'run.cancelled',
   'agent.started',
   'agent.completed',
   'agent.message',
+  'research.completed',
   'system.thought',
   'swarm.handoff',
   'tool.call',

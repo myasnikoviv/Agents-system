@@ -26,11 +26,13 @@ export class RunManager {
   static cancelRun(runId: string, reason: string) {
     this.cancelledRuns.add(runId);
     emitEvent({
-      event_type: 'run_cancelled',
-      pipeline_run_id: runId,
-      timestamp: new Date().toISOString(),
+      type: 'run.cancelled',
+      runId,
+      projectId: 'none',
+      chainId: 'none',
+      actor: { type: 'system', id: 'run-manager' },
       payload: { reason }
-    } as any);
+    });
   }
 
   /**
