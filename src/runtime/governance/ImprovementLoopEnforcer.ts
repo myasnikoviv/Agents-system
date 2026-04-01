@@ -11,6 +11,8 @@ import { logGovernance } from './GovernanceLogger';
 
 export interface ImprovementCheckInput {
   ticket: string;
+  runId?: string;
+  chainId?: string;
   projectId: string;
   workspacePath: string;
 }
@@ -32,6 +34,8 @@ export function logImprovementLoopGate(input: ImprovementCheckInput) {
       status: 'pass',
       action: 'allow',
       ticket: input.ticket,
+      runId: input.runId,
+      chainId: input.chainId,
       detail: 'lessons_learned_or_retro_exists',
     });
   } else {
@@ -40,6 +44,8 @@ export function logImprovementLoopGate(input: ImprovementCheckInput) {
       status: 'skip',
       action: 'allow',
       ticket: input.ticket,
+      runId: input.runId,
+      chainId: input.chainId,
       detail: 'no_recent_improvement_artifacts_detected',
     });
   }

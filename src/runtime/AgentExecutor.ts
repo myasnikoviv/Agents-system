@@ -92,6 +92,8 @@ export class AgentExecutor {
       logParticipationGate({
         agentSlug: context.agent.slug,
         ticketId,
+        runId: context.runId,
+        chainId: context.chainId,
         content: result.content
       });
 
@@ -99,6 +101,7 @@ export class AgentExecutor {
       logCostTrackerGate({
         ticketId,
         runId: context.runId,
+        chainId: context.chainId,
         agentSlug: context.agent.slug,
         inputTokens: result.usage?.inputTokens || 0,
         outputTokens: result.usage?.outputTokens || 0,

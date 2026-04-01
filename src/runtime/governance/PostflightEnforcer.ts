@@ -14,6 +14,8 @@ import { logGovernance } from './GovernanceLogger';
 export interface PostflightCheckInput {
   /** The ticket being closed, e.g. AGSYS-ENF-001 */
   ticket: string;
+  runId?: string;
+  chainId?: string;
   /** Override tests dir (default: docs/process/tests) */
   testsDir?: string;
   /** Override runs dir (default: docs/process/runs) */
@@ -56,6 +58,8 @@ export function checkPostflightEvidence(input: PostflightCheckInput): Postflight
     status: ok ? 'pass' : 'fail',
     action: ok ? 'allow' : 'block',
     ticket: input.ticket,
+    runId: input.runId,
+    chainId: input.chainId,
     detail: ok
       ? `artifacts_present=[${present.join(',')}]`
       : `missing=[${missing.join(',')}]`,

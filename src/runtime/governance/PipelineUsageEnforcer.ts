@@ -9,6 +9,8 @@ import { logGovernance } from './GovernanceLogger';
 
 export interface PipelineUsageInput {
   ticketId: string;
+  runId?: string;
+  chainId?: string;
   pipelineId: string;
   isExplicit: boolean;
   confidence: number;
@@ -25,6 +27,8 @@ export function logPipelineUsageGate(input: PipelineUsageInput) {
       status: 'fail',
       action: 'allow',
       ticket: input.ticketId,
+      runId: input.runId,
+      chainId: input.chainId,
       detail: `low_confidence_fallback: confidence=${input.confidence.toFixed(2)}`,
     });
   } else {
@@ -33,6 +37,8 @@ export function logPipelineUsageGate(input: PipelineUsageInput) {
       status: 'pass',
       action: 'allow',
       ticket: input.ticketId,
+      runId: input.runId,
+      chainId: input.chainId,
       detail: `pipeline=${input.pipelineId}, explicit=${input.isExplicit}`,
     });
   }
