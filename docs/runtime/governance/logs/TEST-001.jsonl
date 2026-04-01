@@ -1,2 +1,0 @@
-{"rule":"git_preflight","status":"skip","action":"allow","ticket":"TEST-001","detail":"non_mutating_action","ts":"2026-04-01T08:32:38.707Z"}
-{"rule":"git_preflight","status":"fail","action":"block","ticket":"TEST-001","detail":"preflight_missing:directory_not_found","ts":"2026-04-01T08:32:38.742Z"}
