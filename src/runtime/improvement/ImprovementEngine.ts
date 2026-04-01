@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import { getRedisClient } from '../redisClient';
 
 export type ImprovementSignalType = 'compliance_issue' | 'cost_issue' | 'throughput_bottleneck';
 
@@ -22,6 +23,12 @@ export interface ImprovementTicketDraft {
   runId: string;
   signalIds: string[];
   priority: 'low' | 'medium' | 'high';
+}
+
+export interface LearningEffectKpiResult {
+  pass: boolean;
+  score: number;
+  reason: string;
 }
 
 function readJson<T>(filePath: string, fallback: T): T {
@@ -168,24 +175,38 @@ export function writeImprovementArtifacts(input: {
   const signalsPath = path.join(signalsDir, `${input.runId}.json`);
   const ticketsPath = path.join(ticketsDir, `${input.runId}.json`);
   const tracePath = path.join(traceDir, `${input.runId}.json`);
+  const lockPath = path.join(base, `${input.runId}.lock`);
 
-  fs.writeFileSync(signalsPath, JSON.stringify({ runId: input.runId, signals: input.signals }, null, 2), 'utf-8');
-  fs.writeFileSync(ticketsPath, JSON.stringify({ runId: input.runId, tickets: input.tickets }, null, 2), 'utf-8');
-  fs.writeFileSync(
-    tracePath,
-    JSON.stringify(
-      {
-        runId: input.runId,
-        signalIds: input.signals.map((s) => s.id),
-        ticketTitles: input.tickets.map((t) => t.title),
-        commitSha: input.commitSha || process.env.GIT_COMMIT_SHA || 'uncommitted',
-        timestamp: new Date().toISOString(),
-      },
-      null,
-      2,
-    ),
-    'utf-8',
-  );
+  // Basic race protection for parallel writers of the same run artifact set.
+  let lockFd: number | null = null;
+  try {
+    lockFd = fs.openSync(lockPath, 'wx');
+  } catch {
+    throw new Error(`improvement_artifacts_lock_conflict:${input.runId}`);
+  }
+
+  try {
+    fs.writeFileSync(signalsPath, JSON.stringify({ runId: input.runId, signals: input.signals }, null, 2), 'utf-8');
+    fs.writeFileSync(ticketsPath, JSON.stringify({ runId: input.runId, tickets: input.tickets }, null, 2), 'utf-8');
+    fs.writeFileSync(
+      tracePath,
+      JSON.stringify(
+        {
+          runId: input.runId,
+          signalIds: input.signals.map((s) => s.id),
+          ticketTitles: input.tickets.map((t) => t.title),
+          commitSha: input.commitSha || process.env.GIT_COMMIT_SHA || 'uncommitted',
+          timestamp: new Date().toISOString(),
+        },
+        null,
+        2,
+      ),
+      'utf-8',
+    );
+  } finally {
+    if (lockFd !== null) fs.closeSync(lockFd);
+    if (fs.existsSync(lockPath)) fs.unlinkSync(lockPath);
+  }
 
   return { signalsPath, ticketsPath, tracePath };
 }
@@ -198,4 +219,76 @@ export function queueIsolationKeys(projectId: string): {
     runtimeQueue: `events:runtime:${projectId}`,
     improvementQueue: `events:improvement:${projectId}`,
   };
+}
+
+export async function enqueueImprovementJob(input: {
+  runId: string;
+  projectId: string;
+  chainId: string;
+  workspacePath: string;
+  signalsPath: string;
+  ticketsPath: string;
+}): Promise<string | null> {
+  const redis = getRedisClient();
+  const queue = queueIsolationKeys(input.projectId).improvementQueue;
+  const payload = {
+    type: 'improvement.job',
+    runId: input.runId,
+    projectId: input.projectId,
+    chainId: input.chainId,
+    payload: {
+      workspacePath: input.workspacePath,
+      signalsPath: input.signalsPath,
+      ticketsPath: input.ticketsPath,
+    },
+  };
+  try {
+    const id = await redis.xadd(queue, '*', 'data', JSON.stringify(payload));
+    return id || null;
+  } catch {
+    return null;
+  }
+}
+
+export function evaluateLearningEffectKpi(input: {
+  signals: ImprovementSignal[];
+  tickets: ImprovementTicketDraft[];
+  complianceFailures: number;
+  retries: number;
+}): LearningEffectKpiResult {
+  const hasSignalCoverage = input.signals.length > 0 ? 1 : 0;
+  const hasTicketCoverage = input.tickets.length > 0 ? 1 : 0;
+  const noComplianceFailures = input.complianceFailures === 0 ? 1 : 0;
+  const boundedRetries = input.retries <= 2 ? 1 : 0;
+  const score = (hasSignalCoverage + hasTicketCoverage + noComplianceFailures + boundedRetries) / 4;
+  return {
+    pass: score >= 0.75,
+    score,
+    reason: `signals=${input.signals.length};tickets=${input.tickets.length};complianceFailures=${input.complianceFailures};retries=${input.retries}`,
+  };
+}
+
+export function applySafeTemplateUpdate(input: {
+  workspacePath: string;
+  relativePath: string;
+  content: string;
+}): { updated: boolean; filePath: string; backupPath?: string; reason?: string } {
+  const rel = input.relativePath.replace(/\\/g, '/').replace(/^\/+/, '');
+  if (!rel.startsWith('generated/templates/')) {
+    return { updated: false, filePath: rel, reason: 'path_not_in_generated_templates' };
+  }
+
+  const filePath = path.resolve(input.workspacePath, rel);
+  if (!filePath.startsWith(path.resolve(input.workspacePath, 'generated/templates'))) {
+    return { updated: false, filePath, reason: 'path_escape_blocked' };
+  }
+
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  const backupPath = fs.existsSync(filePath) ? `${filePath}.bak-${Date.now()}` : undefined;
+  if (backupPath) fs.copyFileSync(filePath, backupPath);
+
+  const tempPath = `${filePath}.tmp-${Date.now()}`;
+  fs.writeFileSync(tempPath, input.content, 'utf-8');
+  fs.renameSync(tempPath, filePath);
+  return { updated: true, filePath, backupPath };
 }
