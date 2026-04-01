@@ -76,6 +76,8 @@ interface AgentRuntimeStatus {
     currentIssue: string;
     threadId: string;
     lastUpdated: string;
+    delegatedFrom?: string | null;
+    isPaused?: boolean;
 }
 interface PersistedThreadMessage {
     id: string;
@@ -480,6 +482,10 @@ export function CockpitPage() {
                         }
                         const currentIssue =
                             String(event.plane_issue_id || existing.currentIssue || 'n/a').trim() || 'n/a';
+                        const delegatedFrom: string | null =
+                            eventType === 'swarm_handoff'
+                                ? String(event.payload?.fromAgentTitle || event.payload?.fromAgentId || '').trim() || null
+                                : existing.delegatedFrom ?? null;
                         return {
                             ...prev,
                             [resolvedSlug]: {
@@ -492,6 +498,7 @@ export function CockpitPage() {
                                 currentIssue,
                                 threadId: threadKey,
                                 lastUpdated: event.timestamp || new Date().toISOString(),
+                                delegatedFrom,
                             },
                         };
                     });
@@ -2072,17 +2079,41 @@ export function CockpitPage() {
                             ) : (
                                 sortedAgentStatusRows.map((row) => (
                                     <div key={row.slug} className="agent-board-row">
-                                        <div className={`agent-dot ${row.status}`} />
+                                        <div className={`agent-dot ${row.isPaused ? 'standby' : row.status}`} />
                                         <div className="agent-board-main">
                                             <div className="agent-board-title">{row.callsign || row.title}</div>
                                             <div className="agent-board-sub">{row.slug}</div>
+                                            {row.delegatedFrom && (
+                                                <div className="inline-flex items-center gap-1 mt-0.5 text-[0.72rem] text-amber-400 opacity-80">
+                                                    <span>⤷ delegated from</span>
+                                                    <span className="font-medium">{row.delegatedFrom}</span>
+                                                </div>
+                                            )}
                                         </div>
                                         <div className="agent-board-meta">
-                                            <span>{row.status}</span>
+                                            <span>{row.isPaused ? 'paused' : row.status}</span>
                                             <span>stage: {row.currentStage}</span>
                                             <span>task: {row.currentTask}</span>
                                             <span>issue: {row.currentIssue}</span>
                                         </div>
+                                        {row.status === 'active' && (
+                                            <button
+                                                className={`ml-2 px-2 py-0.5 rounded text-[0.72rem] border transition-colors ${
+                                                    row.isPaused
+                                                        ? 'border-emerald-500/40 text-emerald-400 hover:bg-emerald-500/10'
+                                                        : 'border-amber-500/40 text-amber-400 hover:bg-amber-500/10'
+                                                }`}
+                                                onClick={() => {
+                                                    setAgentRuntime((prev) => ({
+                                                        ...prev,
+                                                        [row.slug]: { ...prev[row.slug], isPaused: !row.isPaused },
+                                                    }));
+                                                    alert(`${row.isPaused ? 'Resuming' : 'Pausing'} agent: ${row.callsign || row.slug}\n(Mock — backend hook pending)`);
+                                                }}
+                                            >
+                                                {row.isPaused ? 'Resume' : 'Pause'}
+                                            </button>
+                                        )}
                                     </div>
                                 ))
                             )}
