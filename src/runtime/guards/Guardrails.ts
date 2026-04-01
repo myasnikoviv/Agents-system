@@ -9,6 +9,10 @@ export class Guardrails {
   static readonly MAX_TOTAL_LLM_CALLS = 25;
   static readonly MAX_RUN_TIME_MS = 60000;
   static readonly MAX_RETRIES_PER_STEP = 2;
+  static getMaxRetriesPerStep(): number {
+    const raw = Number(process.env.RUNTIME_MAX_RETRIES_PER_STEP || this.MAX_RETRIES_PER_STEP);
+    return Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : this.MAX_RETRIES_PER_STEP;
+  }
 
   static recordLLMCall(runId: string) {
     const current = this.llmCallCounts.get(runId) || 0;
@@ -50,15 +54,16 @@ export class Guardrails {
     const current = this.retryCounts.get(key) || 0;
     this.retryCounts.set(key, current + 1);
 
-    if (current + 1 > this.MAX_RETRIES_PER_STEP) {
+    const maxRetries = this.getMaxRetriesPerStep();
+    if (current + 1 > maxRetries) {
       emitEvent({
         runId,
         projectId: 'none',
         chainId: 'none',
         type: 'guard.triggered',
-        payload: { reason: 'MAX_RETRIES_EXCEEDED', stepId, count: current + 1 }
+        payload: { reason: 'MAX_RETRIES_EXCEEDED', stepId, count: current + 1, maxRetries }
       });
-      throw new Error(`Guardrail triggered: Maximum retries (2) exceeded for step ${stepId} in run ${runId}`);
+      throw new Error(`Guardrail triggered: Maximum retries (${maxRetries}) exceeded for step ${stepId} in run ${runId}`);
     }
 
     emitEvent({

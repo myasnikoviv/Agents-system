@@ -1,0 +1,4 @@
+{
+  "strictDeterministic": true,
+  "llmFallbackEnabled": false
+}

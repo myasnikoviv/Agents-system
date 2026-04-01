@@ -108,7 +108,7 @@ export class RalfVigLoop {
         throw new Error('No verification logic provided.');
       }
 
-      const updated = this.engine.applyVerificationResult(task, report);
+      const updated = await this.engine.applyVerificationResult(task, report);
       pkg.tasks[taskIndex] = updated;
       if (this.options.onTaskChange) this.options.onTaskChange(updated);
     }

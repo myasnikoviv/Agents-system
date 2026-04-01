@@ -1,0 +1,19 @@
+{
+  "runId": "trend-1775050781789",
+  "projectId": "agent_system",
+  "windowSize": 5,
+  "points": [],
+  "first": {
+    "retries": 0,
+    "loops": 0
+  },
+  "last": {
+    "retries": 0,
+    "loops": 0
+  },
+  "retriesImproved": true,
+  "loopsImproved": true,
+  "trendScore": 0,
+  "pass": false,
+  "generatedAt": "2026-04-01T13:39:41.789Z"
+}

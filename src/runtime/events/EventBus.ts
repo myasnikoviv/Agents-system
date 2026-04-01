@@ -21,7 +21,9 @@ const KNOWN_EVENT_TYPES = new Set<string>([
   'tool.call',
   'tool.result',
   'guard.triggered',
+  'guard.block',
   'guard.retry',
+  'guard.escalate',
   'llm.request',
   'llm.response',
   'agent.failed',
@@ -145,5 +147,50 @@ export const emitGovernanceEvent = async (
       id: 'governance-engine',
     },
     payload: entry
+  });
+};
+
+/**
+ * Canonical guard block signal for hard governance/compliance/cost stops.
+ */
+export const emitGuardBlockEvent = async (
+  context: {
+    runId: string;
+    projectId: string;
+    chainId: string;
+  },
+  payload: Record<string, any>
+): Promise<string> => {
+  return emitEvent({
+    type: 'guard.block',
+    runId: context.runId,
+    projectId: context.projectId,
+    chainId: context.chainId,
+    actor: {
+      type: 'system',
+      id: 'governance-engine',
+    },
+    payload,
+  });
+};
+
+export const emitGuardEscalationEvent = async (
+  context: {
+    runId: string;
+    projectId: string;
+    chainId: string;
+  },
+  payload: Record<string, any>
+): Promise<string> => {
+  return emitEvent({
+    type: 'guard.escalate',
+    runId: context.runId,
+    projectId: context.projectId,
+    chainId: context.chainId,
+    actor: {
+      type: 'system',
+      id: 'governance-engine',
+    },
+    payload,
   });
 };

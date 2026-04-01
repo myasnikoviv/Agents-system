@@ -1,0 +1,8 @@
+{
+  "defaultHardTokenLimit": 120000,
+  "byProject": {
+    "agent_system": {
+      "hardTokenLimit": 120000
+    }
+  }
+}
