@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import { resolveRuntimePath } from '../RuntimePathResolver';
 
 export interface TelemetrySnapshot {
   totalTokens: number;
@@ -13,7 +14,7 @@ export interface LoopPressureSnapshot {
 }
 
 export function readTelemetry(workspacePath: string, runId: string): TelemetrySnapshot {
-  const ledgerFile = path.resolve(workspacePath, 'docs/process/runs/ledger', `${runId}.jsonl`);
+  const ledgerFile = path.join(resolveRuntimePath(workspacePath, 'processLedgerDir'), `${runId}.jsonl`);
   let totalTokens = 0;
   let entries = 0;
   if (fs.existsSync(ledgerFile)) {
@@ -29,7 +30,7 @@ export function readTelemetry(workspacePath: string, runId: string): TelemetrySn
       }
     }
   }
-  const skillTelemetryPath = path.resolve(workspacePath, 'docs/process/skills/telemetry/skill-usage.jsonl');
+  const skillTelemetryPath = resolveRuntimePath(workspacePath, 'processSkillTelemetryFile');
   return {
     totalTokens,
     entries,
@@ -38,7 +39,7 @@ export function readTelemetry(workspacePath: string, runId: string): TelemetrySn
 }
 
 export function readLoopPressure(workspacePath: string, runId: string): LoopPressureSnapshot {
-  const ledgerFile = path.resolve(workspacePath, 'docs/process/runs/ledger', `${runId}.jsonl`);
+  const ledgerFile = path.join(resolveRuntimePath(workspacePath, 'processLedgerDir'), `${runId}.jsonl`);
   let retries = 0;
   let governanceChecks = 0;
   if (fs.existsSync(ledgerFile)) {

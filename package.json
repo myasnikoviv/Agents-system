@@ -9,6 +9,7 @@
     "verify:providers": "tsx scripts/verify_provider_consistency.ts",
     "verify:providers:semantic": "tsx scripts/verify_provider_semantic_consistency.ts",
     "verify:learning-trend": "tsx scripts/verify_learning_effect_trend.ts",
+    "bootstrap:learning-trend": "tsx scripts/bootstrap_learning_trend_evidence.ts",
     "proof": "tsx scripts/final_agentic_proof.ts",
     "git:audit": "bash scripts/git/worktree_audit.sh",
     "git:audit:strict": "bash scripts/git/worktree_audit.sh --strict",

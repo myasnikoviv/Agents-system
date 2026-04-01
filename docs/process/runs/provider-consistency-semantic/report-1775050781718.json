@@ -1,0 +1,21 @@
+{
+  "generatedAt": "2026-04-01T13:39:41.717Z",
+  "source": "fixtures",
+  "threshold": 0.2,
+  "comparablePairs": 2,
+  "pass": true,
+  "pairs": [
+    {
+      "providerA": "provider-a",
+      "providerB": "provider-b",
+      "score": 0.4117647058823529,
+      "pass": true
+    },
+    {
+      "providerA": "provider-a",
+      "providerB": "provider-b",
+      "score": 0.2,
+      "pass": true
+    }
+  ]
+}

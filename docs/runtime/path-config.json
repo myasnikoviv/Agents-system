@@ -1,0 +1,14 @@
+{
+  "governanceLogsDir": "docs/runtime/governance/logs",
+  "governanceRuleRegistryFile": "docs/runtime/governance/rule-registry.yaml",
+  "governanceProjectPolicyFile": "docs/runtime/governance/project-policy.json",
+  "governanceExecutionPolicyFile": "docs/runtime/governance/execution-policy.json",
+  "processPreflightsDir": "docs/process/git/preflights",
+  "processTestsDir": "docs/process/tests",
+  "processRetrospectivesDir": "docs/process/retrospectives",
+  "knowledgeLessonsDir": "docs/knowledge/lessons-learned",
+  "processLedgerDir": "docs/process/runs/ledger",
+  "processSkillTelemetryFile": "docs/process/skills/telemetry/skill-usage.jsonl",
+  "processBlockersDir": "docs/process/blockers",
+  "processCostDir": "docs/process/runs/cost"
+}
