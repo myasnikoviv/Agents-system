@@ -1,0 +1,5 @@
+{"rule":"postflight_hard_gate","status":"fail","action":"block","ticket":"TEST-002","detail":"missing=[test_report]","ts":"2026-04-01T08:32:38.743Z"}
+{"rule":"postflight_hard_gate","status":"fail","action":"block","ticket":"TEST-002","detail":"missing=[test_report]","ts":"2026-04-01T08:32:38.744Z"}
+{"rule":"postflight_stub_written","status":"pass","action":"allow","ticket":"TEST-002","detail":"path=/var/folders/2v/96dcmfq12wl64dj13f_x2_xm0000gn/T/gov-test-iNvQxc/tests/TEST-002.md","ts":"2026-04-01T08:32:38.744Z"}
+{"rule":"postflight_hard_gate","status":"pass","action":"allow","ticket":"TEST-002","detail":"artifacts_present=[test_report]","ts":"2026-04-01T08:32:38.745Z"}
+{"rule":"postflight_stub_written","status":"pass","action":"allow","ticket":"TEST-002","detail":"path=/var/folders/2v/96dcmfq12wl64dj13f_x2_xm0000gn/T/gov-test-tFD65q/tests/TEST-002.md","ts":"2026-04-01T08:32:38.746Z"}

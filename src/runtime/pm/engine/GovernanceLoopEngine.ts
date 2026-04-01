@@ -1,4 +1,5 @@
 import { TaskPackage, Task, VerificationReport, TaskStatus } from '../models/pm-types';
+import { enforcePostflightGate } from '../../governance/PostflightEnforcer';
 
 /**
  * GovernanceLoopEngine orchestrates the state machine of autonomous task execution.
@@ -34,6 +35,12 @@ export class GovernanceLoopEngine {
     updatedTask.verificationResults = [...(task.verificationResults || []), report];
 
     if (report.status === 'passed') {
+      // ENF-002 — Task Closure Postflight Hard Gate
+      // Blocks moving to 'done' unless evidence exists.
+      enforcePostflightGate({
+        ticket: task.id.toString(),
+      });
+
       updatedTask.status = 'done';
     } else if (report.status === 'failed') {
       const currentRetries = task.autoRetryCount || 0;

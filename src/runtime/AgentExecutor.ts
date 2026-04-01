@@ -86,6 +86,25 @@ export class AgentExecutor {
         } : undefined
       });
 
+      // Sprint 5.5 — Governance Soft Gates
+      const ticketId = context.activeTicketId || 'AGSYS-UNKNOWN';
+      const { logParticipationGate } = await import('./governance/AgentParticipationEnforcer');
+      logParticipationGate({
+        agentSlug: context.agent.slug,
+        ticketId,
+        content: result.content
+      });
+
+      const { logCostTrackerGate } = await import('./governance/CostTrackerEnforcer');
+      logCostTrackerGate({
+        ticketId,
+        runId: context.runId,
+        agentSlug: context.agent.slug,
+        inputTokens: result.usage?.inputTokens || 0,
+        outputTokens: result.usage?.outputTokens || 0,
+        totalTokens: result.usage?.totalTokens || 0,
+      });
+
       // Telemetry
       await this.emitTelemetry(context, result, durationMs);
     } else {

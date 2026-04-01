@@ -23,8 +23,8 @@ export interface PreflightCheckInput {
   ticket: string;
   /** Whether this run includes any mutating actions */
   hasMutatingAction: boolean;
-  /** Override repo root (default: process.cwd()) */
-  repoRoot?: string;
+  /** Override workspace root (default: process.cwd()) */
+  workspacePath?: string;
   /** Override preflight dir (default: docs/process/git/preflights) */
   preflightDir?: string;
 }
@@ -41,7 +41,7 @@ export interface PreflightCheckResult {
  * Returns result if non-mutating or approved.
  */
 export function enforcePreflightGate(input: PreflightCheckInput): PreflightCheckResult {
-  const context = getGitExecutionContext(input.repoRoot);
+  const context = getGitExecutionContext(input.workspacePath);
 
   // Non-mutating: allow, log as skip
   if (!input.hasMutatingAction) {

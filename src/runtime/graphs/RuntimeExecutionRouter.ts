@@ -35,14 +35,25 @@ function buildMockFinalState(initialState: Partial<PilotState>) {
 }
 
 /**
- * Runtime execution dispatcher.
- *
- * Why this exists:
- * - `/api/chat` should not be tightly coupled to a concrete graph implementation name.
- * - mode selection must be explicit and centrally managed.
+ * Runtime execution dispatcher with Governance Gates integrated (Sprint 5.5).
  */
 export async function executeRuntimeRun(initialState: Partial<PilotState>): Promise<RuntimeExecutionResult> {
   const modeRequested = normalizeMode(initialState.executionOptions?.mode);
+  const ticket = initialState.plane_issue_id || 'AGSYS-UNKNOWN';
+  const pipeline = initialState.selected_pipeline || 'unified-task-intake';
+
+  // Sprint 5.5 — Identify if pipeline involves mutating actions (ENF-001 logic)
+  const mutatingPipelines = ['new-feature', 'bug-fix', 'hotfix', 'refactor', 'strategy-tuning', 'release', 'rollback-incident'];
+  const hasMutatingAction = mutatingPipelines.includes(pipeline) && modeRequested !== 'mock';
+
+  // 1. ENF-001 — Git Preflight Hard Gate
+  // This will throw if it's a mutating action without a valid preflight token.
+  const { enforcePreflightGate } = await import('../governance/PreflightEnforcer');
+  enforcePreflightGate({
+    ticket,
+    hasMutatingAction,
+    workspacePath: initialState.workspacePath // Pass workspace if needed for token resolution
+  } as any);
 
   if (modeRequested === 'mock') {
     return {
@@ -54,8 +65,12 @@ export async function executeRuntimeRun(initialState: Partial<PilotState>): Prom
   }
 
   // Current production engine for both linear and multiple_agents modes.
-  // Kept explicit here so that true engine split can be added without touching API handlers.
   const finalState = await executeQuasiLinearRun(initialState);
+
+  // 2. ENF-006 — Pipeline Usage Soft Gate (log classification result from router node)
+  // This is best logged inside routerNode in PilotQuasiLinearGraph, 
+  // but we can add a high-level log here as a secondary check.
+
   return {
     finalState,
     modeRequested,

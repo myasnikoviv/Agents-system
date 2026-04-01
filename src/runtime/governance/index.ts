@@ -30,3 +30,15 @@ export {
   type PostflightCheckInput,
   type PostflightCheckResult,
 } from './PostflightEnforcer';
+
+// ENF-003 — Improvement Loop Soft Gate
+export { logImprovementLoopGate, type ImprovementCheckInput } from './ImprovementLoopEnforcer';
+
+// ENF-005 — Agent Participation Soft Gate
+export { logParticipationGate, type ParticipationCheckInput } from './AgentParticipationEnforcer';
+
+// ENF-006 — Pipeline Usage Soft Gate
+export { logPipelineUsageGate, type PipelineUsageInput } from './PipelineUsageEnforcer';
+
+// ENF-007 — Cost Tracking Light
+export { logCostTrackerGate, type CostTrackerInput } from './CostTrackerEnforcer';

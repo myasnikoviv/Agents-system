@@ -1,0 +1,8 @@
+{"rule":"postflight_hard_gate","status":"fail","action":"block","ticket":"AGSYS-ENF-TEST","detail":"missing=[test_report]","ts":"2026-04-01T08:41:04.383Z"}
+{"rule":"postflight_stub_written","status":"pass","action":"allow","ticket":"AGSYS-ENF-TEST","detail":"path=/Users/myasnikoviv/development/agent-system/docs/process/tests/AGSYS-ENF-TEST.md","ts":"2026-04-01T08:41:04.385Z"}
+{"rule":"postflight_hard_gate","status":"pass","action":"allow","ticket":"AGSYS-ENF-TEST","detail":"artifacts_present=[test_report]","ts":"2026-04-01T08:41:04.385Z"}
+{"rule":"git_preflight","status":"skip","action":"allow","ticket":"AGSYS-ENF-TEST","detail":"non_mutating_action","ts":"2026-04-01T08:41:04.403Z"}
+{"rule":"improvement_loop","status":"pass","action":"allow","ticket":"AGSYS-ENF-TEST","detail":"lessons_learned_or_retro_exists","ts":"2026-04-01T08:41:04.404Z"}
+{"rule":"agent_participation","status":"pass","action":"allow","ticket":"AGSYS-ENF-TEST","detail":"agent=developer, cognitive_loop_markers_detected","ts":"2026-04-01T08:41:04.404Z"}
+{"rule":"pipeline_usage","status":"pass","action":"allow","ticket":"AGSYS-ENF-TEST","detail":"pipeline=unified-task-intake, explicit=true","ts":"2026-04-01T08:41:04.404Z"}
+{"rule":"cost_tracking","status":"pass","action":"allow","ticket":"AGSYS-ENF-TEST","detail":"agent=pm-orchestrator, runId=run_123, tokens=700, est_cost=$0.0070","ts":"2026-04-01T08:41:04.404Z"}
