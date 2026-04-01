@@ -38,13 +38,25 @@ interface StreamEventCardProps {
     forceExpanded?: boolean;
 }
 
-const ALLOWED_TYPES = ['tool.called', 'stage.started', 'swarm_handoff', 'contract_reprompt', 'contract_fail', 'contract_pass', 'system.thought', 'agent.message'];
+const ALLOWED_TYPES = [
+    'tool.called',
+    'stage.started',
+    'swarm_handoff',
+    'swarm.handoff',
+    'contract_reprompt',
+    'contract_fail',
+    'contract_pass',
+    'system.thought',
+    'agent.message',
+    'governance.rule_check'
+];
 
 // Types that have a body and should start expanded
 const DEFAULT_EXPANDED_TYPES = ['system.thought', 'agent.message', 'contract_fail'];
 
 const StreamEventCard: React.FC<StreamEventCardProps> = ({ event, index, forceExpanded }) => {
     const eventType = String(event.event_type || '').trim();
+    const isHandoff = eventType === 'swarm_handoff' || eventType === 'swarm.handoff';
     if (!ALLOWED_TYPES.includes(eventType)) {
         return null;
     }
@@ -85,7 +97,7 @@ const StreamEventCard: React.FC<StreamEventCardProps> = ({ event, index, forceEx
         icon = <TerminalSquare size={14} />;
         iconColorClass = 'text-purple-500';
         containerClass = 'border border-purple-500/20 rounded-md bg-slate-900/60 overflow-hidden text-sm';
-    } else if (eventType === 'swarm_handoff') {
+    } else if (isHandoff) {
         const fromAgent = String(event.payload?.fromAgentTitle || event.payload?.fromAgentId || 'unknown').trim();
         const toAgent = String(event.payload?.toAgentTitle || event.payload?.toAgentId || roleLabel || 'unknown').trim();
         const toStage = String(event.payload?.toStageId || event.payload?.stageId || event.source_stage || 'n/a').trim();
@@ -132,6 +144,14 @@ const StreamEventCard: React.FC<StreamEventCardProps> = ({ event, index, forceEx
         icon = <MessageSquare size={14} />;
         iconColorClass = 'text-slate-300';
         containerClass = 'border border-white/10 rounded-md bg-slate-800/60 overflow-hidden text-sm text-slate-200';
+    } else if (eventType === 'governance.rule_check') {
+        const detail = String(event.payload?.detail || '').trim();
+        const rule = String(event.payload?.rule || 'governance').trim();
+        title = `Governance: ${rule}`;
+        bodyText = detail || '(No details available)';
+        icon = <CheckCircle2 size={14} />;
+        iconColorClass = 'text-emerald-400';
+        containerClass = 'border border-emerald-500/20 rounded-md bg-emerald-950/20 overflow-hidden text-sm text-emerald-100';
     }
 
     const hasBody = !!bodyText;
