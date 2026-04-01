@@ -1,0 +1,14 @@
+{
+  "runId": "zz-real-1775054395031-5s3924",
+  "projectId": "agent_system",
+  "tokens": 27565,
+  "retries": 2,
+  "loops": 6,
+  "breakdown": {
+    "execution": 27565,
+    "governance": 0,
+    "compliance": 0,
+    "other": 0
+  },
+  "generatedAt": "2026-04-01T14:40:40.155Z"
+}
