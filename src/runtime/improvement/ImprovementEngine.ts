@@ -31,6 +31,14 @@ export interface LearningEffectKpiResult {
   reason: string;
 }
 
+export interface LearningTrendKpiResult {
+  pass: boolean;
+  score: number;
+  reason: string;
+  reportPath: string;
+  regressionAlarmPath?: string;
+}
+
 function readJson<T>(filePath: string, fallback: T): T {
   if (!fs.existsSync(filePath)) return fallback;
   try {
@@ -283,6 +291,11 @@ export function applySafeTemplateUpdate(input: {
     return { updated: false, filePath, reason: 'path_escape_blocked' };
   }
 
+  const allowDirectMutation = String(process.env.GOVERNED_TEMPLATE_DIRECT_MUTATION || '').toLowerCase() === 'true';
+  if (!allowDirectMutation) {
+    return { updated: false, filePath, reason: 'governed_flow_requires_proposal_and_merge' };
+  }
+
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   const backupPath = fs.existsSync(filePath) ? `${filePath}.bak-${Date.now()}` : undefined;
   if (backupPath) fs.copyFileSync(filePath, backupPath);
@@ -291,4 +304,116 @@ export function applySafeTemplateUpdate(input: {
   fs.writeFileSync(tempPath, input.content, 'utf-8');
   fs.renameSync(tempPath, filePath);
   return { updated: true, filePath, backupPath };
+}
+
+export function writeTemplateUpdateProposal(input: {
+  workspacePath: string;
+  runId: string;
+  sourceArtifacts: { signalsPath: string; ticketsPath: string; tracePath: string };
+  targetRelativePath: string;
+  summary: string;
+  proposedContent?: string;
+}): { proposalPath: string } {
+  const dir = path.resolve(input.workspacePath, 'docs/process/improvements/proposals');
+  fs.mkdirSync(dir, { recursive: true });
+  const proposalPath = path.join(dir, `${input.runId}.json`);
+  fs.writeFileSync(
+    proposalPath,
+    JSON.stringify(
+      {
+        runId: input.runId,
+        status: 'proposed',
+        workflow: ['artifact-generated', 'proposal-created', 'awaiting-pr-review', 'awaiting-merge-approval'],
+        targetRelativePath: input.targetRelativePath,
+        summary: input.summary,
+        sourceArtifacts: input.sourceArtifacts,
+        proposedContentPreview: (input.proposedContent || '').slice(0, 4000),
+        generatedAt: new Date().toISOString(),
+      },
+      null,
+      2,
+    ),
+    'utf-8',
+  );
+  return { proposalPath };
+}
+
+export function evaluateLearningTrendKpi(input: {
+  workspacePath: string;
+  projectId: string;
+  runId: string;
+  windowSize?: number;
+}): LearningTrendKpiResult {
+  const windowSize = Math.max(3, Number(input.windowSize || 5));
+  const costDir = path.resolve(input.workspacePath, 'docs/process/runs/cost');
+  const reportDir = path.resolve(input.workspacePath, 'docs/process/runs/learning-trend');
+  fs.mkdirSync(reportDir, { recursive: true });
+
+  const files = fs.existsSync(costDir)
+    ? fs.readdirSync(costDir).filter((f) => f.endsWith('.json')).sort().slice(-windowSize)
+    : [];
+  const points = files
+    .map((f) => {
+      const row = readJson<any>(path.join(costDir, f), {});
+      return {
+        runId: String(row?.runId || f.replace(/\.json$/, '')),
+        projectId: String(row?.projectId || ''),
+        retries: Number(row?.retries || 0),
+        loops: Number(row?.loops || 0),
+      };
+    })
+    .filter((p) => p.projectId === input.projectId);
+
+  const first = points[0] || { retries: 0, loops: 0 };
+  const last = points[points.length - 1] || { retries: 0, loops: 0 };
+  const retriesImproved = last.retries <= first.retries;
+  const loopsImproved = last.loops <= first.loops;
+  const trendScore = points.length === 0 ? 0 : ((retriesImproved ? 1 : 0) + (loopsImproved ? 1 : 0)) / 2;
+  const pass = points.length >= 3 && trendScore >= 0.5;
+
+  const reportPath = path.join(reportDir, `${input.runId}.json`);
+  const report = {
+    runId: input.runId,
+    projectId: input.projectId,
+    windowSize,
+    points,
+    first,
+    last,
+    retriesImproved,
+    loopsImproved,
+    trendScore,
+    pass,
+    generatedAt: new Date().toISOString(),
+  };
+  fs.writeFileSync(reportPath, JSON.stringify(report, null, 2), 'utf-8');
+
+  let regressionAlarmPath: string | undefined;
+  if (!pass && points.length >= 3) {
+    const alarmDir = path.resolve(input.workspacePath, 'docs/process/runs/alarms');
+    fs.mkdirSync(alarmDir, { recursive: true });
+    regressionAlarmPath = path.join(alarmDir, `${input.runId}-learning-regression.json`);
+    fs.writeFileSync(
+      regressionAlarmPath,
+      JSON.stringify(
+        {
+          runId: input.runId,
+          projectId: input.projectId,
+          type: 'learning_effect_regression',
+          details: { trendScore, retriesImproved, loopsImproved, windowSize },
+          generatedAt: new Date().toISOString(),
+        },
+        null,
+        2,
+      ),
+      'utf-8',
+    );
+  }
+
+  return {
+    pass,
+    score: trendScore,
+    reason: `points=${points.length};retriesImproved=${retriesImproved};loopsImproved=${loopsImproved}`,
+    reportPath,
+    regressionAlarmPath,
+  };
 }

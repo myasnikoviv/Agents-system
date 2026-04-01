@@ -1,0 +1,22 @@
+import { evaluateLearningTrendKpi } from '../src/runtime/improvement/ImprovementEngine';
+
+function main() {
+  const workspacePath = process.cwd();
+  const projectId = process.env.LEARNING_TREND_PROJECT_ID || 'agent_system';
+  const runId = process.env.LEARNING_TREND_RUN_ID || `trend-${Date.now()}`;
+  const result = evaluateLearningTrendKpi({
+    workspacePath,
+    projectId,
+    runId,
+    windowSize: Number(process.env.LEARNING_TREND_WINDOW || '5'),
+  });
+
+  console.log(`Learning trend report: ${result.reportPath}`);
+  if (result.regressionAlarmPath) {
+    console.log(`Learning trend alarm: ${result.regressionAlarmPath}`);
+  }
+  console.log(`SCORE=${result.score.toFixed(2)}`);
+  console.log(`PASS=${result.pass}`);
+}
+
+main();
