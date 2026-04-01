@@ -1,0 +1,23 @@
+{
+  "defaultEnabledRules": [
+    "git_preflight",
+    "postflight_evidence",
+    "improvement_loop",
+    "required_agent_usage",
+    "required_pipeline_usage",
+    "cost_guard_light"
+  ],
+  "projects": {
+    "agent_system": {
+      "enabledRules": [
+        "git_preflight",
+        "postflight_evidence",
+        "improvement_loop",
+        "required_agent_usage",
+        "required_pipeline_usage",
+        "cost_guard_light"
+      ],
+      "disabledRules": []
+    }
+  }
+}
