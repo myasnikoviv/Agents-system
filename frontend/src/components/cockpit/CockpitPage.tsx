@@ -445,6 +445,7 @@ export function CockpitPage() {
                 }));
 
                 const eventType = String(event.event_type || '').trim();
+                const isHandoffEvent = eventType === 'swarm_handoff' || eventType === 'swarm.handoff';
                 const roleLabel = String(event.agent_role || 'system').trim();
                 const resolvedSlug = resolveAgentSlug(roleLabel);
                 if (resolvedSlug && resolvedSlug !== 'system') {
@@ -483,7 +484,7 @@ export function CockpitPage() {
                         const currentIssue =
                             String(event.plane_issue_id || existing.currentIssue || 'n/a').trim() || 'n/a';
                         const delegatedFrom: string | null =
-                            eventType === 'swarm_handoff'
+                            isHandoffEvent
                                 ? String(event.payload?.fromAgentTitle || event.payload?.fromAgentId || '').trim() || null
                                 : existing.delegatedFrom ?? null;
                         return {

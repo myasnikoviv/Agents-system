@@ -1,13 +1,13 @@
 # Pipeline State Card — AGSYS-438
 
 1. Pipeline: git-conflict-recovery
-2. Stage: preflight-approved
+2. Stage: remediation-execution-in-progress
 3. Current Role: Пан Гілка (Git Flow Manager)
 4. Next Role: Сокіл-Координатор (PM Orchestrator)
 5. Ticket: AGSYS-438
 6. Scope: Dirty-tree normalization and controlled branch/worktree binding for remediation sprint execution
 7. Git:
-- Current Branch: main
+- Current Branch: codex/AGSYS-438-audit-remediation-baseline
 - Target Branch: codex/AGSYS-438-audit-remediation-baseline
 - Worktree: /Users/myasnikoviv/development/agent-system
 8. Preflight Token: docs/process/git/preflights/AGSYS-438.env
@@ -19,9 +19,8 @@
 - Approver: Owner
 - Approved At: 2026-04-01T10:20:00Z
 - Status: APPROVED
-11. Plane Status: Backlog
+11. Plane Status: In Progress
 12. Next Execution Plan:
-- Capture safety snapshot (`git stash push -u`)
-- Create/switch target branch
-- Re-apply snapshot
-- Split changes by validity into remediation tickets
+- Complete remaining remediation tickets AGSYS-443..447 with scoped commits and evidence.
+- Attach CLI/API and UI-smoke evidence artifacts required for closure gate.
+- Move cycle issues to Done only after reproducible evidence is attached.
