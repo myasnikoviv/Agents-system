@@ -2,6 +2,7 @@ import fs from 'fs/promises';
 import path from 'path';
 import { ChatOpenAI } from '@langchain/openai';
 import { ChatPromptTemplate } from '@langchain/core/prompts';
+import { wrapLLMCall } from './llm/LLMWrapper';
 
 export interface IntakeEvaluation {
   ok: boolean;
@@ -50,11 +51,29 @@ export async function evaluateIntakeQualityLLM(
   `);
 
   const chain = prompt.pipe(model);
-  const response = await chain.invoke({ input: message });
+  const responseText = await wrapLLMCall(
+    {
+      runId: 'intake-governance',
+      projectId: 'none',
+      chainId: 'none',
+      model: 'gpt-4o',
+      provider: 'openai',
+      source: 'guard',
+    },
+    message,
+    async (inputText) => {
+      const response = await chain.invoke({ input: inputText });
+      const usage = (response as any)?.usage_metadata || {};
+      return {
+        response: String(response.content || '').trim(),
+        tokensInput: Number(usage.input_tokens || 0),
+        tokensOutput: Number(usage.output_tokens || 0),
+      };
+    }
+  );
   
   try {
-    const rawContent = response.content as string;
-    const jsonStr = rawContent.replace(/```json|```/g, '').trim();
+    const jsonStr = responseText.replace(/```json|```/g, '').trim();
     return JSON.parse(jsonStr) as IntakeEvaluation;
   } catch (e) {
     console.error('[IntakeGovernance] Failed to parse LLM response, falling back to basic evaluation.');
