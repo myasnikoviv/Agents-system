@@ -13,6 +13,13 @@ import {
   enforceHardCostLimit,
   writeCostLedger,
 } from '../cost/CostOptimizationEngine';
+import {
+  collectLearningSignals,
+  decideAdaptivePolicy,
+  enforceBoundedAdaptation,
+  routeModelForTask,
+  writeAdaptiveLog,
+} from '../adaptive/AdaptiveIntelligenceEngine';
 
 export type RuntimeExecutionMode = 'mock' | 'linear' | 'multiple_agents';
 
@@ -59,6 +66,26 @@ export async function executeRuntimeRun(initialState: Partial<PilotState>): Prom
   const chainId = initialState.threadId || `thread-${Date.now()}`;
   const projectId = initialState.projectId || 'agent_system';
   const workspacePath = initialState.workspacePath || process.cwd();
+  const modelRoute = routeModelForTask({
+    workspacePath,
+    runId,
+    projectId,
+    userMessage:
+      [...(initialState.messages || [])]
+        .reverse()
+        .find((m) => m.role === 'user')?.content || '',
+  });
+  process.env.RUNTIME_MODEL_TIER = modelRoute.modelTier;
+  process.env.RUNTIME_MODEL_NAME = modelRoute.model;
+  logGovernance({
+    rule: 'model_router',
+    status: 'pass',
+    action: 'log',
+    ticket,
+    runId,
+    chainId,
+    detail: `taskType=${modelRoute.taskType};tier=${modelRoute.modelTier};model=${modelRoute.model}`,
+  });
   const adaptive = decideAdaptiveOptimization(workspacePath, projectId);
   process.env.RUNTIME_MAX_RETRIES_PER_STEP = String(adaptive.suggestedMaxRetriesPerStep);
   process.env.GOVERNANCE_SMART_SKIP_IMPROVEMENT_LOOP = adaptive.lowRisk ? 'true' : 'false';
@@ -165,6 +192,34 @@ export async function executeRuntimeRun(initialState: Partial<PilotState>): Prom
 
   const cost = collectRunCostMetrics(workspacePath, runId, projectId);
   const costLedgerPath = writeCostLedger(cost, workspacePath);
+  const signals = collectLearningSignals(workspacePath, runId, projectId);
+  const adaptivePolicy = enforceBoundedAdaptation(
+    null,
+    decideAdaptivePolicy({
+      ...signals,
+      tokens: cost.tokens,
+      retries: cost.retries,
+      loops: cost.loops,
+    }),
+  );
+  process.env.RUNTIME_MAX_RETRIES_PER_STEP = String(adaptivePolicy.retryLimit);
+  process.env.GOVERNANCE_SMART_SKIP_IMPROVEMENT_LOOP = adaptivePolicy.enableImprovementLoop ? 'false' : 'true';
+  const adaptiveLogPath = writeAdaptiveLog(workspacePath, {
+    runId,
+    projectId,
+    route: modelRoute,
+    policy: adaptivePolicy,
+    signals: { ...signals, tokens: cost.tokens, retries: cost.retries, loops: cost.loops },
+  });
+  logGovernance({
+    rule: 'adaptive_policy_engine',
+    status: 'pass',
+    action: 'log',
+    ticket,
+    runId,
+    chainId,
+    detail: `retryLimit=${adaptivePolicy.retryLimit};improvementLoop=${adaptivePolicy.enableImprovementLoop};preferredTier=${adaptivePolicy.preferredTier};ledger=${adaptiveLogPath}`,
+  });
   const costLimit = enforceHardCostLimit(cost, workspacePath);
   logGovernance({
     rule: 'cost_optimization_engine',
