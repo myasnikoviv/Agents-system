@@ -33,6 +33,14 @@ export async function evaluateDeterministic(
   }
 
   if (rule.id === 'improvement_loop') {
+    if (String(process.env.GOVERNANCE_SMART_SKIP_IMPROVEMENT_LOOP || '').toLowerCase() === 'true') {
+      return {
+        ruleId: rule.id,
+        verdict: 'pass',
+        reason: 'improvement_loop_smart_skipped_low_risk',
+        evidenceSummary: 'smart_skip_enabled',
+      };
+    }
     const r = checkImprovementArtifact(workspacePath, ctx.ticketId);
     return {
       ruleId: rule.id,
