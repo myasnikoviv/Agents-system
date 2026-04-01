@@ -34,5 +34,5 @@ export { logCostTrackerGate, type CostTrackerInput } from './CostTrackerEnforcer
 
 export { runGovernancePhase } from './GovernanceEngineCore';
 export type { GovernancePhase, GovernanceEngineContext, GovernancePhaseResult } from './GovernanceEngineTypes';
-export { GOVERNANCE_RULES, getRuleById } from './RuleRegistry';
+export { loadGovernanceRules, getRuleById, GovernanceRegistryError } from './RuleRegistry';
 export { resolveEnabledRules } from './ProjectPolicyBinding';
