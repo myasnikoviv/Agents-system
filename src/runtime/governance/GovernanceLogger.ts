@@ -8,7 +8,7 @@ import path from 'path';
  */
 
 export type GovernanceStatus = 'pass' | 'fail' | 'skip';
-export type GovernanceAction = 'block' | 'retry' | 'allow' | 'warn' | 'log';
+export type GovernanceAction = 'block' | 'retry' | 'allow' | 'warn' | 'log' | 'escalate';
 
 export interface GovernanceLogEntry {
   rule: string;

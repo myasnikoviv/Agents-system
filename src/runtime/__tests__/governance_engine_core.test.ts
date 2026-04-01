@@ -217,6 +217,28 @@ async function test_loop_guard_hard_blocks_excessive_retry_pressure(): Promise<v
   console.log('[PASS] loop guard hard gate blocks excessive retry pressure');
 }
 
+async function test_soft_gate_escalation_after_retry_and_warn_budget(): Promise<void> {
+  const workspace = makeWorkspace();
+  const runId = 'run-escalation-1';
+  const baseCtx = {
+    runId,
+    projectId: 'agent_system',
+    ticketId: 'AGSYS-ESC-1',
+    chainId: 'thread-escalation',
+    workspacePath: workspace,
+    pipelineId: 'refactor',
+    hasMutatingAction: false,
+  } as const;
+
+  const first = await runGovernancePhase('AFTER_STEP', baseCtx);
+  const second = await runGovernancePhase('AFTER_STEP', baseCtx);
+  const third = await runGovernancePhase('AFTER_STEP', baseCtx);
+  console.assert(first.action === 'retry', 'expected first soft failure action=retry');
+  console.assert(second.action === 'warn', 'expected second soft failure action=warn');
+  console.assert(third.action === 'escalate', 'expected third soft failure action=escalate');
+  console.log('[PASS] soft gate escalates after retry and warn budgets are exhausted');
+}
+
 (async () => {
   console.log('\n=== Governance Engine Core Tests ===\n');
   await test_hard_gate_blocks_without_preflight();
@@ -225,6 +247,7 @@ async function test_loop_guard_hard_blocks_excessive_retry_pressure(): Promise<v
   await test_before_task_close_blocks_without_report();
   await test_ticket_context_hard_gate_blocks_invalid_ticket();
   await test_loop_guard_hard_blocks_excessive_retry_pressure();
+  await test_soft_gate_escalation_after_retry_and_warn_budget();
   console.log('\n=== Governance Engine Core tests completed successfully ===\n');
   process.exit(0);
 })();

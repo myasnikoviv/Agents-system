@@ -1,0 +1,20 @@
+{
+  "cases": [
+    {
+      "id": "routing-low-risk",
+      "prompt": "Choose model tier for a low-risk classification task.",
+      "responses": {
+        "provider-a": "Use a cheap tier model because the task is low-risk classification and cost sensitive.",
+        "provider-b": "Select the low-cost model tier for this low-risk classification request."
+      }
+    },
+    {
+      "id": "governance-block",
+      "prompt": "What should happen if preflight token is missing?",
+      "responses": {
+        "provider-a": "Execution must be blocked by a hard governance gate until a valid preflight token exists.",
+        "provider-b": "The runtime should hard-block execution and require preflight token evidence before continuing."
+      }
+    }
+  ]
+}

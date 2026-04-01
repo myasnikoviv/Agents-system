@@ -60,7 +60,7 @@ export interface GovernanceRuleEvaluation {
 export interface GovernancePhaseResult {
   phase: GovernancePhase;
   blocked: boolean;
-  action: 'allow' | 'block' | 'retry' | 'warn' | 'skip';
+  action: 'allow' | 'block' | 'retry' | 'warn' | 'skip' | 'escalate';
   entries: GovernanceRuleEvaluation[];
   retrySuggested: boolean;
 }

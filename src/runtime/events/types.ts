@@ -18,6 +18,7 @@ export type RuntimeEventType =
   | 'guard.triggered'
   | 'guard.block'
   | 'guard.retry'
+  | 'guard.escalate'
   | 'llm.request'
   | 'llm.response'
   | 'agent.failed'

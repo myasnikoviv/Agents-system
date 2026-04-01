@@ -5,13 +5,43 @@ import { isBypassAllowed, isGlobalGovernanceDisabled } from './EmergencyBrake';
 import { resolveEnabledRules } from './ProjectPolicyBinding';
 import { loadGovernanceRules } from './RuleRegistry';
 import { GovernanceEngineContext, GovernancePhase, GovernancePhaseResult } from './GovernanceEngineTypes';
+import fs from 'fs';
+import path from 'path';
+import { emitGuardEscalationEvent } from '../events/EventBus';
 
 const SOFT_GATE_MAX_RETRIES = 1;
+const SOFT_GATE_MAX_WARNINGS = 1;
 
 const softRetryCounter = new Map<string, number>();
+const softWarnCounter = new Map<string, number>();
 
 function softRetryKey(ctx: GovernanceEngineContext, ruleId: string) {
   return `${ctx.runId}:${ctx.ticketId}:${ruleId}`;
+}
+
+function writeEscalationArtifact(ctx: GovernanceEngineContext, ruleId: string, reason: string): string | null {
+  const workspacePath = ctx.workspacePath || process.cwd();
+  const dir = path.resolve(workspacePath, 'docs/process/blockers');
+  try {
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    const file = path.join(dir, `${ctx.ticketId}-governance-escalation.md`);
+    const body = [
+      `# Governance Escalation: ${ctx.ticketId}`,
+      '',
+      `- rule: ${ruleId}`,
+      `- runId: ${ctx.runId}`,
+      `- chainId: ${ctx.chainId}`,
+      `- reason: ${reason}`,
+      `- timestamp: ${new Date().toISOString()}`,
+      '',
+      'Escalated after retry/warn budget exceeded.',
+      '',
+    ].join('\n');
+    fs.writeFileSync(file, body, 'utf-8');
+    return file;
+  } catch {
+    return null;
+  }
 }
 
 function normalizePhaseAlias(phase: GovernancePhase): 'BEFORE_RUN' | 'AFTER_STEP' | 'AFTER_RUN' {
@@ -66,7 +96,23 @@ export async function runGovernancePhase(
           retrySuggested = true;
           action = 'retry';
         } else {
-          action = 'warn';
+          const warnCount = softWarnCounter.get(key) || 0;
+          if (warnCount < SOFT_GATE_MAX_WARNINGS) {
+            softWarnCounter.set(key, warnCount + 1);
+            action = 'warn';
+          } else {
+            action = 'escalate';
+            const artifactPath = writeEscalationArtifact(ctx, rule.id, result.reason);
+            await emitGuardEscalationEvent(
+              { runId: ctx.runId, projectId: ctx.projectId, chainId: ctx.chainId },
+              {
+                ticket: ctx.ticketId,
+                rule: rule.id,
+                reason: result.reason,
+                artifactPath: artifactPath || 'none',
+              },
+            ).catch(() => undefined);
+          }
         }
       } else if (!blocked) {
         action = 'warn';
@@ -76,7 +122,16 @@ export async function runGovernancePhase(
     logGovernance({
       rule: rule.id,
       status: result.verdict === 'pass' ? 'pass' : result.verdict === 'fail' ? 'fail' : 'skip',
-      action: action === 'block' ? 'block' : action === 'retry' ? 'retry' : action === 'warn' ? 'warn' : 'allow',
+      action:
+        action === 'block'
+          ? 'block'
+          : action === 'retry'
+            ? 'retry'
+            : action === 'warn'
+              ? 'warn'
+              : action === 'escalate'
+                ? 'escalate'
+                : 'allow',
       ticket: ctx.ticketId,
       runId: ctx.runId,
       chainId: ctx.chainId,
