@@ -14,17 +14,25 @@ function softRetryKey(ctx: GovernanceEngineContext, ruleId: string) {
   return `${ctx.runId}:${ctx.ticketId}:${ruleId}`;
 }
 
+function normalizePhaseAlias(phase: GovernancePhase): 'before_execution' | 'after_execution' | 'before_task_close' {
+  if (phase === 'pre_execution') return 'before_execution';
+  if (phase === 'post_execution') return 'after_execution';
+  if (phase === 'pre_task_close') return 'before_task_close';
+  return phase;
+}
+
 export async function runGovernancePhase(
   phase: GovernancePhase,
   ctx: GovernanceEngineContext,
 ): Promise<GovernancePhaseResult> {
+  const normalizedPhase = normalizePhaseAlias(phase);
   if (isGlobalGovernanceDisabled() || isBypassAllowed(ctx)) {
-    return { phase, blocked: false, action: 'skip', entries: [], retrySuggested: false };
+    return { phase: normalizedPhase, blocked: false, action: 'skip', entries: [], retrySuggested: false };
   }
 
   const registryRules = loadGovernanceRules(ctx.workspacePath);
   const enabled = resolveEnabledRules(ctx.projectId || 'default', ctx.workspacePath);
-  const rules = registryRules.filter((r) => enabled.has(r.id) && r.triggerPhases.includes(phase));
+  const rules = registryRules.filter((r) => enabled.has(r.id) && r.triggerPhases.includes(normalizedPhase));
   const entries = [] as GovernancePhaseResult['entries'];
 
   let blocked = false;
@@ -71,9 +79,9 @@ export async function runGovernancePhase(
       ticket: ctx.ticketId,
       runId: ctx.runId,
       chainId: ctx.chainId,
-      detail: `${phase}:${result.reason};evidence=${result.evidenceSummary}`,
+      detail: `${normalizedPhase}:${result.reason};evidence=${result.evidenceSummary}`,
     });
   }
 
-  return { phase, blocked, action, entries, retrySuggested };
+  return { phase: normalizedPhase, blocked, action, entries, retrySuggested };
 }

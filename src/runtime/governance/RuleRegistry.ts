@@ -57,6 +57,7 @@ export const DEFAULT_GOVERNANCE_RULES: GovernanceRule[] = [
     enabledByDefault: true,
   },
 ];
+export const GOVERNANCE_RULES = DEFAULT_GOVERNANCE_RULES;
 
 export function getRuleById(ruleId: GovernanceRule['id']): GovernanceRule | undefined {
   return DEFAULT_GOVERNANCE_RULES.find((r) => r.id === ruleId);

@@ -44,6 +44,7 @@ export async function executeViaWorkbench(
   context: RunContext,
 ): Promise<WorkbenchExecutionResult> {
   const agentId = context.agent.slug || 'unknown-agent';
+  const executionStartedAt = Date.now();
   const policy = getWorkbenchToolPolicy(toolId);
 
   appendWorkbenchTelemetry({
@@ -164,6 +165,9 @@ export async function executeViaWorkbench(
       toolId,
       action: 'executed',
       status: 'success',
+      startedAt: new Date(executionStartedAt).toISOString(),
+      endedAt: new Date().toISOString(),
+      durationMs: Date.now() - executionStartedAt,
     });
     return {
       status: 'success',
@@ -178,6 +182,9 @@ export async function executeViaWorkbench(
       toolId,
       action: 'failed',
       status: 'failed',
+      startedAt: new Date(executionStartedAt).toISOString(),
+      endedAt: new Date().toISOString(),
+      durationMs: Date.now() - executionStartedAt,
       detail: String(err?.message || err),
     });
     return {
@@ -195,6 +202,9 @@ export async function executeViaWorkbench(
       toolId,
       action: 'released',
       status: 'success',
+      startedAt: new Date(executionStartedAt).toISOString(),
+      endedAt: new Date().toISOString(),
+      durationMs: Date.now() - executionStartedAt,
     });
   }
 }

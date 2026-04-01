@@ -72,6 +72,22 @@ async function test_soft_gate_requests_retry(): Promise<void> {
   console.log('[PASS] core soft gate produces retry/warn flow');
 }
 
+async function test_phase_alias_pre_execution_supported(): Promise<void> {
+  const workspace = makeWorkspace();
+  const result = await runGovernancePhase('pre_execution', {
+    runId: 'run-alias-1',
+    projectId: 'agent_system',
+    ticketId: 'AGSYS-TEST-ALIAS',
+    chainId: 'thread-alias',
+    workspacePath: workspace,
+    pipelineId: 'refactor',
+    hasMutatingAction: true,
+  });
+  console.assert(result.blocked === true, 'expected alias pre_execution to map to hard gate checks');
+  console.assert(result.phase === 'before_execution', 'expected normalized phase before_execution');
+  console.log('[PASS] core supports governance phase alias pre_execution');
+}
+
 async function test_before_task_close_blocks_without_report(): Promise<void> {
   const workspace = makeWorkspace();
   const result = await runGovernancePhase('before_task_close', {
@@ -92,6 +108,7 @@ async function test_before_task_close_blocks_without_report(): Promise<void> {
   console.log('\n=== Governance Engine Core Tests ===\n');
   await test_hard_gate_blocks_without_preflight();
   await test_soft_gate_requests_retry();
+  await test_phase_alias_pre_execution_supported();
   await test_before_task_close_blocks_without_report();
   console.log('\n=== Governance Engine Core tests completed successfully ===\n');
   process.exit(0);

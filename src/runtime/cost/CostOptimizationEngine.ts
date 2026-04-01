@@ -7,6 +7,10 @@ export interface RunCostMetrics {
   tokens: number;
   loops: number;
   retries: number;
+  attribution: {
+    byAgent: Record<string, number>;
+    byStep: Record<string, number>;
+  };
   breakdown: {
     execution: number;
     governance: number;
@@ -55,6 +59,13 @@ export function collectRunCostMetrics(workspacePath: string, runId: string, proj
   let other = 0;
   let retries = 0;
   let loops = 0;
+  const byAgent: Record<string, number> = {};
+  const byStep: Record<string, number> = {};
+
+  function addAttribution(target: Record<string, number>, key: string, tokens: number): void {
+    const normalized = String(key || '').trim() || 'unknown';
+    target[normalized] = (target[normalized] || 0) + tokens;
+  }
 
   for (const e of events) {
     const type = String(e?.type || '');
@@ -63,10 +74,14 @@ export function collectRunCostMetrics(workspacePath: string, runId: string, proj
     if (type === 'llm.response') {
       const tokens = Number(payload?.tokensInput || 0) + Number(payload?.tokensOutput || 0);
       const source = String(payload?.source || '').toLowerCase();
+      const actorId = String(e?.actor?.id || payload?.agentId || source || 'unknown');
+      const stepId = String(payload?.stageId || payload?.stepId || payload?.source || 'unknown');
       if (source === 'agent') execution += tokens;
       else if (source === 'guard') governance += tokens;
       else if (source === 'retry') compliance += tokens;
       else other += tokens;
+      addAttribution(byAgent, actorId, tokens);
+      addAttribution(byStep, stepId, tokens);
     }
     if (type === 'guard.retry') retries += 1;
     if (type === 'governance.rule_check') {
@@ -83,6 +98,10 @@ export function collectRunCostMetrics(workspacePath: string, runId: string, proj
     tokens: execution + governance + compliance + other,
     loops,
     retries,
+    attribution: {
+      byAgent,
+      byStep,
+    },
     breakdown: { execution, governance, compliance, other },
   };
 }

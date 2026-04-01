@@ -1,4 +1,10 @@
-export type GovernancePhase = 'before_execution' | 'after_execution' | 'before_task_close';
+export type GovernancePhase =
+  | 'before_execution'
+  | 'after_execution'
+  | 'before_task_close'
+  | 'pre_execution'
+  | 'post_execution'
+  | 'pre_task_close';
 
 export type GovernanceEvaluationType = 'deterministic' | 'hybrid' | 'llm';
 export type GovernanceEnforcementMode = 'hard' | 'soft' | 'advisory';

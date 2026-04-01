@@ -16,8 +16,12 @@ function seedLedger(workspace: string, runId: string): void {
   const dir = path.join(workspace, 'docs/process/runs/ledger');
   fs.mkdirSync(dir, { recursive: true });
   const events = [
-    { type: 'llm.response', payload: { tokensInput: 100, tokensOutput: 50, source: 'agent' } },
-    { type: 'llm.response', payload: { tokensInput: 20, tokensOutput: 10, source: 'guard' } },
+    {
+      type: 'llm.response',
+      actor: { type: 'agent', id: 'coder-a' },
+      payload: { tokensInput: 100, tokensOutput: 50, source: 'agent', stageId: 'implementation' },
+    },
+    { type: 'llm.response', payload: { tokensInput: 20, tokensOutput: 10, source: 'guard', stageId: 'governance' } },
     { type: 'guard.retry', payload: { stepId: 'x', attempt: 1 } },
     { type: 'governance.rule_check', payload: { rule: 'improvement_loop' } },
   ];
@@ -34,6 +38,8 @@ function test_run_level_cost_tracker_and_breakdown(): void {
   console.assert(metrics.loops === 1, 'expected one loop');
   console.assert(metrics.breakdown.execution === 150, 'expected execution token bucket');
   console.assert(metrics.breakdown.governance === 30, 'expected governance token bucket');
+  console.assert(metrics.attribution.byAgent['coder-a'] === 150, 'expected attribution by agent');
+  console.assert(metrics.attribution.byStep['implementation'] === 150, 'expected attribution by step implementation');
   console.log('[PASS] S9 run-level tracker + breakdown');
 }
 

@@ -16,6 +16,7 @@ export type RuntimeEventType =
   | 'tool.call'
   | 'tool.result'
   | 'guard.triggered'
+  | 'guard.block'
   | 'guard.retry'
   | 'llm.request'
   | 'llm.response'
