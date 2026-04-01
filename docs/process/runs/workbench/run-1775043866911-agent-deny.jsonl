@@ -1,0 +1,2 @@
+{"runId":"run-1775043866911-agent-deny","projectId":"agent_system","agentId":"agent-deny","toolId":"read_file","action":"request","status":"success","ts":"2026-04-01T11:44:26.912Z"}
+{"runId":"run-1775043866911-agent-deny","projectId":"agent_system","agentId":"agent-deny","toolId":"read_file","action":"blocked","status":"failed","detail":"unauthorized_agent","ts":"2026-04-01T11:44:27.146Z"}

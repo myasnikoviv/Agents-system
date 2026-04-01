@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import yaml from 'js-yaml';
 import { GovernanceRule } from './GovernanceEngineTypes';
+import { resolveRuntimePath } from '../RuntimePathResolver';
 
 interface GovernanceRuleRegistryFile {
   rules?: GovernanceRule[];
@@ -29,7 +30,7 @@ function normalizeRules(input: GovernanceRule[]): GovernanceRule[] {
 
 export function loadGovernanceRules(workspacePath?: string): GovernanceRule[] {
   const root = workspacePath || process.cwd();
-  const filePath = path.resolve(root, 'docs/runtime/governance/rule-registry.yaml');
+  const filePath = resolveRuntimePath(root, 'governanceRuleRegistryFile');
   if (!fs.existsSync(filePath)) {
     throw new GovernanceRegistryError(`governance_rule_registry_missing:${filePath}`);
   }

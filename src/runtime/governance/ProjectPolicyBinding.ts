@@ -1,7 +1,7 @@
 import fs from 'fs';
-import path from 'path';
 import { GovernanceRule } from './GovernanceEngineTypes';
 import { loadGovernanceRules } from './RuleRegistry';
+import { resolveRuntimePath } from '../RuntimePathResolver';
 
 interface PolicyConfig {
   defaultEnabledRules?: GovernanceRule['id'][];
@@ -11,7 +11,7 @@ interface PolicyConfig {
 function loadPolicyConfig(workspacePath?: string): PolicyConfig {
   const root = workspacePath || process.cwd();
   const governanceRules = loadGovernanceRules(workspacePath);
-  const file = path.resolve(root, 'docs/runtime/governance/project-policy.json');
+  const file = resolveRuntimePath(root, 'governanceProjectPolicyFile');
   if (!fs.existsSync(file)) {
     return {
       defaultEnabledRules: governanceRules.filter((r) => r.enabledByDefault).map((r) => r.id),
