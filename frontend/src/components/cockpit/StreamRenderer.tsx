@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { Wrench, GitBranch, TerminalSquare, AlertTriangle, CheckCircle2, ChevronRight, ChevronDown, Activity, Brain, MessageSquare } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { Wrench, GitBranch, TerminalSquare, AlertTriangle, CheckCircle2, ChevronRight, ChevronDown, Activity, Brain, MessageSquare, ChevronsDownUp, ChevronsUpDown } from 'lucide-react';
 import { ArtifactRenderer } from './ArtifactRenderer';
 
 export interface RuntimeEvent {
@@ -34,16 +34,41 @@ export interface RuntimeEvent {
 
 interface StreamEventCardProps {
     event: RuntimeEvent;
+    index: number;
+    forceExpanded?: boolean;
 }
 
-const StreamEventCard: React.FC<StreamEventCardProps> = ({ event }) => {
-    const [expanded, setExpanded] = useState(false);
-    
-    // We only care about specific technical events: tool.called, stage.started, swarm_handoff
+const ALLOWED_TYPES = ['tool.called', 'stage.started', 'swarm_handoff', 'contract_reprompt', 'contract_fail', 'contract_pass', 'system.thought', 'agent.message'];
+
+// Types that have a body and should start expanded
+const DEFAULT_EXPANDED_TYPES = ['system.thought', 'agent.message', 'contract_fail'];
+
+const StreamEventCard: React.FC<StreamEventCardProps> = ({ event, index, forceExpanded }) => {
     const eventType = String(event.event_type || '').trim();
-    if (!['tool.called', 'stage.started', 'swarm_handoff', 'contract_reprompt', 'contract_fail', 'contract_pass', 'system.thought', 'agent.message'].includes(eventType)) {
+    if (!ALLOWED_TYPES.includes(eventType)) {
         return null;
     }
+
+    const defaultExpanded = DEFAULT_EXPANDED_TYPES.includes(eventType);
+    const [expanded, setExpanded] = useState(defaultExpanded);
+    const [visible, setVisible] = useState(false);
+    const mountedRef = useRef(false);
+
+    // S5-7: Progressive entrance animation — staggered by index
+    useEffect(() => {
+        if (mountedRef.current) return;
+        mountedRef.current = true;
+        const delay = Math.min(index * 40, 400); // max 400ms stagger
+        const timer = setTimeout(() => setVisible(true), delay);
+        return () => clearTimeout(timer);
+    }, [index]);
+
+    // S5-8: Respond to forceExpanded from parent
+    useEffect(() => {
+        if (forceExpanded !== undefined) {
+            setExpanded(forceExpanded);
+        }
+    }, [forceExpanded]);
 
     const roleLabel = String(event.agent_role || 'system').trim();
     const timeFormatted = event.timestamp ? new Date(event.timestamp).toLocaleTimeString() : '';
@@ -112,9 +137,16 @@ const StreamEventCard: React.FC<StreamEventCardProps> = ({ event }) => {
     const hasBody = !!bodyText;
 
     return (
-        <div className={containerClass}>
+        <div
+            className={`${containerClass} transition-all duration-300`}
+            style={{
+                opacity: visible ? 1 : 0,
+                transform: visible ? 'translateY(0)' : 'translateY(6px)',
+                transition: 'opacity 0.3s ease, transform 0.3s ease',
+            }}
+        >
             <div 
-                className="flex items-center gap-2 px-3 py-2 cursor-pointer select-none bg-white/5 transition-colors duration-200 hover:bg-white/10" 
+                className="flex items-center gap-2 px-3 py-2 select-none bg-white/5 transition-colors duration-200 hover:bg-white/10" 
                 onClick={() => hasBody && setExpanded(!expanded)}
                 style={{ cursor: hasBody ? 'pointer' : 'default' }}
             >
@@ -147,12 +179,42 @@ interface StreamRendererProps {
 }
 
 export const StreamRenderer: React.FC<StreamRendererProps> = ({ events }) => {
+    const [allExpanded, setAllExpanded] = useState<boolean | undefined>(undefined);
+
     if (!events || events.length === 0) return null;
+
+    const visibleEvents = events.filter(e => ALLOWED_TYPES.includes(String(e.event_type || '').trim()));
+    if (visibleEvents.length === 0) return null;
 
     return (
         <div className="flex flex-col gap-2 my-3">
+            {/* S5-8: Global collapse/expand control */}
+            <div className="flex items-center justify-end gap-2 mb-1">
+                <span className="text-[0.72rem] text-slate-500">{visibleEvents.length} events</span>
+                <button
+                    className="inline-flex items-center gap-1 text-[0.72rem] text-slate-400 hover:text-slate-200 border border-white/10 rounded px-2 py-0.5 hover:bg-white/5 transition-colors"
+                    onClick={() => setAllExpanded(prev => prev === true ? false : true)}
+                    title="Expand all"
+                >
+                    <ChevronsUpDown size={11} />
+                    Expand All
+                </button>
+                <button
+                    className="inline-flex items-center gap-1 text-[0.72rem] text-slate-400 hover:text-slate-200 border border-white/10 rounded px-2 py-0.5 hover:bg-white/5 transition-colors"
+                    onClick={() => setAllExpanded(false)}
+                    title="Collapse all"
+                >
+                    <ChevronsDownUp size={11} />
+                    Collapse All
+                </button>
+            </div>
             {events.map((event, i) => (
-                <StreamEventCard key={event.event_id || `ev-${i}`} event={event} />
+                <StreamEventCard
+                    key={event.event_id || `ev-${i}`}
+                    event={event}
+                    index={i}
+                    forceExpanded={allExpanded}
+                />
             ))}
         </div>
     );
