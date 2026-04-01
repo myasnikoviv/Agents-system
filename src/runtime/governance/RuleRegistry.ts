@@ -7,60 +7,11 @@ interface GovernanceRuleRegistryFile {
   rules?: GovernanceRule[];
 }
 
-export const DEFAULT_GOVERNANCE_RULES: GovernanceRule[] = [
-  {
-    id: 'git_preflight',
-    triggerPhases: ['before_execution'],
-    evidence: ['docs/process/git/preflights/<ticket>.env'],
-    evaluationType: 'deterministic',
-    enforcementMode: 'hard',
-    enabledByDefault: true,
-  },
-  {
-    id: 'postflight_evidence',
-    triggerPhases: ['before_task_close'],
-    evidence: ['docs/process/tests/<ticket>.md'],
-    evaluationType: 'deterministic',
-    enforcementMode: 'hard',
-    enabledByDefault: true,
-  },
-  {
-    id: 'improvement_loop',
-    triggerPhases: ['after_execution'],
-    evidence: ['docs/process/retrospectives/**', 'docs/knowledge/lessons-learned/**'],
-    evaluationType: 'deterministic',
-    enforcementMode: 'soft',
-    enabledByDefault: true,
-  },
-  {
-    id: 'required_agent_usage',
-    triggerPhases: ['after_execution'],
-    evidence: ['agent.started events'],
-    evaluationType: 'deterministic',
-    enforcementMode: 'soft',
-    enabledByDefault: true,
-  },
-  {
-    id: 'required_pipeline_usage',
-    triggerPhases: ['after_execution'],
-    evidence: ['stage.started events'],
-    evaluationType: 'deterministic',
-    enforcementMode: 'soft',
-    enabledByDefault: true,
-  },
-  {
-    id: 'cost_guard_light',
-    triggerPhases: ['after_execution'],
-    evidence: ['token telemetry'],
-    evaluationType: 'deterministic',
-    enforcementMode: 'advisory',
-    enabledByDefault: true,
-  },
-];
-export const GOVERNANCE_RULES = DEFAULT_GOVERNANCE_RULES;
-
-export function getRuleById(ruleId: GovernanceRule['id']): GovernanceRule | undefined {
-  return DEFAULT_GOVERNANCE_RULES.find((r) => r.id === ruleId);
+export class GovernanceRegistryError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'GovernanceRegistryError';
+  }
 }
 
 function normalizeRules(input: GovernanceRule[]): GovernanceRule[] {
@@ -80,17 +31,27 @@ export function loadGovernanceRules(workspacePath?: string): GovernanceRule[] {
   const root = workspacePath || process.cwd();
   const filePath = path.resolve(root, 'docs/runtime/governance/rule-registry.yaml');
   if (!fs.existsSync(filePath)) {
-    return DEFAULT_GOVERNANCE_RULES;
+    throw new GovernanceRegistryError(`governance_rule_registry_missing:${filePath}`);
   }
 
   try {
     const raw = yaml.load(fs.readFileSync(filePath, 'utf-8')) as GovernanceRuleRegistryFile;
     if (!raw?.rules || !Array.isArray(raw.rules) || raw.rules.length === 0) {
-      return DEFAULT_GOVERNANCE_RULES;
+      throw new GovernanceRegistryError(`governance_rule_registry_empty:${filePath}`);
     }
     const parsed = normalizeRules(raw.rules);
-    return parsed.length > 0 ? parsed : DEFAULT_GOVERNANCE_RULES;
-  } catch {
-    return DEFAULT_GOVERNANCE_RULES;
+    if (parsed.length === 0) {
+      throw new GovernanceRegistryError(`governance_rule_registry_invalid:${filePath}`);
+    }
+    return parsed;
+  } catch (error) {
+    if (error instanceof GovernanceRegistryError) {
+      throw error;
+    }
+    throw new GovernanceRegistryError(`governance_rule_registry_unreadable:${filePath}`);
   }
+}
+
+export function getRuleById(ruleId: GovernanceRule['id'], workspacePath?: string): GovernanceRule | undefined {
+  return loadGovernanceRules(workspacePath).find((r) => r.id === ruleId);
 }
