@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { GovernanceRule } from './GovernanceEngineTypes';
-import { GOVERNANCE_RULES } from './RuleRegistry';
+import { loadGovernanceRules } from './RuleRegistry';
 
 interface PolicyConfig {
   defaultEnabledRules?: GovernanceRule['id'][];
@@ -10,17 +10,18 @@ interface PolicyConfig {
 
 function loadPolicyConfig(workspacePath?: string): PolicyConfig {
   const root = workspacePath || process.cwd();
+  const governanceRules = loadGovernanceRules(workspacePath);
   const file = path.resolve(root, 'docs/runtime/governance/project-policy.json');
   if (!fs.existsSync(file)) {
     return {
-      defaultEnabledRules: GOVERNANCE_RULES.filter((r) => r.enabledByDefault).map((r) => r.id),
+      defaultEnabledRules: governanceRules.filter((r) => r.enabledByDefault).map((r) => r.id),
       projects: {},
     };
   }
   try {
     return JSON.parse(fs.readFileSync(file, 'utf-8')) as PolicyConfig;
   } catch {
-    return { defaultEnabledRules: GOVERNANCE_RULES.filter((r) => r.enabledByDefault).map((r) => r.id), projects: {} };
+    return { defaultEnabledRules: governanceRules.filter((r) => r.enabledByDefault).map((r) => r.id), projects: {} };
   }
 }
 
