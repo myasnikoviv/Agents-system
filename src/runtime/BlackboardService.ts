@@ -76,6 +76,23 @@ export class BlackboardService {
   }
 
   /**
+   * Returns all stored artifacts for the given run context.
+   */
+  static async getArtifacts(context: { projectId: string; chainId: string; runId: string }): Promise<StructuredArtifact[]> {
+    const redis = getRedisClient();
+    const rows = await redis.lrange(this.getKey(context, 'artifacts'), 0, -1);
+    return rows
+      .map((row) => {
+        try {
+          return JSON.parse(row) as StructuredArtifact;
+        } catch {
+          return null;
+        }
+      })
+      .filter((row): row is StructuredArtifact => row !== null);
+  }
+
+  /**
    * Publishes a fact to the shared blackboard at a specific level.
    */
   static async publishFact(
