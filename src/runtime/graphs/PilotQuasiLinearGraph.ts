@@ -299,6 +299,15 @@ async function routerNode(state: PilotState): Promise<Partial<PilotState>> {
       `[PilotGraph:Router] Dynamic routing -> intent=${intent} pipeline=${pipeline} explicit=${isExplicit} confidence=${classified.confidence}`
     );
 
+    // ENF-006 — Pipeline Usage Soft Gate
+    const { logPipelineUsageGate } = await import('../governance/PipelineUsageEnforcer');
+    logPipelineUsageGate({
+      ticketId: state.plane_issue_id || 'AGSYS-UNKNOWN',
+      pipelineId: pipeline,
+      isExplicit,
+      confidence: classified.confidence || 1.0,
+    });
+
     return {
       intent,
       selected_pipeline: pipeline,
@@ -766,6 +775,14 @@ function routeSwarm(state: PilotState): string {
 async function finalizeNode(state: PilotState): Promise<Partial<PilotState>> {
   console.log(`[PilotGraph:Finalize] Strategy/Feature lifecycle complete.`);
   
+  // ENF-003 — Improvement Loop Soft Gate
+  const { logImprovementLoopGate } = await import('../governance/ImprovementLoopEnforcer');
+  logImprovementLoopGate({
+    ticket: state.plane_issue_id || 'AGSYS-UNKNOWN',
+    projectId: state.projectId,
+    workspacePath: state.workspacePath
+  });
+
   await emitEvent({
     type: 'run.completed',
     runId: state.pipeline_run_id,
