@@ -1,0 +1,56 @@
+import { GovernanceRule } from './GovernanceEngineTypes';
+
+export const GOVERNANCE_RULES: GovernanceRule[] = [
+  {
+    id: 'git_preflight',
+    triggerPhases: ['before_execution'],
+    evidence: ['docs/process/git/preflights/<ticket>.env'],
+    evaluationType: 'deterministic',
+    enforcementMode: 'hard',
+    enabledByDefault: true,
+  },
+  {
+    id: 'postflight_evidence',
+    triggerPhases: ['before_task_close'],
+    evidence: ['docs/process/tests/<ticket>.md'],
+    evaluationType: 'deterministic',
+    enforcementMode: 'hard',
+    enabledByDefault: true,
+  },
+  {
+    id: 'improvement_loop',
+    triggerPhases: ['after_execution'],
+    evidence: ['docs/process/retrospectives/**', 'docs/knowledge/lessons-learned/**'],
+    evaluationType: 'deterministic',
+    enforcementMode: 'soft',
+    enabledByDefault: true,
+  },
+  {
+    id: 'required_agent_usage',
+    triggerPhases: ['after_execution'],
+    evidence: ['agent.started events'],
+    evaluationType: 'deterministic',
+    enforcementMode: 'soft',
+    enabledByDefault: true,
+  },
+  {
+    id: 'required_pipeline_usage',
+    triggerPhases: ['after_execution'],
+    evidence: ['stage.started events'],
+    evaluationType: 'deterministic',
+    enforcementMode: 'soft',
+    enabledByDefault: true,
+  },
+  {
+    id: 'cost_guard_light',
+    triggerPhases: ['after_execution'],
+    evidence: ['token telemetry'],
+    evaluationType: 'deterministic',
+    enforcementMode: 'advisory',
+    enabledByDefault: true,
+  },
+];
+
+export function getRuleById(ruleId: GovernanceRule['id']): GovernanceRule | undefined {
+  return GOVERNANCE_RULES.find((r) => r.id === ruleId);
+}

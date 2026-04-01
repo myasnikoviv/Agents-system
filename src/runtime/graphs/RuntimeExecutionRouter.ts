@@ -1,4 +1,5 @@
 import { executeQuasiLinearRun, resumeQuasiLinearRun, type PilotState } from './PilotQuasiLinearGraph';
+import { runGovernancePhase } from '../governance/GovernanceEngineCore';
 
 export type RuntimeExecutionMode = 'mock' | 'linear' | 'multiple_agents';
 
@@ -41,10 +42,29 @@ export async function executeRuntimeRun(initialState: Partial<PilotState>): Prom
   const modeRequested = normalizeMode(initialState.executionOptions?.mode);
   const ticket = initialState.ticketId || 'AGSYS-UNKNOWN';
   const pipeline = initialState.selected_pipeline || 'unified-task-intake';
+  const runId = initialState.runId || `run-${Date.now()}`;
+  const chainId = initialState.threadId || `thread-${Date.now()}`;
+  const projectId = initialState.projectId || 'agent_system';
+  const workspacePath = initialState.workspacePath || process.cwd();
 
   // Sprint 5.5 — Identify if pipeline involves mutating actions (ENF-001 logic)
   const mutatingPipelines = ['new-feature', 'bug-fix', 'hotfix', 'refactor', 'strategy-tuning', 'release', 'rollback-incident'];
   const hasMutatingAction = mutatingPipelines.includes(pipeline) && modeRequested !== 'mock';
+
+  const beforeExecution = await runGovernancePhase('before_execution', {
+    runId,
+    ticketId: ticket,
+    chainId,
+    projectId,
+    workspacePath,
+    pipelineId: pipeline,
+    hasMutatingAction,
+  });
+  if (beforeExecution.blocked) {
+    throw new Error(
+      `[GovernancePhase:before_execution] blocked ticket=${ticket} action=${beforeExecution.action}`,
+    );
+  }
 
   // 1. ENF-001 — Git Preflight Hard Gate
   // This will throw if it's a mutating action without a valid preflight token.
@@ -66,6 +86,16 @@ export async function executeRuntimeRun(initialState: Partial<PilotState>): Prom
 
   // Current production engine for both linear and multiple_agents modes.
   const finalState = await executeQuasiLinearRun(initialState);
+
+  await runGovernancePhase('after_execution', {
+    runId,
+    ticketId: ticket,
+    chainId,
+    projectId,
+    workspacePath,
+    pipelineId: pipeline,
+    hasMutatingAction,
+  });
 
   // 2. ENF-006 — Pipeline Usage Soft Gate (log classification result from router node)
   // This is best logged inside routerNode in PilotQuasiLinearGraph, 
