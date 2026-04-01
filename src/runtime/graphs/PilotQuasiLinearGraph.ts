@@ -17,15 +17,15 @@ import { buildContractRepromptInstruction, validateAgentResponseContract } from 
 
 // The officially supported way to type State in LangGraph TS
 export const PilotStateAnnotation = Annotation.Root({
-  plane_issue_id: Annotation<string>({
+  ticketId: Annotation<string>({
     reducer: (x: string, y: string) => y ?? x,
     default: () => '',
   }),
-  pipeline_run_id: Annotation<string>({
+  runId: Annotation<string>({
     reducer: (x: string, y: string) => y ?? x,
     default: () => '',
   }),
-  thread_id: Annotation<string>({
+  threadId: Annotation<string>({
     reducer: (x: string, y: string) => y ?? x,
     default: () => '',
   }),
@@ -109,9 +109,9 @@ function buildArtifactLog(params: {
 
 function skillTelemetryContext(state: PilotState, stage: string) {
   return {
-    runId: state.pipeline_run_id,
-    ticketId: state.plane_issue_id,
-    threadId: state.thread_id,
+    runId: state.runId,
+    ticketId: state.ticketId,
+    threadId: state.threadId,
     pipelineId: state.selected_pipeline || 'runtime',
     stage,
     artifactLogs: state.artifactLogs || [],
@@ -143,7 +143,7 @@ function isAgentStatusChainRequest(state: PilotState): boolean {
 
 function buildContractFallbackMessage(state: PilotState, runContext: any, pipelineId: string, stageId: string): string {
   const callsign = runContext?.agent?.callsign || runContext?.agent?.title || runContext?.agent?.slug || 'Agent';
-  const ticket = String(state.plane_issue_id || '').trim() || 'N/A';
+  const ticket = String(state.ticketId || '').trim() || 'N/A';
   return [
     `Active role: ${callsign}`,
     `Pipeline: ${pipelineId || 'unified-task-intake'}`,
@@ -280,9 +280,9 @@ function localizeSystemMessage(
 // ---------------------------------------------------------
 
 async function routerNode(state: PilotState): Promise<Partial<PilotState>> {
-  if (state.pipeline_run_id) {
+  if (state.runId) {
     const { RunManager } = await import('../context/RunManager');
-    RunManager.checkCancellation(state.pipeline_run_id);
+    RunManager.checkCancellation(state.runId);
   }
   const lastUserMessage = [...(state.messages || [])].filter((m) => m.role === 'user').pop();
   const userMessage =
@@ -302,9 +302,9 @@ async function routerNode(state: PilotState): Promise<Partial<PilotState>> {
     // ENF-006 — Pipeline Usage Soft Gate
     const { logPipelineUsageGate } = await import('../governance/PipelineUsageEnforcer');
     logPipelineUsageGate({
-      ticketId: state.plane_issue_id || 'AGSYS-UNKNOWN',
-      runId: state.pipeline_run_id,
-      chainId: state.thread_id,
+      ticketId: state.ticketId || 'AGSYS-UNKNOWN',
+      runId: state.runId,
+      chainId: state.threadId,
       pipelineId: pipeline,
       isExplicit,
       confidence: classified.confidence || 1.0,
@@ -353,9 +353,9 @@ async function routerNode(state: PilotState): Promise<Partial<PilotState>> {
  * Discovers the next pipeline stage from documentation and executes the corresponding agent via AgentExecutor.
  */
 async function swarmNode(state: PilotState): Promise<Partial<PilotState>> {
-  if (state.pipeline_run_id) {
+  if (state.runId) {
     const { RunManager } = await import('../context/RunManager');
-    RunManager.checkCancellation(state.pipeline_run_id);
+    RunManager.checkCancellation(state.runId);
   }
   await ensureDiscovery(state.agentContextPath || state.workspacePath);
 
@@ -370,9 +370,9 @@ async function swarmNode(state: PilotState): Promise<Partial<PilotState>> {
 
       await emitEvent({
         type: 'agent.started',
-        runId: state.pipeline_run_id,
+        runId: state.runId,
         projectId: state.projectId,
-        chainId: state.thread_id,
+        chainId: state.threadId,
         actor: { type: 'agent', id: agent.slug, role: agent.slug },
         payload: { pipelineId, stageId },
       });
@@ -381,9 +381,9 @@ async function swarmNode(state: PilotState): Promise<Partial<PilotState>> {
         const fromAgent = agents[idx - 1]!;
         await emitEvent({
           type: 'swarm.handoff',
-          runId: state.pipeline_run_id,
+          runId: state.runId,
           projectId: state.projectId,
-          chainId: state.thread_id,
+          chainId: state.threadId,
           actor: { type: 'system', id: 'swarm' },
           payload: {
             pipelineId,
@@ -398,7 +398,7 @@ async function swarmNode(state: PilotState): Promise<Partial<PilotState>> {
         `Pipeline: ${pipelineId}`,
         `Stage: ${stageId}`,
         `Next: ${idx < agents.length - 1 ? agents[idx + 1]!.slug : 'finalize'}`,
-        `Ticket: ${state.plane_issue_id || 'N/A'}`,
+        `Ticket: ${state.ticketId || 'N/A'}`,
         'Git: branch=unknown | worktree=unknown',
         '',
         'summary',
@@ -410,9 +410,9 @@ async function swarmNode(state: PilotState): Promise<Partial<PilotState>> {
 
       await emitEvent({
         type: 'agent.completed',
-        runId: state.pipeline_run_id,
+        runId: state.runId,
         projectId: state.projectId,
-        chainId: state.thread_id,
+        chainId: state.threadId,
         actor: { type: 'agent', id: agent.slug, role: agent.slug },
         payload: {
           pipelineId,
@@ -515,9 +515,9 @@ async function swarmNode(state: PilotState): Promise<Partial<PilotState>> {
     if (fromAgent && toAgent && fromAgent !== toAgent) {
       await emitEvent({
         type: 'swarm.handoff',
-        runId: state.pipeline_run_id,
+        runId: state.runId,
         projectId: state.projectId,
-        chainId: state.thread_id,
+        chainId: state.threadId,
         actor: { type: 'system', id: 'swarm' },
         payload: {
           pipelineId,
@@ -532,9 +532,9 @@ async function swarmNode(state: PilotState): Promise<Partial<PilotState>> {
 
   await emitEvent({
     type: 'agent.started',
-    runId: state.pipeline_run_id,
+    runId: state.runId,
     projectId: state.projectId,
-    chainId: state.thread_id,
+    chainId: state.threadId,
     actor: { type: 'agent', id: nextStage.agent, role: nextStage.agent },
     payload: {
       pipelineId,
@@ -573,7 +573,7 @@ async function swarmNode(state: PilotState): Promise<Partial<PilotState>> {
     executionPipelineDef as any,
     nextStage.id,
     state.artifactLogs[0] || 'Execute project task',
-    { history, threadId: state.thread_id, runId: state.pipeline_run_id },
+    { history, threadId: state.threadId, runId: state.runId },
     { preferredLanguage: state.preferredLanguage },
     { projectId: state.projectId, workspacePath: state.workspacePath }
   );
@@ -594,9 +594,9 @@ async function swarmNode(state: PilotState): Promise<Partial<PilotState>> {
   if (ApprovalPolicyEngine.getInstance().shouldInterrupt(agent.slug, runContext, 'interrupt_before')) {
     await emitEvent({
       type: 'agent.waiting_for_approval' as any, // Need to add this to union or cast
-      runId: state.pipeline_run_id,
+      runId: state.runId,
       projectId: state.projectId,
-      chainId: state.thread_id,
+      chainId: state.threadId,
       actor: { type: 'agent', id: agent.slug, role: agent.slug },
       payload: {
         pipelineId,
@@ -650,9 +650,9 @@ async function swarmNode(state: PilotState): Promise<Partial<PilotState>> {
     const validationErrors = contractValidation.errors;
     await emitEvent({
       type: 'agent.failed',
-      runId: state.pipeline_run_id,
+      runId: state.runId,
       projectId: state.projectId,
-      chainId: state.thread_id,
+      chainId: state.threadId,
       actor: { type: 'agent', id: runContext.agent.slug, role: runContext.agent.slug },
       payload: {
         pipelineId,
@@ -716,9 +716,9 @@ async function swarmNode(state: PilotState): Promise<Partial<PilotState>> {
 
   await emitEvent({
     type: contractValidation.ok ? 'agent.completed' : 'agent.failed',
-    runId: state.pipeline_run_id,
+    runId: state.runId,
     projectId: state.projectId,
-    chainId: state.thread_id,
+    chainId: state.threadId,
     actor: { type: 'agent', id: runContext.agent.slug, role: runContext.agent.slug },
     payload: {
       pipelineId,
@@ -780,18 +780,18 @@ async function finalizeNode(state: PilotState): Promise<Partial<PilotState>> {
   // ENF-003 — Improvement Loop Soft Gate
   const { logImprovementLoopGate } = await import('../governance/ImprovementLoopEnforcer');
   logImprovementLoopGate({
-    ticket: state.plane_issue_id || 'AGSYS-UNKNOWN',
-    runId: state.pipeline_run_id,
-    chainId: state.thread_id,
+    ticket: state.ticketId || 'AGSYS-UNKNOWN',
+    runId: state.runId,
+    chainId: state.threadId,
     projectId: state.projectId,
     workspacePath: state.workspacePath
   });
 
   await emitEvent({
     type: 'run.completed',
-    runId: state.pipeline_run_id,
+    runId: state.runId,
     projectId: state.projectId,
-    chainId: state.thread_id,
+    chainId: state.threadId,
     actor: { type: 'system', id: 'system-core' },
     payload: { status: 'completed' },
   });
@@ -853,7 +853,7 @@ export const pilotGraph = new StateGraph(PilotStateAnnotation)
  * always executes through the swarm pipeline loop.
  */
 export async function executeQuasiLinearRun(initialState: Partial<PilotState>) {
-  const threadConfig = { configurable: { thread_id: initialState.thread_id || 'default' } };
+  const threadConfig = { configurable: { threadId: initialState.threadId || 'default' } };
   const finalState = await pilotGraph.invoke(initialState, threadConfig);
   return finalState;
 }
@@ -862,7 +862,7 @@ export async function executeQuasiLinearRun(initialState: Partial<PilotState>) {
  * Resumes an interrupted run.
  */
 export async function resumeQuasiLinearRun(threadId: string, decision: any) {
-  const threadConfig = { configurable: { thread_id: threadId } };
+  const threadConfig = { configurable: { threadId: threadId } };
   // Use Command({ resume: decision }) to pass value back to interrupt()
   const finalState = await pilotGraph.invoke(new Command({ resume: decision }), threadConfig);
   return finalState;

@@ -30,37 +30,12 @@ const KNOWN_EVENT_TYPES = new Set<string>([
   'run.failed',
 ]);
 
-function normalizeEventInput(event: Record<string, any>): Omit<RuntimeEvent, 'id' | 'timestamp'> {
-  const normalizedType = String(event.type || event.event_type || '').trim();
-  const normalizedRunId = String(event.runId || event.pipeline_run_id || 'none').trim();
-  const normalizedProjectId = String(event.projectId || event.plane_issue_id || 'none').trim();
-  const normalizedChainId = String(event.chainId || event.thread_id || 'none').trim();
-  const actorRole = String(event?.actor?.role || event.agent_role || '').trim();
-  const actorId = String(event?.actor?.id || actorRole || 'system').trim();
-  const actorType = event?.actor?.type === 'agent' ? 'agent' : 'system';
-
-  const normalized: Omit<RuntimeEvent, 'id' | 'timestamp'> = {
-    type: normalizedType as RuntimeEventType,
-    runId: normalizedRunId || 'none',
-    projectId: normalizedProjectId || 'none',
-    chainId: normalizedChainId || 'none',
-    actor: {
-      type: actorType,
-      id: actorId,
-      role: actorRole || undefined,
-    },
-    payload: (event.payload && typeof event.payload === 'object') ? event.payload : {},
-  };
-
-  return normalized;
-}
-
 function validateCanonicalEventInput(event: Omit<RuntimeEvent, 'id' | 'timestamp'>): void {
   if (!event.type || typeof event.type !== 'string') {
     throw new Error('RuntimeEvent validation failed: missing type');
   }
   if (!KNOWN_EVENT_TYPES.has(event.type)) {
-    console.warn(`[EventBus] Unknown event type "${event.type}" accepted via compatibility mode`);
+    throw new Error(`RuntimeEvent validation failed: unknown type "${event.type}"`);
   }
   if (!event.runId || !event.projectId || !event.chainId) {
     throw new Error('RuntimeEvent validation failed: runId/projectId/chainId are required');
@@ -75,14 +50,13 @@ function validateCanonicalEventInput(event: Omit<RuntimeEvent, 'id' | 'timestamp
  * Sole authoritative source of truth for runtime activity.
  */
 export const emitEvent = async (
-  event: Omit<RuntimeEvent, 'id' | 'timestamp'> | Record<string, any>
+  event: Omit<RuntimeEvent, 'id' | 'timestamp'>
 ): Promise<string> => {
   const redis = getRedisClient();
-  const normalizedInput = normalizeEventInput(event as Record<string, any>);
-  validateCanonicalEventInput(normalizedInput);
+  validateCanonicalEventInput(event);
   
   const fullEvent: RuntimeEvent = {
-    ...normalizedInput,
+    ...event,
     id: uuidv4(),
     timestamp: Date.now(),
   };
@@ -110,7 +84,7 @@ export const emitEvent = async (
 
     return messageId;
   } catch (error) {
-    console.error(`Failed to emit event ${(event as any)?.type || (event as any)?.event_type || 'unknown'}:`, error);
+    console.error(`Failed to emit event ${event.type}:`, error);
     throw error;
   }
 };

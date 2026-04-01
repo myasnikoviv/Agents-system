@@ -39,7 +39,7 @@ function buildMockFinalState(initialState: Partial<PilotState>) {
  */
 export async function executeRuntimeRun(initialState: Partial<PilotState>): Promise<RuntimeExecutionResult> {
   const modeRequested = normalizeMode(initialState.executionOptions?.mode);
-  const ticket = initialState.plane_issue_id || 'AGSYS-UNKNOWN';
+  const ticket = initialState.ticketId || 'AGSYS-UNKNOWN';
   const pipeline = initialState.selected_pipeline || 'unified-task-intake';
 
   // Sprint 5.5 — Identify if pipeline involves mutating actions (ENF-001 logic)
