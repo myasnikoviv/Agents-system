@@ -3,7 +3,7 @@ import { evaluateDeterministic } from './DeterministicEvaluationEngine';
 import { runHybridVerifier } from './LlmVerifierWrapper';
 import { isBypassAllowed, isGlobalGovernanceDisabled } from './EmergencyBrake';
 import { resolveEnabledRules } from './ProjectPolicyBinding';
-import { GOVERNANCE_RULES } from './RuleRegistry';
+import { loadGovernanceRules } from './RuleRegistry';
 import { GovernanceEngineContext, GovernancePhase, GovernancePhaseResult } from './GovernanceEngineTypes';
 
 const SOFT_GATE_MAX_RETRIES = 1;
@@ -22,8 +22,9 @@ export async function runGovernancePhase(
     return { phase, blocked: false, action: 'skip', entries: [], retrySuggested: false };
   }
 
+  const registryRules = loadGovernanceRules(ctx.workspacePath);
   const enabled = resolveEnabledRules(ctx.projectId || 'default', ctx.workspacePath);
-  const rules = GOVERNANCE_RULES.filter((r) => enabled.has(r.id) && r.triggerPhases.includes(phase));
+  const rules = registryRules.filter((r) => enabled.has(r.id) && r.triggerPhases.includes(phase));
   const entries = [] as GovernancePhaseResult['entries'];
 
   let blocked = false;
