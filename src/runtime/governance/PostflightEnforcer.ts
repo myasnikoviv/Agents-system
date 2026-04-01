@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { logGovernance } from './GovernanceLogger';
+import { resolveRuntimePath } from '../RuntimePathResolver';
 
 /**
  * ENF-002 — Postflight Hard Gate
@@ -33,7 +34,7 @@ export interface PostflightCheckResult {
  * Returns result without throwing (caller decides whether to hard-block or warn).
  */
 export function checkPostflightEvidence(input: PostflightCheckInput): PostflightCheckResult {
-  const testsDir = input.testsDir ?? path.resolve(process.cwd(), 'docs/process/tests');
+  const testsDir = input.testsDir ?? resolveRuntimePath(process.cwd(), 'processTestsDir');
   const safe = input.ticket.replace(/[^a-zA-Z0-9._-]/g, '_');
 
   const required: Array<{ label: string; filePath: string }> = [
@@ -94,7 +95,7 @@ export function writeTestReportStub(input: {
   notes?: string;
   testsDir?: string;
 }): string {
-  const testsDir = input.testsDir ?? path.resolve(process.cwd(), 'docs/process/tests');
+  const testsDir = input.testsDir ?? resolveRuntimePath(process.cwd(), 'processTestsDir');
   fs.mkdirSync(testsDir, { recursive: true });
   const safe = input.ticket.replace(/[^a-zA-Z0-9._-]/g, '_');
   const filePath = path.join(testsDir, `${safe}.md`);

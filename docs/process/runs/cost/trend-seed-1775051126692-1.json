@@ -1,0 +1,19 @@
+{
+  "runId": "trend-seed-1775051126692-1",
+  "projectId": "agent_system",
+  "retries": 4,
+  "loops": 8,
+  "tokens": 92000,
+  "breakdown": {
+    "execution": 92000,
+    "governance": 0,
+    "compliance": 0,
+    "other": 0
+  },
+  "attribution": {
+    "byAgent": {},
+    "byStep": {}
+  },
+  "source": "learning_trend_bootstrap",
+  "timestamp": "2026-04-01T13:45:26.692Z"
+}

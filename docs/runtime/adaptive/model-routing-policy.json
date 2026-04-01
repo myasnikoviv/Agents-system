@@ -1,0 +1,16 @@
+{
+  "defaultTier": "medium",
+  "taskTypeToTier": {
+    "classification": "cheap",
+    "research": "medium",
+    "bugfix": "medium",
+    "refactor": "medium",
+    "design": "expensive",
+    "general": "medium"
+  },
+  "tierToModel": {
+    "cheap": "gpt-4o-mini",
+    "medium": "gpt-4o",
+    "expensive": "gpt-4.1"
+  }
+}

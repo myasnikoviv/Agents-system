@@ -1,0 +1,1 @@
+{"rule":"workbench_access_control","status":"fail","action":"block","ticket":"AGSYS-S7-TEST","runId":"run-1775043866911-agent-deny","chainId":"thread-test","detail":"unauthorized_tool_usage:agent-deny:read_file","ts":"2026-04-01T11:44:26.913Z"}

@@ -1,4 +1,37 @@
 import { executeQuasiLinearRun, resumeQuasiLinearRun, type PilotState } from './PilotQuasiLinearGraph';
+import { runGovernancePhase } from '../governance/GovernanceEngineCore';
+import { analyzeTaskForCompliance } from '../compliance/TaskAnalyzer';
+import { buildExecutionPlan } from '../compliance/ExecutionPlanBuilder';
+import { collectComplianceActualEvidence } from '../compliance/ComplianceEvidenceCollector';
+import { evaluateCompliance } from '../compliance/ComplianceEvaluator';
+import { applyComplianceEnforcement } from '../compliance/ComplianceEnforcementLoop';
+import { writeComplianceLedger } from '../compliance/ComplianceLedger';
+import { logGovernance } from '../governance/GovernanceLogger';
+import {
+  collectRunCostMetrics,
+  decideAdaptiveOptimization,
+  enforceHardCostLimit,
+  writeCostLedger,
+} from '../cost/CostOptimizationEngine';
+import {
+  collectLearningSignals,
+  decideAdaptivePolicy,
+  enforceBoundedAdaptation,
+  routeModelForTask,
+  writeAdaptiveLog,
+} from '../adaptive/AdaptiveIntelligenceEngine';
+import {
+  aggregateSignals,
+  buildImprovementTicketDrafts,
+  enqueueImprovementJob,
+  evaluateLearningEffectKpi,
+  evaluateLearningTrendKpi,
+  generateImprovementSignals,
+  queueIsolationKeys,
+  writeTemplateUpdateProposal,
+  writeImprovementArtifacts,
+} from '../improvement/ImprovementEngine';
+import { emitGuardBlockEvent } from '../events/EventBus';
 
 export type RuntimeExecutionMode = 'mock' | 'linear' | 'multiple_agents';
 
@@ -15,11 +48,34 @@ function normalizeMode(modeRaw: unknown): RuntimeExecutionMode {
   return 'multiple_agents';
 }
 
+function hasStrictTicketContext(ticketId: string): boolean {
+  const value = String(ticketId || '').trim();
+  if (!value || value === 'AGSYS-UNKNOWN' || value.toLowerCase() === 'none') return false;
+  return /^[A-Z][A-Z0-9_-]*-\d+$/.test(value);
+}
+
 function buildMockFinalState(initialState: Partial<PilotState>) {
   const userMessage =
     [...(initialState.messages || [])]
       .reverse()
       .find((m) => m.role === 'user')?.content || '';
+
+  if (!hasStrictTicketContext(ticket)) {
+    logGovernance({
+      rule: 'ticket_context_required',
+      status: 'fail',
+      action: 'block',
+      ticket,
+      runId,
+      chainId,
+      detail: `invalid_ticket_context:${ticket}`,
+    });
+    await emitGuardBlockEvent(
+      { runId, projectId, chainId },
+      { stage: 'governance.before_run', rule: 'ticket_context_required', reason: 'invalid_or_missing_ticket_context' },
+    ).catch(() => undefined);
+    throw new Error(`[GovernancePhase:BEFORE_RUN] blocked ticket=${ticket} reason=ticket_context_required`);
+  }
 
   const mockResponse = userMessage
     ? `Mock mode is enabled. Request captured: "${userMessage.slice(0, 180)}${userMessage.length > 180 ? '…' : ''}".`
@@ -41,10 +97,92 @@ export async function executeRuntimeRun(initialState: Partial<PilotState>): Prom
   const modeRequested = normalizeMode(initialState.executionOptions?.mode);
   const ticket = initialState.ticketId || 'AGSYS-UNKNOWN';
   const pipeline = initialState.selected_pipeline || 'unified-task-intake';
+  const runId = initialState.runId || `run-${Date.now()}`;
+  const chainId = initialState.threadId || `thread-${Date.now()}`;
+  const projectId = initialState.projectId || 'agent_system';
+  const workspacePath = initialState.workspacePath || process.cwd();
+  const modelRoute = routeModelForTask({
+    workspacePath,
+    runId,
+    projectId,
+    userMessage:
+      [...(initialState.messages || [])]
+        .reverse()
+        .find((m) => m.role === 'user')?.content || '',
+  });
+  process.env.RUNTIME_MODEL_TIER = modelRoute.modelTier;
+  process.env.RUNTIME_MODEL_NAME = modelRoute.model;
+  logGovernance({
+    rule: 'model_router',
+    status: 'pass',
+    action: 'log',
+    ticket,
+    runId,
+    chainId,
+    detail: `taskType=${modelRoute.taskType};tier=${modelRoute.modelTier};model=${modelRoute.model}`,
+  });
+  const adaptive = decideAdaptiveOptimization(workspacePath, projectId);
+  process.env.RUNTIME_MAX_RETRIES_PER_STEP = String(adaptive.suggestedMaxRetriesPerStep);
+  process.env.GOVERNANCE_SMART_SKIP_IMPROVEMENT_LOOP = adaptive.lowRisk ? 'true' : 'false';
+  const userMessage =
+    [...(initialState.messages || [])]
+      .reverse()
+      .find((m) => m.role === 'user')?.content || '';
 
   // Sprint 5.5 — Identify if pipeline involves mutating actions (ENF-001 logic)
   const mutatingPipelines = ['new-feature', 'bug-fix', 'hotfix', 'refactor', 'strategy-tuning', 'release', 'rollback-incident'];
   const hasMutatingAction = mutatingPipelines.includes(pipeline) && modeRequested !== 'mock';
+
+  const analyzedPlan = analyzeTaskForCompliance({
+    runId,
+    projectId,
+    ticketId: ticket,
+    message: userMessage,
+    requestedPipeline: pipeline,
+    requestedAgents: initialState.customAgents || [],
+  });
+  const executionPlan = buildExecutionPlan(analyzedPlan);
+  const planRequired = Boolean(
+    executionPlan.pipeline &&
+      executionPlan.agents.length > 0 &&
+      executionPlan.skills.length > 0 &&
+      executionPlan.stages.length > 0,
+  );
+  if (!planRequired) {
+    logGovernance({
+      rule: 'plan_required',
+      status: 'fail',
+      action: 'block',
+      ticket,
+      runId,
+      chainId,
+      detail: 'pre_execution_plan_missing_or_incomplete',
+    });
+    await emitGuardBlockEvent(
+      { runId, projectId, chainId },
+      { stage: 'compliance.before_execution', rule: 'plan_required', reason: 'plan_missing_or_incomplete' },
+    ).catch(() => undefined);
+    throw new Error(`[CompliancePhase:before_execution] blocked ticket=${ticket} reason=plan_required`);
+  }
+
+  const beforeExecution = await runGovernancePhase('BEFORE_RUN', {
+    runId,
+    ticketId: ticket,
+    chainId,
+    projectId,
+    workspacePath,
+    pipelineId: pipeline,
+    hasMutatingAction,
+  });
+  if (beforeExecution.blocked) {
+    await emitGuardBlockEvent(
+      { runId, projectId, chainId },
+      { stage: 'governance.before_execution', action: beforeExecution.action, entries: beforeExecution.entries },
+    ).catch(() => undefined);
+    throw new Error(
+      `[GovernancePhase:before_execution] blocked ticket=${ticket} action=${beforeExecution.action}`,
+    );
+  }
 
   // 1. ENF-001 — Git Preflight Hard Gate
   // This will throw if it's a mutating action without a valid preflight token.
@@ -66,6 +204,171 @@ export async function executeRuntimeRun(initialState: Partial<PilotState>): Prom
 
   // Current production engine for both linear and multiple_agents modes.
   const finalState = await executeQuasiLinearRun(initialState);
+
+  await runGovernancePhase('AFTER_STEP', {
+    runId,
+    ticketId: ticket,
+    chainId,
+    projectId,
+    workspacePath,
+    pipelineId: pipeline,
+    hasMutatingAction,
+  });
+  await runGovernancePhase('AFTER_RUN', {
+    runId,
+    ticketId: ticket,
+    chainId,
+    projectId,
+    workspacePath,
+    pipelineId: pipeline,
+    hasMutatingAction,
+  });
+
+  const actual = await collectComplianceActualEvidence({
+    runId,
+    fallbackPipeline: pipeline,
+    workspacePath,
+  });
+  const compliance = evaluateCompliance(executionPlan, actual);
+  const decision = applyComplianceEnforcement(compliance);
+  const complianceLedgerPath = writeComplianceLedger(compliance, decision, workspacePath);
+  logGovernance({
+    rule: 'compliance_engine',
+    status: compliance.passed ? 'pass' : 'fail',
+    action: decision.action === 'allow' ? 'allow' : decision.action === 'retry' ? 'retry' : 'warn',
+    ticket,
+    runId,
+    chainId,
+    detail: `decision=${decision.action};ledger=${complianceLedgerPath}`,
+  });
+
+  const cost = collectRunCostMetrics(workspacePath, runId, projectId);
+  const costLedgerPath = writeCostLedger(cost, workspacePath);
+  const signals = collectLearningSignals(workspacePath, runId, projectId);
+  const adaptivePolicy = enforceBoundedAdaptation(
+    null,
+    decideAdaptivePolicy({
+      ...signals,
+      tokens: cost.tokens,
+      retries: cost.retries,
+      loops: cost.loops,
+    }),
+  );
+  process.env.RUNTIME_MAX_RETRIES_PER_STEP = String(adaptivePolicy.retryLimit);
+  process.env.GOVERNANCE_SMART_SKIP_IMPROVEMENT_LOOP = adaptivePolicy.enableImprovementLoop ? 'false' : 'true';
+  const adaptiveLogPath = writeAdaptiveLog(workspacePath, {
+    runId,
+    projectId,
+    route: modelRoute,
+    policy: adaptivePolicy,
+    signals: { ...signals, tokens: cost.tokens, retries: cost.retries, loops: cost.loops },
+  });
+  logGovernance({
+    rule: 'adaptive_policy_engine',
+    status: 'pass',
+    action: 'log',
+    ticket,
+    runId,
+    chainId,
+    detail: `retryLimit=${adaptivePolicy.retryLimit};improvementLoop=${adaptivePolicy.enableImprovementLoop};preferredTier=${adaptivePolicy.preferredTier};ledger=${adaptiveLogPath}`,
+  });
+  const rawSignals = generateImprovementSignals({ workspacePath, runId, projectId });
+  const aggregatedSignals = aggregateSignals(rawSignals);
+  const ticketDrafts = buildImprovementTicketDrafts(aggregatedSignals);
+  const improvementArtifacts = writeImprovementArtifacts({
+    workspacePath,
+    runId,
+    signals: aggregatedSignals,
+    tickets: ticketDrafts,
+  });
+  const templateUpdateProposal = writeTemplateUpdateProposal({
+    workspacePath,
+    runId,
+    sourceArtifacts: improvementArtifacts,
+    targetRelativePath: 'generated/templates/process/contracts/auditability-policy.md',
+    summary: 'Governed improvement proposal generated from latest runtime signals.',
+  });
+  const queues = queueIsolationKeys(projectId);
+  const enqueuedImprovementId = await enqueueImprovementJob({
+    runId,
+    projectId,
+    chainId,
+    workspacePath,
+    signalsPath: improvementArtifacts.signalsPath,
+    ticketsPath: improvementArtifacts.ticketsPath,
+  });
+  logGovernance({
+    rule: 'improvement_signal_generator',
+    status: 'pass',
+    action: 'log',
+    ticket,
+    runId,
+    chainId,
+    detail: `signals=${aggregatedSignals.length};tickets=${ticketDrafts.length};signalsPath=${improvementArtifacts.signalsPath};ticketsPath=${improvementArtifacts.ticketsPath};proposalPath=${templateUpdateProposal.proposalPath}`,
+  });
+  logGovernance({
+    rule: 'async_execution_isolation',
+    status: enqueuedImprovementId ? 'pass' : 'skip',
+    action: 'log',
+    ticket,
+    runId,
+    chainId,
+    detail: `runtimeQueue=${queues.runtimeQueue};improvementQueue=${queues.improvementQueue};jobId=${enqueuedImprovementId || 'none'}`,
+  });
+  const learningKpi = evaluateLearningEffectKpi({
+    signals: aggregatedSignals,
+    tickets: ticketDrafts,
+    complianceFailures: signals.complianceFailures,
+    retries: cost.retries,
+  });
+  logGovernance({
+    rule: 'learning_effect_kpi_gate',
+    status: learningKpi.pass ? 'pass' : 'fail',
+    action: learningKpi.pass ? 'allow' : 'warn',
+    ticket,
+    runId,
+    chainId,
+    detail: `score=${learningKpi.score.toFixed(2)};${learningKpi.reason}`,
+  });
+  const learningTrend = evaluateLearningTrendKpi({
+    workspacePath,
+    projectId,
+    runId,
+  });
+  logGovernance({
+    rule: 'learning_effect_trend_gate',
+    status: learningTrend.pass ? 'pass' : 'fail',
+    action: learningTrend.pass ? 'allow' : 'warn',
+    ticket,
+    runId,
+    chainId,
+    detail: `score=${learningTrend.score.toFixed(2)};${learningTrend.reason};report=${learningTrend.reportPath};alarm=${learningTrend.regressionAlarmPath || 'none'}`,
+  });
+  const costLimit = enforceHardCostLimit(cost, workspacePath);
+  logGovernance({
+    rule: 'cost_optimization_engine',
+    status: costLimit.allowed ? 'pass' : 'fail',
+    action: costLimit.allowed ? 'allow' : 'block',
+    ticket,
+    runId,
+    chainId,
+    detail: `tokens=${cost.tokens};threshold=${costLimit.threshold};retries=${cost.retries};loops=${cost.loops};ledger=${costLedgerPath}`,
+  });
+  if (!costLimit.allowed) {
+    await emitGuardBlockEvent(
+      { runId, projectId, chainId },
+      {
+        stage: 'cost.hard_limit',
+        tokens: cost.tokens,
+        threshold: costLimit.threshold,
+        retries: cost.retries,
+        loops: cost.loops,
+      },
+    ).catch(() => undefined);
+    throw new Error(
+      `[CostPhase:hard_limit] blocked ticket=${ticket} run=${runId} tokens=${cost.tokens} threshold=${costLimit.threshold}`,
+    );
+  }
 
   // 2. ENF-006 — Pipeline Usage Soft Gate (log classification result from router node)
   // This is best logged inside routerNode in PilotQuasiLinearGraph, 

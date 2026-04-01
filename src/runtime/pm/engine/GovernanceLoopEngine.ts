@@ -1,5 +1,6 @@
 import { TaskPackage, Task, VerificationReport, TaskStatus } from '../models/pm-types';
 import { enforcePostflightGate } from '../../governance/PostflightEnforcer';
+import { runGovernancePhase } from '../../governance/GovernanceEngineCore';
 
 /**
  * GovernanceLoopEngine orchestrates the state machine of autonomous task execution.
@@ -31,11 +32,25 @@ export class GovernanceLoopEngine {
   /**
    * Applies the result of a verification cycle to a task.
    */
-  public applyVerificationResult(task: Task, report: VerificationReport): Task {
+  public async applyVerificationResult(task: Task, report: VerificationReport): Promise<Task> {
     const updatedTask = { ...task };
     updatedTask.verificationResults = [...(task.verificationResults || []), report];
 
     if (report.status === 'passed') {
+      const phase = await runGovernancePhase('AFTER_RUN', {
+        runId: report.packageId || `run-${Date.now()}`,
+        ticketId: task.id,
+        chainId: report.taskId || `task-${task.id}`,
+        projectId: 'agent_system',
+        workspacePath: process.cwd(),
+        pipelineId: 'sprint-integration',
+        hasMutatingAction: false,
+      });
+      if (phase.blocked) {
+        updatedTask.status = 'blocked';
+        return updatedTask;
+      }
+
       // ENF-002 — Task Closure Postflight Hard Gate
       // Blocks moving to 'done' unless evidence exists.
       enforcePostflightGate({

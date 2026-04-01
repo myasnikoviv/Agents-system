@@ -1,0 +1,66 @@
+export type GovernancePhase =
+  | 'BEFORE_RUN'
+  | 'AFTER_STEP'
+  | 'AFTER_RUN'
+  | 'before_execution'
+  | 'after_execution'
+  | 'before_task_close'
+  | 'pre_execution'
+  | 'post_execution'
+  | 'pre_task_close';
+
+export type GovernanceEvaluationType = 'deterministic' | 'hybrid' | 'llm';
+export type GovernanceEnforcementMode = 'hard' | 'soft' | 'advisory';
+export type GovernanceDeterministicCheck =
+  | 'preflight_token'
+  | 'postflight_report'
+  | 'improvement_artifact'
+  | 'agent_usage_events'
+  | 'pipeline_usage_events'
+  | 'cost_guard_tokens'
+  | 'loop_pressure_hard'
+  | 'ticket_context_present';
+
+export interface GovernanceRule {
+  id:
+    | 'git_preflight'
+    | 'postflight_evidence'
+    | 'improvement_loop'
+    | 'required_agent_usage'
+    | 'required_pipeline_usage'
+    | 'cost_guard_light'
+    | 'loop_guard_hard'
+    | 'ticket_context_required';
+  triggerPhases: GovernancePhase[];
+  evidence: string[];
+  evaluationType: GovernanceEvaluationType;
+  deterministicCheck?: GovernanceDeterministicCheck;
+  enforcementMode: GovernanceEnforcementMode;
+  enabledByDefault: boolean;
+}
+
+export interface GovernanceEngineContext {
+  runId: string;
+  projectId: string;
+  ticketId: string;
+  chainId: string;
+  workspacePath?: string;
+  pipelineId?: string;
+  hasMutatingAction?: boolean;
+  bypassToken?: string;
+}
+
+export interface GovernanceRuleEvaluation {
+  ruleId: GovernanceRule['id'];
+  verdict: 'pass' | 'fail' | 'unknown';
+  reason: string;
+  evidenceSummary: string;
+}
+
+export interface GovernancePhaseResult {
+  phase: GovernancePhase;
+  blocked: boolean;
+  action: 'allow' | 'block' | 'retry' | 'warn' | 'skip' | 'escalate';
+  entries: GovernanceRuleEvaluation[];
+  retrySuggested: boolean;
+}

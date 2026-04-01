@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import { resolveRuntimePath } from '../RuntimePathResolver';
 
 /**
  * ENF-004 — Governance Logging
@@ -8,7 +9,7 @@ import path from 'path';
  */
 
 export type GovernanceStatus = 'pass' | 'fail' | 'skip';
-export type GovernanceAction = 'block' | 'retry' | 'allow' | 'warn' | 'log';
+export type GovernanceAction = 'block' | 'retry' | 'allow' | 'warn' | 'log' | 'escalate';
 
 export interface GovernanceLogEntry {
   rule: string;
@@ -21,9 +22,12 @@ export interface GovernanceLogEntry {
   ts: string;
 }
 
-const LOG_DIR = path.resolve(process.cwd(), 'docs/runtime/governance/logs');
+function getLogDir(): string {
+  return resolveRuntimePath(process.cwd(), 'governanceLogsDir');
+}
 
 function ensureLogDir(): void {
+  const LOG_DIR = getLogDir();
   if (!fs.existsSync(LOG_DIR)) {
     fs.mkdirSync(LOG_DIR, { recursive: true });
   }
@@ -45,6 +49,7 @@ export function logGovernance(entry: Omit<GovernanceLogEntry, 'ts'>): Governance
   // file append
   try {
     ensureLogDir();
+    const LOG_DIR = getLogDir();
     const filename = entry.ticket
       ? `${entry.ticket.replace(/[^a-zA-Z0-9._-]/g, '_')}.jsonl`
       : 'global.jsonl';
@@ -71,6 +76,7 @@ export function readGovernanceLogs(ticket?: string): GovernanceLogEntry[] {
   const filename = ticket
     ? `${ticket.replace(/[^a-zA-Z0-9._-]/g, '_')}.jsonl`
     : 'global.jsonl';
+  const LOG_DIR = getLogDir();
   const filePath = path.join(LOG_DIR, filename);
   if (!fs.existsSync(filePath)) return [];
   return fs

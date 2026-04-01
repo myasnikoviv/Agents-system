@@ -1,0 +1,9 @@
+{
+  "fallbackOrder": [
+    "codex-cli",
+    "claude-cli",
+    "openhands-sdk",
+    "gemini",
+    "langchain"
+  ]
+}
