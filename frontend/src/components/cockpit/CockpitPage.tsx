@@ -550,6 +550,80 @@ export function CockpitPage() {
         return rows.slice(0, 16);
     }, [activeEvents]);
 
+    const workerDebugRows = useMemo(() => {
+        return activeEvents
+            .filter((event) => {
+                const t = String(event.event_type || event.type || '').trim();
+                return (
+                    t === 'worker.heartbeat' ||
+                    t === 'worker.state_changed' ||
+                    t === 'worker.failed' ||
+                    t === 'worker.unhealthy' ||
+                    t === 'tool.call' ||
+                    t === 'tool.called' ||
+                    t === 'tool.result' ||
+                    t === 'llm.request' ||
+                    t === 'llm.response'
+                );
+            })
+            .map((event) => ({
+                id: String(event.event_id || event.id || `${Date.now()}-${Math.random()}`),
+                at: new Date(String(event.timestamp || Date.now())).getTime(),
+                type: String(event.event_type || event.type || '').trim(),
+                workerId: String(event.payload?.workerId || 'n/a').trim(),
+                agentSlug: String(event.payload?.agentSlug || event.actor?.id || 'unknown').trim(),
+                taskId: String(event.payload?.taskId || '').trim(),
+                stageId: String(event.payload?.stageId || event.source_stage || '').trim(),
+                tool: String(event.payload?.tool || '').trim(),
+                model: String(event.payload?.model || '').trim(),
+                summary: String(event.payload?.summary || event.payload?.message || event.payload?.detail || '').trim(),
+            }))
+            .sort((a, b) => b.at - a.at)
+            .slice(0, 40);
+    }, [activeEvents]);
+
+    const workerTraceRows = useMemo(() => {
+        type TraceRow = {
+            workerId: string;
+            agentSlug: string;
+            steps: number;
+            toolCalls: number;
+            llmCalls: number;
+            lastAt: number;
+        };
+        const byWorker = new Map<string, TraceRow>();
+        for (const event of activeEvents) {
+            const t = String(event.event_type || event.type || '').trim();
+            const workerId = String(event.payload?.workerId || '').trim();
+            const agentSlug = String(event.payload?.agentSlug || event.actor?.id || 'unknown').trim();
+            if (!workerId) continue;
+            const key = `${agentSlug}:${workerId}`;
+            const current = byWorker.get(key) || {
+                workerId,
+                agentSlug,
+                steps: 0,
+                toolCalls: 0,
+                llmCalls: 0,
+                lastAt: 0,
+            };
+            const at = new Date(String(event.timestamp || Date.now())).getTime();
+            if (t === 'stage.started' || t === 'swarm_stage_completed' || t === 'agent.started' || t === 'agent.completed') {
+                current.steps += 1;
+            }
+            if (t === 'tool.call' || t === 'tool.called') {
+                current.toolCalls += 1;
+            }
+            if (t === 'llm.request') {
+                current.llmCalls += 1;
+            }
+            current.lastAt = Math.max(current.lastAt, at);
+            byWorker.set(key, current);
+        }
+        return Array.from(byWorker.values())
+            .sort((a, b) => b.lastAt - a.lastAt)
+            .slice(0, 20);
+    }, [activeEvents]);
+
     const resourcePressure = useMemo(() => {
         const workers = Math.max(1, swarmSummary.workersTotal);
         const pressure = swarmSummary.queuePressure;
@@ -2879,6 +2953,59 @@ export function CockpitPage() {
                                             <span>agent: {row.agentSlug}</span>
                                             {row.from && row.to && <span>state: {row.from} {'->'} {row.to}</span>}
                                             {row.taskId && <span>task: {row.taskId}</span>}
+                                        </div>
+                                    </div>
+                                ))
+                            )}
+                        </div>
+                    </div>
+
+                    <div className="catalog-card">
+                        <div className="catalog-title">Worker Debug Logs</div>
+                        <div className="agent-board">
+                            {workerDebugRows.length === 0 ? (
+                                <div className="agent-board-empty">No worker debug events yet.</div>
+                            ) : (
+                                workerDebugRows.map((row) => (
+                                    <div key={`debug-${row.id}`} className="agent-board-row">
+                                        <div className={`agent-dot ${row.type.includes('failed') || row.type.includes('unhealthy') ? 'unavailable' : 'standby'}`} />
+                                        <div className="agent-board-main">
+                                            <div className="agent-board-title">{row.type}</div>
+                                            <div className="agent-board-sub">{new Date(row.at).toLocaleTimeString()}</div>
+                                        </div>
+                                        <div className="agent-board-meta">
+                                            <span>worker: {row.workerId}</span>
+                                            <span>agent: {row.agentSlug}</span>
+                                            {row.taskId ? <span>task: {row.taskId}</span> : null}
+                                            {row.stageId ? <span>stage: {row.stageId}</span> : null}
+                                            {row.tool ? <span>tool: {row.tool}</span> : null}
+                                            {row.model ? <span>model: {row.model}</span> : null}
+                                            {row.summary ? <span>detail: {row.summary}</span> : null}
+                                        </div>
+                                    </div>
+                                ))
+                            )}
+                        </div>
+                    </div>
+
+                    <div className="catalog-card">
+                        <div className="catalog-title">Execution Trace Per Worker</div>
+                        <div className="agent-board">
+                            {workerTraceRows.length === 0 ? (
+                                <div className="agent-board-empty">No worker trace yet.</div>
+                            ) : (
+                                workerTraceRows.map((row) => (
+                                    <div key={`trace-${row.agentSlug}-${row.workerId}`} className="agent-board-row">
+                                        <div className="agent-dot active" />
+                                        <div className="agent-board-main">
+                                            <div className="agent-board-title">{row.agentSlug}</div>
+                                            <div className="agent-board-sub">worker: {row.workerId}</div>
+                                        </div>
+                                        <div className="agent-board-meta">
+                                            <span>steps: {row.steps}</span>
+                                            <span>tool calls: {row.toolCalls}</span>
+                                            <span>llm calls: {row.llmCalls}</span>
+                                            <span>last: {new Date(row.lastAt).toLocaleTimeString()}</span>
                                         </div>
                                     </div>
                                 ))
