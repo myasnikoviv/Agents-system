@@ -4,6 +4,7 @@ import express from 'express';
 import fs from 'fs';
 import path from 'path';
 import { execSync } from 'child_process';
+import crypto from 'crypto';
 import Database from 'better-sqlite3';
 import { v4 as uuidv4 } from 'uuid';
 import { executeRuntimeRun, resumeRuntimeRun } from '../runtime/graphs/RuntimeExecutionRouter';
@@ -238,6 +239,25 @@ runtimeDb.exec(`
     value_json TEXT NOT NULL,
     updated_at TEXT NOT NULL
   );
+  CREATE TABLE IF NOT EXISTS auth_users (
+    id TEXT PRIMARY KEY,
+    email TEXT NOT NULL UNIQUE,
+    password_hash TEXT NOT NULL,
+    tenant_id TEXT NOT NULL,
+    workspace_id TEXT NOT NULL,
+    role TEXT NOT NULL DEFAULT 'owner',
+    is_active INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS auth_sessions (
+    token TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    tenant_id TEXT NOT NULL,
+    workspace_id TEXT NOT NULL,
+    expires_at TEXT NOT NULL,
+    created_at TEXT NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_auth_sessions_user ON auth_sessions(user_id);
 `);
 try {
   runtimeDb.exec(`ALTER TABLE cockpit_projects ADD COLUMN agent_context_path TEXT`);
@@ -260,6 +280,63 @@ const toPlaneProjectName = (value: string): string =>
 
 const normalizeProjectKey = (value: string): string =>
   (value || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+
+const AUTH_SESSION_TTL_HOURS = Math.max(1, Number(process.env.AUTH_SESSION_TTL_HOURS || 24));
+const AUTH_SECRET = String(process.env.AUTH_SECRET || 'agent-system-dev-secret');
+
+const hashPassword = (raw: string): string =>
+  crypto.createHash('sha256').update(`${AUTH_SECRET}:${String(raw || '')}`).digest('hex');
+
+const parseBearerToken = (headerValue?: string): string => {
+  const header = String(headerValue || '').trim();
+  if (!header.toLowerCase().startsWith('bearer ')) return '';
+  return header.slice(7).trim();
+};
+
+const getAuthContext = (req: express.Request): {
+  userId: string;
+  email: string;
+  tenantId: string;
+  workspaceId: string;
+  role: string;
+  token: string;
+} | null => {
+  const token = parseBearerToken(req.header('authorization'));
+  if (!token) return null;
+  const row = runtimeDb
+    .prepare(
+      `SELECT s.token, s.user_id, s.tenant_id, s.workspace_id, s.expires_at, u.email, u.role, u.is_active
+       FROM auth_sessions s
+       JOIN auth_users u ON u.id = s.user_id
+       WHERE s.token = ?`,
+    )
+    .get(token) as
+    | {
+        token: string;
+        user_id: string;
+        tenant_id: string;
+        workspace_id: string;
+        expires_at: string;
+        email: string;
+        role: string;
+        is_active: number;
+      }
+    | undefined;
+  if (!row) return null;
+  if (!row.is_active) return null;
+  if (new Date(row.expires_at).getTime() <= Date.now()) {
+    runtimeDb.prepare('DELETE FROM auth_sessions WHERE token = ?').run(token);
+    return null;
+  }
+  return {
+    userId: row.user_id,
+    email: row.email,
+    tenantId: row.tenant_id,
+    workspaceId: row.workspace_id,
+    role: row.role,
+    token: row.token,
+  };
+};
 
 const canUsePlane = (): boolean => Boolean(PLANE_API_KEY && PLANE_BASE_URL && PLANE_WORKSPACE);
 
@@ -2743,6 +2820,84 @@ app.post('/api/cockpit/settings/:section', (req, res) => {
   res.json({ success: true, settings });
 });
 
+app.post('/api/auth/login', (req, res) => {
+  const email = String(req.body?.email || '').trim().toLowerCase();
+  const password = String(req.body?.password || '');
+  const tenantId = String(req.body?.tenantId || '').trim();
+  const workspaceId = String(req.body?.workspaceId || '').trim();
+  if (!email || !password) {
+    res.status(400).json({ success: false, error: 'email_and_password_required' });
+    return;
+  }
+
+  const existingCount = Number((runtimeDb.prepare('SELECT COUNT(*) as c FROM auth_users').get() as any)?.c || 0);
+  if (existingCount === 0) {
+    const bootstrapTenant = tenantId || process.env.DEFAULT_TENANT_ID || 'tenant:default';
+    const bootstrapWorkspace = workspaceId || process.env.DEFAULT_WORKSPACE_ID || 'workspace:default';
+    runtimeDb
+      .prepare(
+        `INSERT INTO auth_users (id, email, password_hash, tenant_id, workspace_id, role, is_active, created_at)
+         VALUES (?, ?, ?, ?, ?, 'owner', 1, ?)`,
+      )
+      .run(`user-${Date.now().toString(36)}`, email, hashPassword(password), bootstrapTenant, bootstrapWorkspace, new Date().toISOString());
+  }
+
+  const user = runtimeDb
+    .prepare(
+      `SELECT id, email, password_hash, tenant_id, workspace_id, role, is_active
+       FROM auth_users WHERE email = ?`,
+    )
+    .get(email) as
+    | { id: string; email: string; password_hash: string; tenant_id: string; workspace_id: string; role: string; is_active: number }
+    | undefined;
+
+  if (!user || !user.is_active || user.password_hash !== hashPassword(password)) {
+    res.status(401).json({ success: false, error: 'invalid_credentials' });
+    return;
+  }
+
+  const token = `sess_${crypto.randomUUID()}`;
+  const expiresAt = new Date(Date.now() + AUTH_SESSION_TTL_HOURS * 60 * 60 * 1000).toISOString();
+  runtimeDb
+    .prepare(
+      `INSERT INTO auth_sessions (token, user_id, tenant_id, workspace_id, expires_at, created_at)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+    )
+    .run(token, user.id, user.tenant_id, user.workspace_id, expiresAt, new Date().toISOString());
+
+  res.json({
+    success: true,
+    token,
+    tokenType: 'Bearer',
+    expiresAt,
+    user: {
+      id: user.id,
+      email: user.email,
+      role: user.role,
+      tenantId: user.tenant_id,
+      workspaceId: user.workspace_id,
+    },
+  });
+});
+
+app.get('/api/auth/me', (req, res) => {
+  const auth = getAuthContext(req);
+  if (!auth) {
+    res.status(401).json({ success: false, error: 'unauthorized' });
+    return;
+  }
+  res.json({
+    success: true,
+    user: {
+      id: auth.userId,
+      email: auth.email,
+      role: auth.role,
+      tenantId: auth.tenantId,
+      workspaceId: auth.workspaceId,
+    },
+  });
+});
+
 app.post('/api/chat', async (req, res) => {
   const rawMessage = String(req.body?.message || req.body?.prompt || '').trim();
   const threadId = String(req.body?.threadId || `thread_${Date.now()}`).trim();
@@ -2753,6 +2908,7 @@ app.post('/api/chat', async (req, res) => {
   const parsed = parseRuntimeDirectives(rawMessage);
   const message = parsed.cleanedMessage || rawMessage;
   const detectedLanguage = detectLanguage(message);
+  const auth = getAuthContext(req);
 
   if (!message) {
     res.status(400).json({ success: false, error: 'message_required' });
@@ -2781,6 +2937,9 @@ app.post('/api/chat', async (req, res) => {
         messages: [{ role: 'user', content: message }],
         artifactLogs: [message],
         projectId,
+        tenantId: auth?.tenantId,
+        workspaceId: auth?.workspaceId,
+        userId: auth?.userId,
         workspacePath: effectiveWorkspacePath,
         agentContextPath: effectiveAgentContextPath,
         selected_pipeline:
@@ -2860,6 +3019,14 @@ app.post('/api/chat', async (req, res) => {
         status: finalState.status || 'completed',
         threadId,
         runId,
+        auth: auth
+          ? {
+              userId: auth.userId,
+              tenantId: auth.tenantId,
+              workspaceId: auth.workspaceId,
+              role: auth.role,
+            }
+          : null,
         ticketId: finalState.ticketId || null,
         message: finalMessage || null,
         logs: artifactLogs,
