@@ -132,6 +132,14 @@ interface ProjectSwitchFeedback {
     demoted: number;
     coldWorkers: number;
 }
+interface QueueTaskSnapshot {
+    taskId: string;
+    stageId: string;
+    agentSlug: string;
+    status: 'pending' | 'assigned' | 'completed';
+    queuedAt: number;
+    updatedAt: number;
+}
 interface PersistedThreadMessage {
     id: string;
     role: 'user' | 'agent';
@@ -446,6 +454,43 @@ export function CockpitPage() {
             totalWorkers: projectScopedWorkers.length,
         };
     }, [projectScopedWorkers]);
+
+    const queueSnapshot = useMemo(() => {
+        const tasks = new Map<string, QueueTaskSnapshot>();
+        for (const event of activeEvents) {
+            const eventType = String(event.event_type || event.type || '').trim();
+            if (eventType !== 'task.queued' && eventType !== 'task.dispatched' && eventType !== 'swarm_stage_completed') continue;
+            const taskId = String(event.payload?.taskId || '').trim();
+            if (!taskId) continue;
+            const ts = Number(new Date(String(event.timestamp || Date.now())).getTime());
+            const existing = tasks.get(taskId);
+            const nextStatus: QueueTaskSnapshot['status'] =
+                eventType === 'task.queued'
+                    ? 'pending'
+                    : eventType === 'task.dispatched'
+                        ? 'assigned'
+                        : 'completed';
+            tasks.set(taskId, {
+                taskId,
+                stageId: String(event.payload?.stageId || existing?.stageId || 'n/a').trim(),
+                agentSlug: String(event.payload?.agentSlug || event.actor?.id || existing?.agentSlug || 'unknown').trim(),
+                status: nextStatus,
+                queuedAt: existing?.queuedAt || ts,
+                updatedAt: ts,
+            });
+        }
+        const all = Array.from(tasks.values()).sort((a, b) => b.updatedAt - a.updatedAt);
+        const waiting = all.filter((t) => t.status === 'pending');
+        const assigned = all.filter((t) => t.status === 'assigned');
+        const completed = all.filter((t) => t.status === 'completed');
+        return {
+            waiting,
+            assigned,
+            completed,
+            totalTracked: all.length,
+            queueLength: waiting.length,
+        };
+    }, [activeEvents]);
 
     const appendMessagesToThread = (threadId: string | undefined, next: ChatMessage[]) => {
         const key = threadId && threadId.trim().length > 0 ? threadId : activeThreadKey;
@@ -2689,6 +2734,38 @@ export function CockpitPage() {
                                         </div>
                                     );
                                 })
+                            )}
+                        </div>
+                    </div>
+
+                    <div className="catalog-card">
+                        <div className="catalog-title">Queue & Dispatch</div>
+                        <div className="catalog-section">
+                            <span>Project: {selectedProject || 'global/unbound'}</span>
+                            <span>Queue length: {queueSnapshot.queueLength}</span>
+                            <span>Waiting tasks: {queueSnapshot.waiting.length}</span>
+                            <span>Assigned tasks: {queueSnapshot.assigned.length}</span>
+                            <span>Completed tasks: {queueSnapshot.completed.length}</span>
+                            <span>Tracked tasks: {queueSnapshot.totalTracked}</span>
+                        </div>
+                        <div className="agent-board">
+                            {queueSnapshot.waiting.length === 0 ? (
+                                <div className="agent-board-empty">No waiting tasks in current event stream.</div>
+                            ) : (
+                                queueSnapshot.waiting.slice(0, 8).map((task) => (
+                                    <div key={`queue-${task.taskId}`} className="agent-board-row">
+                                        <div className="agent-dot standby" />
+                                        <div className="agent-board-main">
+                                            <div className="agent-board-title">{task.taskId}</div>
+                                            <div className="agent-board-sub">stage: {task.stageId}</div>
+                                        </div>
+                                        <div className="agent-board-meta">
+                                            <span>status: {task.status}</span>
+                                            <span>agent: {task.agentSlug}</span>
+                                            <span>updated: {new Date(task.updatedAt).toLocaleTimeString()}</span>
+                                        </div>
+                                    </div>
+                                ))
                             )}
                         </div>
                     </div>
