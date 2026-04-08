@@ -4,6 +4,7 @@ import { ToolDiscoveryService } from '../ToolDiscoveryService';
 import { BlackboardService } from '../BlackboardService';
 import { DetectedLanguage } from '../LanguageDetection';
 import { assertWorkerProjectIsolation, buildAgentIdentity } from '../identity/AgentIdentity';
+import { resolveTenantScope, validateTenantBoundary } from '../tenancy/TenantContext';
 
 export type ResponseMode = 'handoff' | 'final' | 'clarify' | 'tool_call';
 
@@ -36,6 +37,8 @@ export interface RunContext {
   threadId: string;
   chainId: string;
   projectId: string;
+  tenantId?: string;
+  workspaceId?: string;
   workspacePath: string;
 
   executionTarget: 'codex-cli' | 'claude-cli' | 'openhands' | 'langchain';
@@ -236,6 +239,20 @@ export class RunContextAssembler {
       activeTicketId: memory.activeTicketId,
       startTime: new Date().toISOString()
     };
+
+    const tenancy = resolveTenantScope({
+      tenantId: memory.tenantId,
+      workspaceId: memory.workspaceId,
+      projectId: ctx.projectId,
+      runId: ctx.runId,
+      agentSlug: ctx.agent.slug,
+    });
+    const boundary = validateTenantBoundary(tenancy);
+    if (!boundary.ok) {
+      throw new Error(`RunContextAssembler tenancy boundary failed: ${boundary.reason}`);
+    }
+    ctx.tenantId = tenancy.tenantId;
+    ctx.workspaceId = tenancy.workspaceId;
 
     await BlackboardService.hydrate(ctx);
     return ctx;
