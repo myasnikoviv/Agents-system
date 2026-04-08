@@ -117,6 +117,21 @@ interface SwarmSummaryState {
     unhealthyWorkers: number;
     queuePressure: number;
 }
+interface ProjectSwitchFeedback {
+    fromProjectId: string;
+    toProjectId: string;
+    switching: boolean;
+    startedAtMs: number;
+    resolvedAtMs: number | null;
+    warmupMs: number | null;
+    previousWorkers: number;
+    currentWorkers: number;
+    previousHot: number;
+    currentHot: number;
+    spawned: number;
+    demoted: number;
+    coldWorkers: number;
+}
 interface PersistedThreadMessage {
     id: string;
     role: 'user' | 'agent';
@@ -244,6 +259,7 @@ export function CockpitPage() {
         queuePressure: 0,
     });
     const [swarmWorkers, setSwarmWorkers] = useState<WorkerHealthRow[]>([]);
+    const [projectSwitchFeedback, setProjectSwitchFeedback] = useState<ProjectSwitchFeedback | null>(null);
 
     const [selectedProvider, setSelectedProvider] = useState<RuntimeProvider>('claude-cli');
     const [selectedModel, setSelectedModel] = useState('auto');
@@ -309,6 +325,7 @@ export function CockpitPage() {
     const messages = messagesByThread[activeThreadKey] || [];
     const activeEvents = eventsByThread[activeThreadKey] || [];
     const agentRegistryRef = useRef<AgentRegistryEntry[]>([]);
+    const previousProjectRef = useRef<string>('');
 
     const resolveAgentSlug = (rawRole: string): string => {
         const probe = String(rawRole || '').trim().toLowerCase();
@@ -525,6 +542,30 @@ export function CockpitPage() {
     useEffect(() => {
         agentRegistryRef.current = agentRegistry;
     }, [agentRegistry]);
+
+    useEffect(() => {
+        const previousProjectId = previousProjectRef.current;
+        if (previousProjectId && selectedProject && previousProjectId !== selectedProject) {
+            const previousScoped = swarmWorkers.filter((w) => String(w.projectId || '').trim() === previousProjectId);
+            const previousHot = previousScoped.filter((w) => w.availabilityState === 'hot').length;
+            setProjectSwitchFeedback({
+                fromProjectId: previousProjectId,
+                toProjectId: selectedProject,
+                switching: true,
+                startedAtMs: Date.now(),
+                resolvedAtMs: null,
+                warmupMs: null,
+                previousWorkers: previousScoped.length,
+                currentWorkers: 0,
+                previousHot,
+                currentHot: 0,
+                spawned: 0,
+                demoted: 0,
+                coldWorkers: 0,
+            });
+        }
+        previousProjectRef.current = selectedProject;
+    }, [selectedProject, swarmWorkers]);
 
     useEffect(() => {
         scrollRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -925,7 +966,28 @@ export function CockpitPage() {
                 `/api/cockpit/swarm/workers${projectQuery}`,
             );
             if (cancelled || !data?.success || !Array.isArray(data.workers)) return;
-            setSwarmWorkers(data.workers);
+            const workers = data.workers;
+            setSwarmWorkers(workers);
+            setProjectSwitchFeedback((prev) => {
+                if (!prev || !prev.switching) return prev;
+                if (!selectedProject || prev.toProjectId !== selectedProject) return prev;
+                const currentHot = workers.filter((w) => w.availabilityState === 'hot').length;
+                const coldWorkers = workers.filter((w) => w.availabilityState === 'cold').length;
+                const ready = workers.length > 0;
+                if (!ready) return prev;
+                const now = Date.now();
+                return {
+                    ...prev,
+                    switching: false,
+                    resolvedAtMs: now,
+                    warmupMs: Math.max(0, now - prev.startedAtMs),
+                    currentWorkers: workers.length,
+                    currentHot,
+                    spawned: Math.max(0, workers.length - prev.previousWorkers),
+                    demoted: Math.max(0, prev.previousHot - currentHot),
+                    coldWorkers,
+                };
+            });
             setAgentRuntime((prev) => {
                 const next: Record<string, AgentRuntimeStatus> = { ...prev };
                 for (const worker of data.workers || []) {
@@ -2500,6 +2562,22 @@ export function CockpitPage() {
                                 <span>Worktree: {gitContext?.worktreePath || runtimeFooter.worktreePath || 'n/a'}</span>
                                 <span>Queue pressure: {swarmSummary.queuePressure}</span>
                                 <span>Unhealthy workers: {swarmSummary.unhealthyWorkers}</span>
+                                {projectSwitchFeedback && (
+                                    <>
+                                        <span>
+                                            Switch: {projectSwitchFeedback.fromProjectId || 'n/a'} {'->'} {projectSwitchFeedback.toProjectId || 'n/a'}
+                                        </span>
+                                        <span className={projectSwitchFeedback.switching ? 'text-amber-300' : 'text-emerald-300'}>
+                                            Transition: {projectSwitchFeedback.switching ? 'warming up...' : 'ready'}
+                                        </span>
+                                        <span>
+                                            Spawned: {projectSwitchFeedback.spawned} | Demoted: {projectSwitchFeedback.demoted} | Cold: {projectSwitchFeedback.coldWorkers}
+                                        </span>
+                                        <span>
+                                            Warmup: {projectSwitchFeedback.warmupMs === null ? 'n/a' : `${Math.max(0, Math.floor(projectSwitchFeedback.warmupMs))}ms`}
+                                        </span>
+                                    </>
+                                )}
                             </div>
                         </div>
                     </div>
