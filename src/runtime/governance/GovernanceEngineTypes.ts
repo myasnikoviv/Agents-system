@@ -11,32 +11,37 @@ export type GovernancePhase =
 
 export type GovernanceEvaluationType = 'deterministic' | 'hybrid' | 'llm';
 export type GovernanceEnforcementMode = 'hard' | 'soft' | 'advisory';
-export type GovernanceDeterministicCheck =
-  | 'preflight_token'
-  | 'postflight_report'
-  | 'improvement_artifact'
-  | 'agent_usage_events'
-  | 'pipeline_usage_events'
-  | 'cost_guard_tokens'
-  | 'loop_pressure_hard'
-  | 'ticket_context_present';
+export type GovernanceDeterministicCheck = string;
+export type GovernanceScopeLevel = 'global' | 'project' | 'session';
+
+export interface GovernanceRuleMetadata {
+  name?: string;
+  description?: string;
+  version?: string;
+  owner?: string;
+  tags?: string[];
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface GovernanceRuleScope {
+  level: GovernanceScopeLevel;
+  projectId?: string;
+  sessionId?: string;
+}
 
 export interface GovernanceRule {
-  id:
-    | 'git_preflight'
-    | 'postflight_evidence'
-    | 'improvement_loop'
-    | 'required_agent_usage'
-    | 'required_pipeline_usage'
-    | 'cost_guard_light'
-    | 'loop_guard_hard'
-    | 'ticket_context_required';
+  id: string;
   triggerPhases: GovernancePhase[];
   evidence: string[];
   evaluationType: GovernanceEvaluationType;
   deterministicCheck?: GovernanceDeterministicCheck;
   enforcementMode: GovernanceEnforcementMode;
   enabledByDefault: boolean;
+  disabled?: boolean;
+  scope?: GovernanceRuleScope;
+  metadata?: GovernanceRuleMetadata;
+  thresholds?: Record<string, number>;
 }
 
 export interface GovernanceEngineContext {

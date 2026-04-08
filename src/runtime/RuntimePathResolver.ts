@@ -4,6 +4,7 @@ import path from 'path';
 export type RuntimePathKey =
   | 'governanceLogsDir'
   | 'governanceRuleRegistryFile'
+  | 'governanceRuleCatalogFile'
   | 'governanceProjectPolicyFile'
   | 'governanceExecutionPolicyFile'
   | 'processPreflightsDir'
@@ -20,6 +21,7 @@ type RuntimePathConfig = Partial<Record<RuntimePathKey, string>>;
 const DEFAULT_PATHS: Record<RuntimePathKey, string> = {
   governanceLogsDir: 'docs/runtime/governance/logs',
   governanceRuleRegistryFile: 'docs/runtime/governance/rule-registry.yaml',
+  governanceRuleCatalogFile: 'docs/runtime/governance/rule-catalog.json',
   governanceProjectPolicyFile: 'docs/runtime/governance/project-policy.json',
   governanceExecutionPolicyFile: 'docs/runtime/governance/execution-policy.json',
   processPreflightsDir: 'docs/process/git/preflights',
