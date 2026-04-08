@@ -181,4 +181,78 @@ describe('DynamicWorkerSpawnManager', () => {
     expect(recovered.spawned).toBe(false);
     expect(recovered.worker.state).toBe('active');
   });
+
+  it('blocks new task acquisition while worker is manually paused and allows after resume', async () => {
+    await DynamicWorkerSpawnManager.ensureWorker(
+      { runId: 'r1', projectId: 'proj-a', chainId: 'c1', agentSlug: 'developer' },
+      { emitEvents: false },
+    );
+    await DynamicWorkerSpawnManager.controlWorker({
+      projectId: 'proj-a',
+      agentSlug: 'developer',
+      action: 'pause',
+      runId: 'ctl-1',
+      chainId: 'control',
+      emitEvents: false,
+    });
+
+    await expect(
+      DynamicWorkerSpawnManager.ensureWorker(
+        { runId: 'r2', projectId: 'proj-a', chainId: 'c2', agentSlug: 'developer' },
+        { emitEvents: false },
+      ),
+    ).rejects.toThrow('worker_paused');
+
+    await DynamicWorkerSpawnManager.controlWorker({
+      projectId: 'proj-a',
+      agentSlug: 'developer',
+      action: 'resume',
+      runId: 'ctl-2',
+      chainId: 'control',
+      emitEvents: false,
+    });
+
+    const resumed = await DynamicWorkerSpawnManager.ensureWorker(
+      { runId: 'r3', projectId: 'proj-a', chainId: 'c3', agentSlug: 'developer' },
+      { emitEvents: false },
+    );
+    expect(resumed.worker.state).toBe('active');
+  });
+
+  it('restart creates new worker instance id', async () => {
+    const first = await DynamicWorkerSpawnManager.ensureWorker(
+      { runId: 'r1', projectId: 'proj-a', chainId: 'c1', agentSlug: 'developer' },
+      { emitEvents: false },
+    );
+    const restarted = await DynamicWorkerSpawnManager.controlWorker({
+      projectId: 'proj-a',
+      agentSlug: 'developer',
+      action: 'restart',
+      runId: 'ctl-3',
+      chainId: 'control',
+      emitEvents: false,
+    });
+    expect(restarted.ok).toBe(true);
+    if (restarted.ok) {
+      expect(restarted.worker?.workerId).toBeTruthy();
+      expect(restarted.worker?.workerId).not.toBe(first.worker.workerId);
+    }
+  });
+
+  it('blocks worker allocation when project is paused and allows after resume', async () => {
+    DynamicWorkerSpawnManager.setProjectPaused('proj-a', true);
+    await expect(
+      DynamicWorkerSpawnManager.ensureWorker(
+        { runId: 'r11', projectId: 'proj-a', chainId: 'c11', agentSlug: 'developer' },
+        { emitEvents: false },
+      ),
+    ).rejects.toThrow('project_paused');
+
+    DynamicWorkerSpawnManager.setProjectPaused('proj-a', false);
+    const lease = await DynamicWorkerSpawnManager.ensureWorker(
+      { runId: 'r12', projectId: 'proj-a', chainId: 'c12', agentSlug: 'developer' },
+      { emitEvents: false },
+    );
+    expect(lease.worker.projectId).toBe('proj-a');
+  });
 });

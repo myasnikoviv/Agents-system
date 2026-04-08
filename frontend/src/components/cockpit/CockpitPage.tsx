@@ -103,6 +103,7 @@ interface WorkerHealthRow {
     heartbeatFreshness: 'fresh' | 'stale' | 'dead';
     heartbeatAgeMs: number;
     lastHeartbeatAt: number;
+    isPaused?: boolean;
     assignedTask?: {
         taskId: string;
         stageId?: string;
@@ -268,7 +269,13 @@ export function CockpitPage() {
         queuePressure: 0,
     });
     const [swarmWorkers, setSwarmWorkers] = useState<WorkerHealthRow[]>([]);
+    const [swarmRefreshNonce, setSwarmRefreshNonce] = useState(0);
+    const [workerControlPending, setWorkerControlPending] = useState<Record<string, string>>({});
     const [projectSwitchFeedback, setProjectSwitchFeedback] = useState<ProjectSwitchFeedback | null>(null);
+    const [queueControlPending, setQueueControlPending] = useState<Record<string, string>>({});
+    const [governanceControlPending, setGovernanceControlPending] = useState<Record<string, string>>({});
+    const [runtimeEnforcementPending, setRuntimeEnforcementPending] = useState<Record<string, string>>({});
+    const [swarmControlPending, setSwarmControlPending] = useState<Record<string, string>>({});
 
     const [selectedProvider, setSelectedProvider] = useState<RuntimeProvider>('claude-cli');
     const [selectedModel, setSelectedModel] = useState('auto');
@@ -335,6 +342,7 @@ export function CockpitPage() {
     const activeEvents = eventsByThread[activeThreadKey] || [];
     const agentRegistryRef = useRef<AgentRegistryEntry[]>([]);
     const previousProjectRef = useRef<string>('');
+    const requestSwarmRefresh = () => setSwarmRefreshNonce((prev) => prev + 1);
 
     const resolveAgentSlug = (rawRole: string): string => {
         const probe = String(rawRole || '').trim().toLowerCase();
@@ -399,6 +407,219 @@ export function CockpitPage() {
     const formatHeartbeatTimestamp = (ts: number): string => {
         if (!Number.isFinite(ts) || ts <= 0) return 'n/a';
         return new Date(ts).toLocaleTimeString();
+    };
+
+    const workerControlKey = (projectId: string, agentSlug: string, workerId: string) =>
+        `${projectId}:${agentSlug}:${workerId}`;
+
+    const invokeWorkerControl = async (input: {
+        projectId: string;
+        agentSlug?: string;
+        workerId?: string;
+        action: 'pause' | 'resume' | 'restart' | 'kill';
+    }) => {
+        const key = workerControlKey(input.projectId, input.agentSlug || 'unknown', input.workerId || 'unknown');
+        setWorkerControlPending((prev) => ({ ...prev, [key]: input.action }));
+        try {
+            const res = await fetch(apiUrl('/api/cockpit/swarm/workers/control'), {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(input),
+            });
+            const data = await res.json();
+            if (!res.ok || !data?.success) {
+                const message = String(data?.message || data?.error || `worker_control_failed:${res.status}`);
+                setProviderMessage(`Worker control failed: ${message}`);
+                return false;
+            }
+            if (Array.isArray(data.workers)) {
+                setSwarmWorkers(data.workers as WorkerHealthRow[]);
+            }
+            requestSwarmRefresh();
+            return true;
+        } catch (error: any) {
+            setProviderMessage(`Worker control failed: ${String(error?.message || 'network_error')}`);
+            return false;
+        } finally {
+            setWorkerControlPending((prev) => {
+                const next = { ...prev };
+                delete next[key];
+                return next;
+            });
+        }
+    };
+
+    const invokeQueueControl = async (input: { action: 'retry' | 'reassign' | 'cancel' | 'priority'; projectId: string; taskId: string; toAgentSlug?: string; priority?: number }) => {
+        const key = `${input.action}:${input.taskId}`;
+        setQueueControlPending((prev) => ({ ...prev, [key]: input.action }));
+        try {
+            const endpoint = input.action === 'retry'
+                ? '/api/cockpit/swarm/queue/retry'
+                : input.action === 'reassign'
+                    ? '/api/cockpit/swarm/queue/reassign'
+                    : input.action === 'cancel'
+                        ? '/api/cockpit/swarm/queue/cancel'
+                        : '/api/cockpit/swarm/queue/priority';
+            const body: Record<string, any> = {
+                projectId: input.projectId,
+                taskId: input.taskId,
+            };
+            if (input.action === 'reassign') body.toAgentSlug = input.toAgentSlug;
+            if (input.action === 'priority') body.priority = Number(input.priority ?? 0);
+            const res = await fetch(apiUrl(endpoint), {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body),
+            });
+            const data = await res.json();
+            if (!res.ok || !data?.success) {
+                setProviderMessage(String(data?.message || data?.error || 'Queue control failed'));
+                return false;
+            }
+            requestSwarmRefresh();
+            return true;
+        } catch (error: any) {
+            setProviderMessage(`Queue control failed: ${String(error?.message || 'network_error')}`);
+            return false;
+        } finally {
+            setQueueControlPending((prev) => {
+                const next = { ...prev };
+                delete next[key];
+                return next;
+            });
+        }
+    };
+
+    const invokeGovernanceControl = async (input: {
+        action: 'override' | 'force-loop';
+        projectId: string;
+        scope?: 'global' | 'phase' | 'rule';
+        reason?: string;
+        phase?: string;
+        ruleId?: string;
+        loopType?: 'improvement' | 'validation';
+    }) => {
+        const key = `${input.action}:${input.projectId}`;
+        setGovernanceControlPending((prev) => ({ ...prev, [key]: input.action }));
+        try {
+            const endpoint = input.action === 'override'
+                ? '/api/cockpit/governance/overrides'
+                : '/api/cockpit/governance/loops/force';
+            const body: Record<string, any> = { projectId: input.projectId };
+            if (input.action === 'override') {
+                body.scope = input.scope || 'global';
+                body.reason = input.reason || 'manual override from cockpit';
+                if (input.phase) body.phase = input.phase;
+                if (input.ruleId) body.ruleId = input.ruleId;
+                if (currentTicketId) body.ticketId = currentTicketId;
+                body.actorId = 'cockpit-user';
+            } else {
+                body.loopType = input.loopType || 'improvement';
+                body.runId = activeRunId || `${selectedThread || 'thread'}-${Date.now()}`;
+                body.chainId = selectedThread || 'manual-loop';
+            }
+            const res = await fetch(apiUrl(endpoint), {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body),
+            });
+            const data = await res.json();
+            if (!res.ok || !data?.success) {
+                setProviderMessage(String(data?.message || data?.error || 'Governance control failed'));
+                return false;
+            }
+            setProviderMessage(
+                input.action === 'override'
+                    ? `Override created: ${data?.override?.id || 'ok'}`
+                    : `Loop executed: ${data?.loopType || input.loopType || 'ok'}`,
+            );
+            requestSwarmRefresh();
+            return true;
+        } catch (error: any) {
+            setProviderMessage(`Governance control failed: ${String(error?.message || 'network_error')}`);
+            return false;
+        } finally {
+            setGovernanceControlPending((prev) => {
+                const next = { ...prev };
+                delete next[key];
+                return next;
+            });
+        }
+    };
+
+    const saveRuntimeEnforcement = async (input: {
+        projectId: string;
+        pipeline?: string;
+        skills?: string[];
+    }) => {
+        const key = `enforcement:${input.projectId}`;
+        setRuntimeEnforcementPending((prev) => ({ ...prev, [key]: 'saving' }));
+        try {
+            const res = await fetch(apiUrl('/api/cockpit/runtime/enforcement'), {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    projectId: input.projectId,
+                    pipeline: input.pipeline || '',
+                    skills: input.skills || [],
+                }),
+            });
+            const data = await res.json();
+            if (!res.ok || !data?.success) {
+                setProviderMessage(String(data?.message || data?.error || 'Failed to save enforcement profile'));
+                return false;
+            }
+            setProviderMessage('Runtime enforcement profile saved.');
+            return true;
+        } catch (error: any) {
+            setProviderMessage(`Failed to save enforcement profile: ${String(error?.message || 'network_error')}`);
+            return false;
+        } finally {
+            setRuntimeEnforcementPending((prev) => {
+                const next = { ...prev };
+                delete next[key];
+                return next;
+            });
+        }
+    };
+
+    const invokeSwarmControl = async (input: {
+        kind: 'bulk' | 'project';
+        action: string;
+        projectId: string;
+    }) => {
+        const key = `${input.kind}:${input.action}:${input.projectId}`;
+        setSwarmControlPending((prev) => ({ ...prev, [key]: input.action }));
+        try {
+            const endpoint = input.kind === 'bulk'
+                ? '/api/cockpit/swarm/workers/bulk'
+                : '/api/cockpit/swarm/projects/control';
+            const res = await fetch(apiUrl(endpoint), {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ projectId: input.projectId, action: input.action }),
+            });
+            const data = await res.json();
+            if (!res.ok || !data?.success) {
+                setProviderMessage(String(data?.message || data?.error || 'Swarm control failed'));
+                return false;
+            }
+            if (Array.isArray(data.workers)) {
+                setSwarmWorkers(data.workers as WorkerHealthRow[]);
+            }
+            setProviderMessage(`Swarm control executed: ${input.action}`);
+            requestSwarmRefresh();
+            return true;
+        } catch (error: any) {
+            setProviderMessage(`Swarm control failed: ${String(error?.message || 'network_error')}`);
+            return false;
+        } finally {
+            setSwarmControlPending((prev) => {
+                const next = { ...prev };
+                delete next[key];
+                return next;
+            });
+        }
     };
 
     const agentStatusRows = useMemo<AgentRuntimeStatus[]>(() => {
@@ -803,21 +1024,32 @@ export function CockpitPage() {
         }
     }, [voiceLang]);
 
-    const sseInitialized = useRef(false);
-
     useEffect(() => {
-        if (sseInitialized.current) return;
-        sseInitialized.current = true;
-
+        let source: EventSource | null = null;
+        let reconnectTimer: number | null = null;
+        let closed = false;
+        let reconnectAttempt = 0;
         const url = apiUrl('/api/events/stream');
-        const source = new EventSource(url);
 
-        source.onopen = () => {
-            console.log('[SSE] Connected to', url);
+        const scheduleReconnect = () => {
+            if (closed) return;
+            const delayMs = Math.min(15000, 1000 * (2 ** Math.min(reconnectAttempt, 4)));
+            reconnectAttempt += 1;
+            reconnectTimer = window.setTimeout(() => {
+                reconnectTimer = null;
+                connect();
+            }, delayMs);
         };
 
-        source.onmessage = (e) => {
-            try {
+        const connect = () => {
+            if (closed) return;
+            source = new EventSource(url);
+            source.onopen = () => {
+                reconnectAttempt = 0;
+                console.log('[SSE] Connected to', url);
+            };
+            source.onmessage = (e) => {
+                try {
                 const data = JSON.parse(e.data) as CanonicalSseEvent;
                 if (data.type === 'connected') return;
                 const event = normalizeSseEvent(data);
@@ -840,6 +1072,17 @@ export function CockpitPage() {
 
                 const eventType = String(event.event_type || '').trim();
                 const isHandoffEvent = eventType === 'swarm_handoff' || eventType === 'swarm.handoff';
+                if (
+                    eventType.startsWith('worker.') ||
+                    eventType.startsWith('swarm.') ||
+                    eventType.startsWith('run.') ||
+                    eventType === 'stage.started' ||
+                    eventType === 'stage.failed' ||
+                    eventType === 'agent.started' ||
+                    eventType === 'agent.completed'
+                ) {
+                    requestSwarmRefresh();
+                }
                 const roleLabel = String(event.agent_role || 'system').trim();
                 const payloadAgentSlug = String(event.payload?.agentSlug || '').trim();
                 const resolvedSlug = payloadAgentSlug || resolveAgentSlug(roleLabel);
@@ -1030,21 +1273,30 @@ export function CockpitPage() {
                     }
                 }
 
-            } catch (err) {
-                console.error('SSE Error parsing data:', err);
-            }
+                } catch (err) {
+                    console.error('SSE Error parsing data:', err);
+                }
+            };
+
+            source.onerror = (err) => {
+                console.error('SSE connection error:', err);
+                if (source) {
+                    source.close();
+                    source = null;
+                }
+                scheduleReconnect();
+            };
         };
 
-        source.onerror = (err) => {
-            console.error('SSE connection error:', err);
-            source.close();
-            sseInitialized.current = false;
-        };
+        connect();
 
         return () => {
+            closed = true;
+            if (reconnectTimer !== null) {
+                window.clearTimeout(reconnectTimer);
+            }
             console.log('[SSE] Closing connection');
-            source.close();
-            sseInitialized.current = false;
+            if (source) source.close();
         };
     }, []);
 
@@ -1196,6 +1448,8 @@ export function CockpitPage() {
                     const status: AgentLiveStatus =
                         worker.heartbeatFreshness === 'dead' || worker.enabled === false
                             ? 'unavailable'
+                            : worker.isPaused
+                                ? 'standby'
                             : worker.executionState === 'active'
                                 ? 'active'
                                 : 'standby';
@@ -1232,7 +1486,7 @@ export function CockpitPage() {
             cancelled = true;
             window.clearInterval(timer);
         };
-    }, [selectedProject, selectedThread, currentThreadId]);
+    }, [selectedProject, selectedThread, currentThreadId, swarmRefreshNonce]);
 
     useEffect(() => {
         let cancelled = false;
@@ -1256,7 +1510,7 @@ export function CockpitPage() {
             cancelled = true;
             window.clearInterval(timer);
         };
-    }, [selectedProject]);
+    }, [selectedProject, swarmRefreshNonce]);
 
     useEffect(() => {
         const loadProviders = async () => {
@@ -2767,6 +3021,137 @@ export function CockpitPage() {
                                         </span>
                                     </>
                                 )}
+                                <div className="flex items-center gap-1 mt-2">
+                                    <button
+                                        disabled={!selectedProject || Boolean(governanceControlPending[`override:${selectedProject}`])}
+                                        className="px-2 py-0.5 rounded text-[0.72rem] border border-orange-500/40 text-orange-300 hover:bg-orange-500/10 disabled:opacity-50"
+                                        onClick={() => {
+                                            if (!selectedProject) return;
+                                            const confirmStart = window.confirm('Create manual governance override?');
+                                            if (!confirmStart) return;
+                                            const reason = window.prompt('Override reason:', 'manual gate override from cockpit');
+                                            if (!reason || !reason.trim()) return;
+                                            const scopeRaw = window.prompt('Scope: global | phase | rule', 'global') || 'global';
+                                            const scope = (scopeRaw.trim().toLowerCase() as 'global' | 'phase' | 'rule');
+                                            let phase: string | undefined;
+                                            let ruleId: string | undefined;
+                                            if (scope === 'phase') {
+                                                phase = window.prompt('Phase (e.g. BEFORE_RUN, AFTER_STEP, AFTER_RUN):', 'BEFORE_RUN') || '';
+                                            }
+                                            if (scope === 'rule') {
+                                                ruleId = window.prompt('Rule ID (e.g. git_preflight, postflight_evidence):', 'git_preflight') || '';
+                                            }
+                                            void invokeGovernanceControl({
+                                                action: 'override',
+                                                projectId: selectedProject,
+                                                scope,
+                                                reason: reason.trim(),
+                                                ...(phase ? { phase: phase.trim() } : {}),
+                                                ...(ruleId ? { ruleId: ruleId.trim() } : {}),
+                                            });
+                                        }}
+                                    >
+                                        Gate Override
+                                    </button>
+                                    <button
+                                        disabled={!selectedProject || Boolean(governanceControlPending[`force-loop:${selectedProject}`])}
+                                        className="px-2 py-0.5 rounded text-[0.72rem] border border-cyan-500/40 text-cyan-300 hover:bg-cyan-500/10 disabled:opacity-50"
+                                        onClick={() => {
+                                            if (!selectedProject) return;
+                                            const loopRaw = window.prompt('Loop type: improvement | validation', 'improvement') || 'improvement';
+                                            const loopType = loopRaw.trim().toLowerCase() === 'validation' ? 'validation' : 'improvement';
+                                            void invokeGovernanceControl({
+                                                action: 'force-loop',
+                                                projectId: selectedProject,
+                                                loopType,
+                                            });
+                                        }}
+                                    >
+                                        Force Loop
+                                    </button>
+                                    <button
+                                        disabled={!selectedProject || Boolean(runtimeEnforcementPending[`enforcement:${selectedProject}`])}
+                                        className="px-2 py-0.5 rounded text-[0.72rem] border border-fuchsia-500/40 text-fuchsia-300 hover:bg-fuchsia-500/10 disabled:opacity-50"
+                                        onClick={() => {
+                                            if (!selectedProject) return;
+                                            const pipeline = window.prompt('Forced pipeline (empty to clear):', 'new-feature') || '';
+                                            const skillsRaw = window.prompt('Forced skills CSV (e.g. engineering/repo-navigation,engineering/test-generation):', '');
+                                            const skills = String(skillsRaw || '')
+                                                .split(',')
+                                                .map((x) => x.trim())
+                                                .filter(Boolean);
+                                            void saveRuntimeEnforcement({
+                                                projectId: selectedProject,
+                                                ...(pipeline.trim() ? { pipeline: pipeline.trim() } : {}),
+                                                ...(skills.length > 0 ? { skills } : {}),
+                                            });
+                                        }}
+                                    >
+                                        Enforce Route
+                                    </button>
+                                    <button
+                                        disabled={!selectedProject || Boolean(swarmControlPending[`bulk:pause_all:${selectedProject}`])}
+                                        className="px-2 py-0.5 rounded text-[0.72rem] border border-amber-500/40 text-amber-300 hover:bg-amber-500/10 disabled:opacity-50"
+                                        onClick={() => {
+                                            if (!selectedProject) return;
+                                            void invokeSwarmControl({ kind: 'bulk', action: 'pause_all', projectId: selectedProject });
+                                        }}
+                                    >
+                                        Pause All
+                                    </button>
+                                    <button
+                                        disabled={!selectedProject || Boolean(swarmControlPending[`bulk:restart_group:${selectedProject}`])}
+                                        className="px-2 py-0.5 rounded text-[0.72rem] border border-sky-500/40 text-sky-300 hover:bg-sky-500/10 disabled:opacity-50"
+                                        onClick={() => {
+                                            if (!selectedProject) return;
+                                            void invokeSwarmControl({ kind: 'bulk', action: 'restart_group', projectId: selectedProject });
+                                        }}
+                                    >
+                                        Restart Group
+                                    </button>
+                                    <button
+                                        disabled={!selectedProject || Boolean(swarmControlPending[`bulk:kill_all:${selectedProject}`])}
+                                        className="px-2 py-0.5 rounded text-[0.72rem] border border-red-500/40 text-red-300 hover:bg-red-500/10 disabled:opacity-50"
+                                        onClick={() => {
+                                            if (!selectedProject) return;
+                                            const ok = window.confirm('Kill all workers in project?');
+                                            if (!ok) return;
+                                            void invokeSwarmControl({ kind: 'bulk', action: 'kill_all', projectId: selectedProject });
+                                        }}
+                                    >
+                                        Kill All
+                                    </button>
+                                    <button
+                                        disabled={!selectedProject || Boolean(swarmControlPending[`project:pause_project:${selectedProject}`])}
+                                        className="px-2 py-0.5 rounded text-[0.72rem] border border-orange-500/40 text-orange-300 hover:bg-orange-500/10 disabled:opacity-50"
+                                        onClick={() => {
+                                            if (!selectedProject) return;
+                                            void invokeSwarmControl({ kind: 'project', action: 'pause_project', projectId: selectedProject });
+                                        }}
+                                    >
+                                        Pause Project
+                                    </button>
+                                    <button
+                                        disabled={!selectedProject || Boolean(swarmControlPending[`project:resume_project:${selectedProject}`])}
+                                        className="px-2 py-0.5 rounded text-[0.72rem] border border-emerald-500/40 text-emerald-300 hover:bg-emerald-500/10 disabled:opacity-50"
+                                        onClick={() => {
+                                            if (!selectedProject) return;
+                                            void invokeSwarmControl({ kind: 'project', action: 'resume_project', projectId: selectedProject });
+                                        }}
+                                    >
+                                        Resume Project
+                                    </button>
+                                    <button
+                                        disabled={!selectedProject || Boolean(swarmControlPending[`project:clear_queue:${selectedProject}`])}
+                                        className="px-2 py-0.5 rounded text-[0.72rem] border border-violet-500/40 text-violet-300 hover:bg-violet-500/10 disabled:opacity-50"
+                                        onClick={() => {
+                                            if (!selectedProject) return;
+                                            void invokeSwarmControl({ kind: 'project', action: 'clear_queue', projectId: selectedProject });
+                                        }}
+                                    >
+                                        Clear Queue
+                                    </button>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -2810,12 +3195,28 @@ export function CockpitPage() {
                                                         ? 'border-emerald-500/40 text-emerald-400 hover:bg-emerald-500/10'
                                                         : 'border-amber-500/40 text-amber-400 hover:bg-amber-500/10'
                                                 }`}
-                                                onClick={() => {
+                                                onClick={async () => {
+                                                    if (!selectedProject) {
+                                                        setProviderMessage('Worker control requires a selected project.');
+                                                        return;
+                                                    }
+                                                    const targetWorker = projectScopedWorkers.find((w) => w.agentSlug === row.slug);
+                                                    if (!targetWorker) {
+                                                        setProviderMessage(`No worker found for agent ${row.slug} in current project.`);
+                                                        return;
+                                                    }
+                                                    const action = row.isPaused ? 'resume' : 'pause';
+                                                    const ok = await invokeWorkerControl({
+                                                        projectId: selectedProject,
+                                                        agentSlug: row.slug,
+                                                        workerId: targetWorker.workerId,
+                                                        action,
+                                                    });
+                                                    if (!ok) return;
                                                     setAgentRuntime((prev) => ({
                                                         ...prev,
                                                         [row.slug]: { ...prev[row.slug], isPaused: !row.isPaused },
                                                     }));
-                                                    alert(`${row.isPaused ? 'Resuming' : 'Pausing'} agent: ${row.callsign || row.slug}\n(Mock — backend hook pending)`);
                                                 }}
                                             >
                                                 {row.isPaused ? 'Resume' : 'Pause'}
@@ -2867,6 +3268,7 @@ export function CockpitPage() {
                                                 <span>project: {worker.projectId || 'n/a'}</span>
                                                 <span className={availabilityClass}>availability: {worker.availabilityState}</span>
                                                 <span className={executionClass}>execution: {worker.executionState}</span>
+                                                <span>paused: {worker.isPaused ? 'yes' : 'no'}</span>
                                                 <span>lifecycle: {worker.rawLifecycleState}</span>
                                                 <span className={healthClass}>health: {healthLabel}</span>
                                                 <span className={heartbeatClass}>heartbeat: {worker.heartbeatFreshness}</span>
@@ -2874,6 +3276,60 @@ export function CockpitPage() {
                                                 <span>heartbeat ts: {formatHeartbeatTimestamp(Number(worker.lastHeartbeatAt || 0))}</span>
                                                 <span>task: {assignedTask}</span>
                                                 <span>stage: {assignedStage}</span>
+                                            </div>
+                                            <div className="flex items-center gap-1 ml-2">
+                                                {(() => {
+                                                    const key = workerControlKey(worker.projectId, worker.agentSlug, worker.workerId);
+                                                    const pendingAction = workerControlPending[key];
+                                                    const disabled = Boolean(pendingAction);
+                                                    const isActive = worker.executionState === 'active' && !worker.isPaused;
+                                                    return (
+                                                        <>
+                                                            <button
+                                                                disabled={disabled || !worker.enabled}
+                                                                className="px-2 py-0.5 rounded text-[0.72rem] border border-amber-500/40 text-amber-300 hover:bg-amber-500/10 disabled:opacity-50"
+                                                                onClick={() => void invokeWorkerControl({
+                                                                    projectId: worker.projectId,
+                                                                    agentSlug: worker.agentSlug,
+                                                                    workerId: worker.workerId,
+                                                                    action: isActive ? 'pause' : 'resume',
+                                                                })}
+                                                            >
+                                                                {disabled && (pendingAction === 'pause' || pendingAction === 'resume')
+                                                                    ? '...'
+                                                                    : isActive ? 'Pause' : 'Resume'}
+                                                            </button>
+                                                            <button
+                                                                disabled={disabled}
+                                                                className="px-2 py-0.5 rounded text-[0.72rem] border border-sky-500/40 text-sky-300 hover:bg-sky-500/10 disabled:opacity-50"
+                                                                onClick={() => void invokeWorkerControl({
+                                                                    projectId: worker.projectId,
+                                                                    agentSlug: worker.agentSlug,
+                                                                    workerId: worker.workerId,
+                                                                    action: 'restart',
+                                                                })}
+                                                            >
+                                                                {disabled && pendingAction === 'restart' ? '...' : 'Restart'}
+                                                            </button>
+                                                            <button
+                                                                disabled={disabled}
+                                                                className="px-2 py-0.5 rounded text-[0.72rem] border border-red-500/40 text-red-300 hover:bg-red-500/10 disabled:opacity-50"
+                                                                onClick={() => {
+                                                                    const ok = window.confirm(`Kill worker ${worker.workerId}? This action is destructive.`);
+                                                                    if (!ok) return;
+                                                                    void invokeWorkerControl({
+                                                                        projectId: worker.projectId,
+                                                                        agentSlug: worker.agentSlug,
+                                                                        workerId: worker.workerId,
+                                                                        action: 'kill',
+                                                                    });
+                                                                }}
+                                                            >
+                                                                {disabled && pendingAction === 'kill' ? '...' : 'Kill'}
+                                                            </button>
+                                                        </>
+                                                    );
+                                                })()}
                                             </div>
                                         </div>
                                     );
@@ -2912,6 +3368,69 @@ export function CockpitPage() {
                                             <span>status: {task.status}</span>
                                             <span>agent: {task.agentSlug}</span>
                                             <span>updated: {new Date(task.updatedAt).toLocaleTimeString()}</span>
+                                        </div>
+                                        <div className="flex items-center gap-1 ml-2">
+                                            <button
+                                                disabled={Boolean(queueControlPending[`retry:${task.taskId}`]) || !selectedProject}
+                                                className="px-2 py-0.5 rounded text-[0.72rem] border border-emerald-500/40 text-emerald-300 hover:bg-emerald-500/10 disabled:opacity-50"
+                                                onClick={() => void invokeQueueControl({
+                                                    action: 'retry',
+                                                    projectId: selectedProject,
+                                                    taskId: task.taskId,
+                                                })}
+                                            >
+                                                Retry
+                                            </button>
+                                            <button
+                                                disabled={Boolean(queueControlPending[`cancel:${task.taskId}`]) || !selectedProject}
+                                                className="px-2 py-0.5 rounded text-[0.72rem] border border-red-500/40 text-red-300 hover:bg-red-500/10 disabled:opacity-50"
+                                                onClick={() => {
+                                                    const ok = window.confirm(`Cancel queued task ${task.taskId}?`);
+                                                    if (!ok) return;
+                                                    void invokeQueueControl({
+                                                        action: 'cancel',
+                                                        projectId: selectedProject,
+                                                        taskId: task.taskId,
+                                                    });
+                                                }}
+                                            >
+                                                Cancel
+                                            </button>
+                                            <button
+                                                disabled={Boolean(queueControlPending[`priority:${task.taskId}`]) || !selectedProject}
+                                                className="px-2 py-0.5 rounded text-[0.72rem] border border-amber-500/40 text-amber-300 hover:bg-amber-500/10 disabled:opacity-50"
+                                                onClick={() => {
+                                                    const nextPriority = window.prompt('Set numeric priority (-100..100). Higher means sooner:', '10');
+                                                    if (nextPriority === null) return;
+                                                    const parsed = Number(nextPriority);
+                                                    if (!Number.isFinite(parsed)) return;
+                                                    void invokeQueueControl({
+                                                        action: 'priority',
+                                                        projectId: selectedProject,
+                                                        taskId: task.taskId,
+                                                        priority: parsed,
+                                                    });
+                                                }}
+                                            >
+                                                Priority
+                                            </button>
+                                            <button
+                                                disabled={Boolean(queueControlPending[`reassign:${task.taskId}`]) || !selectedProject}
+                                                className="px-2 py-0.5 rounded text-[0.72rem] border border-violet-500/40 text-violet-300 hover:bg-violet-500/10 disabled:opacity-50"
+                                                onClick={() => {
+                                                    const nextAgent = window.prompt('Reassign to agent slug (e.g. developer, pm-orchestrator):', task.agentSlug || '');
+                                                    const cleaned = String(nextAgent || '').trim();
+                                                    if (!cleaned) return;
+                                                    void invokeQueueControl({
+                                                        action: 'reassign',
+                                                        projectId: selectedProject,
+                                                        taskId: task.taskId,
+                                                        toAgentSlug: cleaned,
+                                                    });
+                                                }}
+                                            >
+                                                Reassign
+                                            </button>
                                         </div>
                                     </div>
                                 ))

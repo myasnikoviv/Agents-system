@@ -149,8 +149,52 @@ export async function executeRuntimeRun(initialState: Partial<PilotState>): Prom
     message: userMessage,
     requestedPipeline: pipeline,
     requestedAgents: initialState.customAgents || [],
+    requestedSkills: (initialState as any).requestedSkills || [],
   });
   const executionPlan = buildExecutionPlan(analyzedPlan);
+  const enforcedPipeline = String((initialState as any).enforcement?.pipeline || '').trim();
+  const enforcedSkills = Array.isArray((initialState as any).enforcement?.skills)
+    ? ((initialState as any).enforcement.skills as string[]).map((s) => String(s || '').trim()).filter(Boolean)
+    : [];
+
+  if (enforcedPipeline && executionPlan.pipeline !== enforcedPipeline) {
+    logGovernance({
+      rule: 'required_pipeline_usage',
+      status: 'fail',
+      action: 'block',
+      ticket,
+      runId,
+      chainId,
+      detail: `enforced_pipeline_mismatch:expected=${enforcedPipeline};actual=${executionPlan.pipeline}`,
+    });
+    await emitGuardBlockEvent(
+      { runId, projectId, chainId },
+      { stage: 'compliance.before_execution', rule: 'required_pipeline_usage', reason: 'enforced_pipeline_mismatch' },
+    ).catch(() => undefined);
+    throw new Error(`[CompliancePhase:before_execution] blocked ticket=${ticket} reason=enforced_pipeline_mismatch`);
+  }
+
+  if (enforcedSkills.length > 0) {
+    const actualSkills = new Set((executionPlan.skills || []).map((s) => String(s || '').trim()));
+    const missingSkills = enforcedSkills.filter((s) => !actualSkills.has(s));
+    if (missingSkills.length > 0) {
+      logGovernance({
+        rule: 'required_agent_usage',
+        status: 'fail',
+        action: 'block',
+        ticket,
+        runId,
+        chainId,
+        detail: `enforced_skills_missing:${missingSkills.join(',')}`,
+      });
+      await emitGuardBlockEvent(
+        { runId, projectId, chainId },
+        { stage: 'compliance.before_execution', rule: 'required_agent_usage', reason: `enforced_skills_missing:${missingSkills.join(',')}` },
+      ).catch(() => undefined);
+      throw new Error(`[CompliancePhase:before_execution] blocked ticket=${ticket} reason=enforced_skills_missing`);
+    }
+  }
+
   const planRequired = Boolean(
     executionPlan.pipeline &&
       executionPlan.agents.length > 0 &&

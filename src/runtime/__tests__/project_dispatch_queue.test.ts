@@ -42,5 +42,122 @@ describe('ProjectDispatchQueue', () => {
     expect(picked?.taskId).toBe(queued.taskId);
     expect(ProjectDispatchQueue.depth('proj-a', 'developer')).toBe(0);
   });
-});
 
+  it('reassigns queued task to another agent with trace payload', () => {
+    const queued = ProjectDispatchQueue.enqueue({
+      runId: 'r4',
+      projectId: 'proj-a',
+      chainId: 'c4',
+      pipelineId: 'feature-change',
+      stageId: 'qa',
+      agentSlug: 'tdd-qa',
+      payload: { foo: 'bar' },
+    });
+    const reassigned = ProjectDispatchQueue.reassignTask({
+      projectId: 'proj-a',
+      taskId: queued.taskId,
+      toAgentSlug: 'developer',
+      actorId: 'tester',
+    });
+    expect(reassigned?.agentSlug).toBe('developer');
+    expect((reassigned?.payload as any)?.reassignedFromAgent).toBe('tdd-qa');
+    expect((reassigned?.payload as any)?.reassignedFromTaskId).toBe(queued.taskId);
+    expect(ProjectDispatchQueue.depth('proj-a', 'tdd-qa')).toBe(0);
+    expect(ProjectDispatchQueue.depth('proj-a', 'developer')).toBe(1);
+  });
+
+  it('retries task with incremented retry counter and link to original task', () => {
+    const queued = ProjectDispatchQueue.enqueue({
+      runId: 'r5',
+      projectId: 'proj-a',
+      chainId: 'c5',
+      pipelineId: 'bug-fix',
+      stageId: 'dev',
+      agentSlug: 'developer',
+      payload: { retryCount: 1 },
+    });
+    const retry = ProjectDispatchQueue.retryTask({
+      projectId: 'proj-a',
+      taskId: queued.taskId,
+      actorId: 'tester',
+    });
+    expect(retry?.agentSlug).toBe('developer');
+    expect((retry?.payload as any)?.retryCount).toBe(2);
+    expect((retry?.payload as any)?.retryOfTaskId).toBe(queued.taskId);
+    expect(ProjectDispatchQueue.depth('proj-a', 'developer')).toBe(2);
+  });
+
+  it('lists queued tasks in enqueue order', () => {
+    const first = ProjectDispatchQueue.enqueue({
+      runId: 'r6',
+      projectId: 'proj-a',
+      chainId: 'c6',
+      pipelineId: 'unified-task-intake',
+      stageId: '1',
+      agentSlug: 'pm-orchestrator',
+    });
+    const second = ProjectDispatchQueue.enqueue({
+      runId: 'r7',
+      projectId: 'proj-a',
+      chainId: 'c7',
+      pipelineId: 'unified-task-intake',
+      stageId: '2',
+      agentSlug: 'developer',
+    });
+    const rows = ProjectDispatchQueue.listTasks('proj-a');
+    expect(rows.length).toBe(2);
+    expect(rows[0]?.taskId).toBe(first.taskId);
+    expect(rows[1]?.taskId).toBe(second.taskId);
+  });
+
+  it('cancels queued task and removes it from queue', () => {
+    const task = ProjectDispatchQueue.enqueue({
+      runId: 'r8',
+      projectId: 'proj-a',
+      chainId: 'c8',
+      pipelineId: 'feature-change',
+      stageId: 'dev',
+      agentSlug: 'developer',
+    });
+    const cancelled = ProjectDispatchQueue.cancelTask({
+      projectId: 'proj-a',
+      taskId: task.taskId,
+      actorId: 'tester',
+    });
+    expect(cancelled?.taskId).toBe(task.taskId);
+    expect((cancelled?.payload as any)?.status).toBe('cancelled');
+    expect(ProjectDispatchQueue.depth('proj-a', 'developer')).toBe(0);
+  });
+
+  it('overrides task priority and reorders dispatch deterministically', () => {
+    const low = ProjectDispatchQueue.enqueue({
+      runId: 'r9',
+      projectId: 'proj-a',
+      chainId: 'c9',
+      pipelineId: 'feature-change',
+      stageId: 'dev',
+      agentSlug: 'developer',
+      payload: { priority: 0 },
+    });
+    const high = ProjectDispatchQueue.enqueue({
+      runId: 'r10',
+      projectId: 'proj-a',
+      chainId: 'c10',
+      pipelineId: 'feature-change',
+      stageId: 'dev',
+      agentSlug: 'developer',
+      payload: { priority: 1 },
+    });
+    const raised = ProjectDispatchQueue.setTaskPriority({
+      projectId: 'proj-a',
+      taskId: low.taskId,
+      priority: 50,
+      actorId: 'tester',
+    });
+    expect((raised?.payload as any)?.priority).toBe(50);
+    const firstPickup = ProjectDispatchQueue.pickup('proj-a', 'developer');
+    expect(firstPickup?.taskId).toBe(low.taskId);
+    const secondPickup = ProjectDispatchQueue.pickup('proj-a', 'developer');
+    expect(secondPickup?.taskId).toBe(high.taskId);
+  });
+});
