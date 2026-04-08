@@ -11,7 +11,7 @@ interface GovernanceRuleRegistryFile {
 export interface GovernanceRuleHistoryEntry {
   id: string;
   ruleId: string;
-  action: 'create' | 'update' | 'disable';
+  action: 'create' | 'update' | 'disable' | 'delete';
   timestamp: string;
   actorId: string;
   before: GovernanceRule | null;
@@ -73,6 +73,14 @@ function readYamlRules(workspacePath?: string): GovernanceRule[] {
       throw error;
     }
     throw new GovernanceRegistryError(`governance_rule_registry_unreadable:${filePath}`);
+  }
+}
+
+function hasYamlRule(ruleId: string, workspacePath?: string): boolean {
+  try {
+    return readYamlRules(workspacePath).some((rule) => rule.id === ruleId);
+  } catch {
+    return false;
   }
 }
 
@@ -254,6 +262,39 @@ export function disableGovernanceRule(
     workspacePath,
   );
   return updated;
+}
+
+export function deleteGovernanceRule(
+  ruleId: string,
+  params?: { force?: boolean },
+  workspacePath?: string,
+): { deletedRuleId: string; removedFromPolicies: boolean } {
+  const current = loadGovernanceRules(workspacePath);
+  const hit = current.find((rule) => rule.id === ruleId);
+  if (!hit) {
+    throw new GovernanceRegistryError(`governance_rule_not_found:${ruleId}`);
+  }
+
+  if (hasYamlRule(ruleId, workspacePath)) {
+    throw new GovernanceRegistryError(`governance_rule_delete_forbidden_builtin:${ruleId}`);
+  }
+
+  const { findRulePolicyReferences, purgeRuleFromPolicies } = require('./ProjectPolicyBinding') as typeof import('./ProjectPolicyBinding');
+  const refs = findRulePolicyReferences(ruleId, workspacePath);
+  if (refs.length > 0 && !params?.force) {
+    throw new GovernanceRegistryError(`governance_rule_in_use:${ruleId}:${JSON.stringify(refs)}`);
+  }
+  if (params?.force && refs.length > 0) {
+    purgeRuleFromPolicies(ruleId, workspacePath);
+  }
+
+  const next = current.filter((rule) => rule.id !== ruleId);
+  writeCatalogRules(next, workspacePath);
+  appendRuleHistory(
+    { action: 'delete', ruleId, actorId: 'api-user', before: hit, after: hit },
+    workspacePath,
+  );
+  return { deletedRuleId: ruleId, removedFromPolicies: params?.force === true && refs.length > 0 };
 }
 
 export function listGovernanceRuleHistory(ruleId: string, workspacePath?: string): GovernanceRuleHistoryEntry[] {

@@ -3,6 +3,7 @@ import os from 'os';
 import path from 'path';
 import {
   createGovernanceRule,
+  deleteGovernanceRule,
   disableGovernanceRule,
   getRuleById,
   listGovernanceRuleHistory,
@@ -26,6 +27,29 @@ function mkWorkspace(): string {
       '    enabledByDefault: true',
       '',
     ].join('\n'),
+    'utf-8',
+  );
+  fs.writeFileSync(
+    path.join(root, 'docs/runtime/governance/project-policy.json'),
+    JSON.stringify(
+      {
+        defaultEnabledRules: ['git_preflight'],
+        projects: {
+          'proj-a': {
+            enabledRules: ['git_preflight', 'custom_quality_loop'],
+            disabledRules: [],
+            ruleOverrides: {
+              custom_quality_loop: {
+                evidence: ['docs/process/tests/<ticket>.md'],
+                thresholds: { maxRetries: 1 },
+              },
+            },
+          },
+        },
+      },
+      null,
+      2,
+    ),
     'utf-8',
   );
   return root;
@@ -78,5 +102,28 @@ describe('RuleRegistry lifecycle', () => {
     expect(history[0]?.action).toBe('disable');
     expect(history[1]?.action).toBe('update');
     expect(history[2]?.action).toBe('create');
+  });
+
+  it('blocks delete when referenced by project policy and allows force delete', () => {
+    const workspace = mkWorkspace();
+    createGovernanceRule(
+      {
+        id: 'custom_quality_loop',
+        triggerPhases: ['AFTER_RUN'],
+        evidence: ['docs/process/tests/<ticket>.md'],
+        evaluationType: 'deterministic',
+        deterministicCheck: 'postflight_report',
+        enforcementMode: 'soft',
+        enabledByDefault: true,
+      },
+      workspace,
+    );
+
+    expect(() => deleteGovernanceRule('custom_quality_loop', { force: false }, workspace)).toThrow(/governance_rule_in_use/);
+
+    const deleted = deleteGovernanceRule('custom_quality_loop', { force: true }, workspace);
+    expect(deleted.deletedRuleId).toBe('custom_quality_loop');
+    expect(deleted.removedFromPolicies).toBe(true);
+    expect(getRuleById('custom_quality_loop', workspace)).toBeUndefined();
   });
 });
