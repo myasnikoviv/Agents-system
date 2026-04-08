@@ -5,6 +5,7 @@ export type RuntimePathKey =
   | 'governanceLogsDir'
   | 'governanceRuleRegistryFile'
   | 'governanceRuleCatalogFile'
+  | 'governanceLoopCatalogFile'
   | 'governanceProjectPolicyFile'
   | 'governanceExecutionPolicyFile'
   | 'processPreflightsDir'
@@ -22,6 +23,7 @@ const DEFAULT_PATHS: Record<RuntimePathKey, string> = {
   governanceLogsDir: 'docs/runtime/governance/logs',
   governanceRuleRegistryFile: 'docs/runtime/governance/rule-registry.yaml',
   governanceRuleCatalogFile: 'docs/runtime/governance/rule-catalog.json',
+  governanceLoopCatalogFile: 'docs/runtime/governance/loop-catalog.json',
   governanceProjectPolicyFile: 'docs/runtime/governance/project-policy.json',
   governanceExecutionPolicyFile: 'docs/runtime/governance/execution-policy.json',
   processPreflightsDir: 'docs/process/git/preflights',
