@@ -370,6 +370,11 @@ export function CockpitPage() {
         return compact;
     };
 
+    const formatHeartbeatTimestamp = (ts: number): string => {
+        if (!Number.isFinite(ts) || ts <= 0) return 'n/a';
+        return new Date(ts).toLocaleTimeString();
+    };
+
     const agentStatusRows = useMemo<AgentRuntimeStatus[]>(() => {
         return agentRegistry.map((agent) => {
             const current = agentRuntime[agent.slug];
@@ -2460,6 +2465,9 @@ export function CockpitPage() {
                             <div className="catalog-title">Runtime Summary</div>
                             <div className="catalog-section">
                                 <span className={statusBadgeClass(status)}>{status || 'idle'}</span>
+                                <span className={swarmSummary.activeWorkers >= 2 ? 'text-emerald-400' : 'text-slate-300'}>
+                                    Parallel execution: {swarmSummary.activeWorkers >= 2 ? 'on' : 'off'}
+                                </span>
                                 <span>Active thread: {selectedThread || 'n/a'}</span>
                                 <span>Ticket: {currentTicketId || 'n/a'}</span>
                                 <span>Branch: {gitContext?.activeBranch || runtimeFooter.activeBranch || 'n/a'}</span>
@@ -2534,6 +2542,18 @@ export function CockpitPage() {
                                             : worker.heartbeatFreshness === 'stale'
                                                 ? 'text-amber-300'
                                                 : 'text-red-400';
+                                    const healthLabel =
+                                        worker.heartbeatFreshness === 'dead'
+                                            ? 'dead'
+                                            : worker.heartbeatFreshness === 'stale'
+                                                ? 'degraded'
+                                                : 'healthy';
+                                    const healthClass =
+                                        healthLabel === 'healthy'
+                                            ? 'text-emerald-400'
+                                            : healthLabel === 'degraded'
+                                                ? 'text-amber-300'
+                                                : 'text-red-400';
                                     const assignedTask = worker.assignedTask?.taskId || 'n/a';
                                     const assignedStage = worker.assignedTask?.stageId || 'n/a';
                                     return (
@@ -2548,8 +2568,10 @@ export function CockpitPage() {
                                                 <span className={availabilityClass}>availability: {worker.availabilityState}</span>
                                                 <span className={executionClass}>execution: {worker.executionState}</span>
                                                 <span>lifecycle: {worker.rawLifecycleState}</span>
+                                                <span className={healthClass}>health: {healthLabel}</span>
                                                 <span className={heartbeatClass}>heartbeat: {worker.heartbeatFreshness}</span>
                                                 <span>last heartbeat: {Math.max(0, Math.floor(worker.heartbeatAgeMs / 1000))}s ago</span>
+                                                <span>heartbeat ts: {formatHeartbeatTimestamp(Number(worker.lastHeartbeatAt || 0))}</span>
                                                 <span>task: {assignedTask}</span>
                                                 <span>stage: {assignedStage}</span>
                                             </div>
