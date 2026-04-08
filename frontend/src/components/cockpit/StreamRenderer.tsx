@@ -1,21 +1,31 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Wrench, GitBranch, TerminalSquare, AlertTriangle, CheckCircle2, ChevronRight, ChevronDown, Activity, Brain, MessageSquare, ChevronsDownUp, ChevronsUpDown } from 'lucide-react';
+import { Wrench, GitBranch, TerminalSquare, AlertTriangle, CheckCircle2, ChevronRight, ChevronDown, Activity, Brain, MessageSquare, ChevronsDownUp, ChevronsUpDown, Cpu } from 'lucide-react';
 import { ArtifactRenderer } from './ArtifactRenderer';
 
 export interface RuntimeEvent {
-    event_id: string;
-    event_type: string;
-    timestamp: string;
+    event_id?: string;
+    id?: string;
+    event_type?: string;
+    type?: string;
+    timestamp: string | number;
     pipeline_run_id?: string;
-    agent_role: string;
-    source_stage: string;
+    runId?: string;
+    chainId?: string;
+    actor?: {
+        type?: 'agent' | 'system';
+        id?: string;
+        role?: string;
+    };
+    agent_role?: string;
+    source_stage?: string;
     target_stage?: string;
-    status: string;
-    plane_issue_id: string;
+    status?: string;
+    plane_issue_id?: string;
     thread_id?: string;
     payload?: {
         pipelineId?: string;
         stageId?: string;
+        stageTitle?: string;
         nextStageId?: string;
         fromStageId?: string;
         toStageId?: string;
@@ -23,12 +33,14 @@ export interface RuntimeEvent {
         fromAgentTitle?: string;
         toAgentId?: string;
         toAgentTitle?: string;
+        toStageTitle?: string;
         outcome?: string;
         tool?: string;
         summary?: string;
         message?: string;
         content?: string;
         errors?: string[];
+        detail?: string;
     };
 }
 
@@ -39,23 +51,43 @@ interface StreamEventCardProps {
 }
 
 const ALLOWED_TYPES = [
+    'tool.call',
+    'tool.result',
     'tool.called',
     'stage.started',
     'swarm_handoff',
     'swarm.handoff',
+    'agent.started',
+    'agent.completed',
+    'run.started',
+    'run.completed',
+    'run.failed',
+    'run.cancelled',
+    'guard.block',
+    'guard.escalate',
+    'guard.retry',
     'contract_reprompt',
     'contract_fail',
     'contract_pass',
     'system.thought',
     'agent.message',
-    'governance.rule_check'
+    'governance.rule_check',
+    'worker.starting',
+    'worker.spawned',
+    'worker.reused',
+    'worker.heartbeat',
+    'worker.state_changed',
+    'worker.failed',
+    'worker.unhealthy',
+    'task.queued',
+    'task.dispatched'
 ];
 
 // Types that have a body and should start expanded
 const DEFAULT_EXPANDED_TYPES = ['system.thought', 'agent.message', 'contract_fail'];
 
 const StreamEventCard: React.FC<StreamEventCardProps> = ({ event, index, forceExpanded }) => {
-    const eventType = String(event.event_type || '').trim();
+    const eventType = String(event.event_type || event.type || '').trim();
     const isHandoff = eventType === 'swarm_handoff' || eventType === 'swarm.handoff';
     if (!ALLOWED_TYPES.includes(eventType)) {
         return null;
@@ -82,7 +114,7 @@ const StreamEventCard: React.FC<StreamEventCardProps> = ({ event, index, forceEx
         }
     }, [forceExpanded]);
 
-    const roleLabel = String(event.agent_role || 'system').trim();
+    const roleLabel = String(event.agent_role || event.actor?.role || event.actor?.id || 'system').trim();
     const timeFormatted = event.timestamp ? new Date(event.timestamp).toLocaleTimeString() : '';
     
     let title = '';
@@ -91,8 +123,8 @@ const StreamEventCard: React.FC<StreamEventCardProps> = ({ event, index, forceEx
     let iconColorClass = 'text-slate-400';
     let containerClass = 'border border-white/10 rounded-md bg-slate-900/40 overflow-hidden text-sm';
 
-    if (eventType === 'stage.started') {
-        const stageLabel = String(event.payload?.stageId || event.source_stage || 'n/a').trim();
+    if (eventType === 'stage.started' || eventType === 'agent.started') {
+        const stageLabel = String(event.payload?.stageTitle || event.payload?.stageId || event.source_stage || 'n/a').trim();
         title = `Agent ${roleLabel} started stage: ${stageLabel}`;
         icon = <TerminalSquare size={14} />;
         iconColorClass = 'text-purple-500';
@@ -100,12 +132,12 @@ const StreamEventCard: React.FC<StreamEventCardProps> = ({ event, index, forceEx
     } else if (isHandoff) {
         const fromAgent = String(event.payload?.fromAgentTitle || event.payload?.fromAgentId || 'unknown').trim();
         const toAgent = String(event.payload?.toAgentTitle || event.payload?.toAgentId || roleLabel || 'unknown').trim();
-        const toStage = String(event.payload?.toStageId || event.payload?.stageId || event.source_stage || 'n/a').trim();
+        const toStage = String(event.payload?.toStageTitle || event.payload?.toStageId || event.payload?.stageTitle || event.payload?.stageId || event.source_stage || 'n/a').trim();
         title = `Handoff: ${fromAgent} \u2192 ${toAgent} (stage: ${toStage})`;
         icon = <GitBranch size={14} />;
         iconColorClass = 'text-amber-400';
         containerClass = 'border border-amber-500/30 rounded-md bg-amber-500/10 overflow-hidden text-sm text-amber-200';
-    } else if (eventType === 'tool.called') {
+    } else if (eventType === 'tool.called' || eventType === 'tool.call') {
         const tool = String(event.payload?.tool || 'tool').trim();
         const summary = String(event.payload?.summary || '').trim();
         title = `Tool execution: ${tool} by ${roleLabel}`;
@@ -113,6 +145,12 @@ const StreamEventCard: React.FC<StreamEventCardProps> = ({ event, index, forceEx
         icon = <Wrench size={14} />;
         iconColorClass = 'text-blue-500';
         containerClass = 'border border-blue-500/20 rounded-md bg-slate-950/80 overflow-hidden text-sm font-mono';
+    } else if (eventType === 'tool.result') {
+        title = `Tool result: ${roleLabel}`;
+        bodyText = String(event.payload?.summary || event.payload?.content || '(No details available)').trim();
+        icon = <Wrench size={14} />;
+        iconColorClass = 'text-blue-300';
+        containerClass = 'border border-blue-500/20 rounded-md bg-slate-900/50 overflow-hidden text-sm';
     } else if (eventType === 'contract_reprompt') {
         title = `Contract Guard: ${roleLabel} is reformatting response`;
         icon = <AlertTriangle size={14} />;
@@ -152,6 +190,55 @@ const StreamEventCard: React.FC<StreamEventCardProps> = ({ event, index, forceEx
         icon = <CheckCircle2 size={14} />;
         iconColorClass = 'text-emerald-400';
         containerClass = 'border border-emerald-500/20 rounded-md bg-emerald-950/20 overflow-hidden text-sm text-emerald-100';
+    } else if (eventType === 'worker.starting' || eventType === 'worker.spawned' || eventType === 'worker.reused') {
+        const workerId = String(event.payload?.workerId || '').trim();
+        const state = String(event.payload?.state || '').trim();
+        title = `${eventType}: ${String(event.payload?.agentSlug || roleLabel || 'worker').trim()}`;
+        bodyText = [workerId ? `workerId: ${workerId}` : '', state ? `state: ${state}` : ''].filter(Boolean).join('\n');
+        icon = <Cpu size={14} />;
+        iconColorClass = 'text-cyan-400';
+        containerClass = 'border border-cyan-500/20 rounded-md bg-cyan-950/20 overflow-hidden text-sm text-cyan-100';
+    } else if (eventType === 'worker.heartbeat' || eventType === 'worker.state_changed') {
+        const from = String(event.payload?.from || '').trim();
+        const to = String(event.payload?.to || '').trim();
+        const hb = String(event.payload?.heartbeatCount || '').trim();
+        title = `${eventType}: ${String(event.payload?.agentSlug || roleLabel || 'worker').trim()}`;
+        bodyText = [from && to ? `transition: ${from} -> ${to}` : '', hb ? `heartbeatCount: ${hb}` : ''].filter(Boolean).join('\n') || '(No details available)';
+        icon = <Activity size={14} />;
+        iconColorClass = 'text-indigo-400';
+        containerClass = 'border border-indigo-500/20 rounded-md bg-indigo-950/20 overflow-hidden text-sm text-indigo-100';
+    } else if (eventType === 'task.queued' || eventType === 'task.dispatched') {
+        title = `${eventType}: ${String(event.payload?.agentSlug || roleLabel || 'agent').trim()}`;
+        bodyText = [
+            `taskId: ${String(event.payload?.taskId || 'n/a').trim()}`,
+            `stage: ${String(event.payload?.stageId || 'n/a').trim()}`,
+            event.payload?.queueDepth !== undefined ? `queueDepth: ${String(event.payload?.queueDepth)}` : '',
+            event.payload?.queueDepthAfterPickup !== undefined ? `queueDepthAfterPickup: ${String(event.payload?.queueDepthAfterPickup)}` : '',
+        ].filter(Boolean).join('\n');
+        icon = <GitBranch size={14} />;
+        iconColorClass = 'text-fuchsia-400';
+        containerClass = 'border border-fuchsia-500/20 rounded-md bg-fuchsia-950/20 overflow-hidden text-sm text-fuchsia-100';
+    } else if (eventType === 'agent.completed' || eventType === 'run.completed') {
+        const stageLabel = String(event.payload?.stageTitle || event.payload?.stageId || event.source_stage || '').trim();
+        title = eventType === 'run.completed'
+            ? 'Run completed'
+            : `Agent ${roleLabel} completed${stageLabel ? `: ${stageLabel}` : ''}`;
+        bodyText = String(event.payload?.summary || event.payload?.message || '').trim();
+        icon = <CheckCircle2 size={14} />;
+        iconColorClass = 'text-emerald-500';
+        containerClass = 'border border-emerald-500/20 rounded-md bg-emerald-950/20 overflow-hidden text-sm text-emerald-100';
+    } else if (eventType === 'run.failed' || eventType === 'guard.block' || eventType === 'guard.escalate') {
+        title = eventType === 'run.failed' ? 'Run failed' : `Guard event: ${eventType}`;
+        bodyText = String(event.payload?.detail || event.payload?.message || event.payload?.reason || '(No details available)').trim();
+        icon = <AlertTriangle size={14} />;
+        iconColorClass = 'text-red-500';
+        containerClass = 'border border-red-500/20 rounded-md bg-red-950/30 overflow-hidden text-sm text-red-100';
+    } else if (eventType === 'run.cancelled') {
+        title = 'Run cancelled';
+        bodyText = String(event.payload?.reason || '(No details available)').trim();
+        icon = <AlertTriangle size={14} />;
+        iconColorClass = 'text-amber-500';
+        containerClass = 'border border-amber-500/20 rounded-md bg-amber-950/20 overflow-hidden text-sm text-amber-100';
     }
 
     const hasBody = !!bodyText;
@@ -203,7 +290,9 @@ export const StreamRenderer: React.FC<StreamRendererProps> = ({ events }) => {
 
     if (!events || events.length === 0) return null;
 
-    const visibleEvents = events.filter(e => ALLOWED_TYPES.includes(String(e.event_type || '').trim()));
+    const visibleEvents = events.filter((e) =>
+        ALLOWED_TYPES.includes(String(e.event_type || e.type || '').trim())
+    );
     if (visibleEvents.length === 0) return null;
 
     return (
@@ -228,9 +317,9 @@ export const StreamRenderer: React.FC<StreamRendererProps> = ({ events }) => {
                     Collapse All
                 </button>
             </div>
-            {events.map((event, i) => (
+            {visibleEvents.map((event, i) => (
                 <StreamEventCard
-                    key={event.event_id || `ev-${i}`}
+                    key={event.event_id || event.id || `ev-${i}`}
                     event={event}
                     index={i}
                     forceExpanded={allExpanded}

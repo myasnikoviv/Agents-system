@@ -1,0 +1,67 @@
+{
+  "generatedAt": "2026-04-08T12:58:58.200Z",
+  "baseUrl": "http://127.0.0.1:3001",
+  "pass": true,
+  "cases": [
+    {
+      "case": "chat-smoke-hello-linear",
+      "ticketId": "AGSYS-5100",
+      "threadId": "thread_chat_flow_smoke_hello_linear_1775652578081",
+      "runId": "cc6d42a8-00e5-42bf-8ece-1dacffe0e149",
+      "responseStatus": "completed",
+      "approvalsUsed": 1,
+      "pipeline": "unified-task-intake",
+      "modeRequested": "linear",
+      "modeApplied": "linear",
+      "engine": "pilot-unified-graph",
+      "gitContext": null,
+      "threadMessages": 2,
+      "hasAgentReply": true
+    },
+    {
+      "case": "chat-smoke-intake-linear",
+      "ticketId": "AGSYS-5110",
+      "threadId": "thread_chat_flow_smoke_intake_linear_1775652578081",
+      "runId": "53c9ab08-eb01-4fc6-9137-fcd442a344a7",
+      "responseStatus": "completed",
+      "approvalsUsed": 1,
+      "pipeline": "unified-task-intake",
+      "modeRequested": "linear",
+      "modeApplied": "linear",
+      "engine": "pilot-unified-graph",
+      "gitContext": null,
+      "threadMessages": 2,
+      "hasAgentReply": true
+    },
+    {
+      "case": "chat-smoke-hello-multiple_agents",
+      "ticketId": "AGSYS-5101",
+      "threadId": "thread_chat_flow_smoke_hello_multiple_agents_1775652578081",
+      "runId": "d9781ba5-d016-4924-98f1-c0f76211c2cc",
+      "responseStatus": "completed",
+      "approvalsUsed": 1,
+      "pipeline": "unified-task-intake",
+      "modeRequested": "multiple_agents",
+      "modeApplied": "multiple_agents",
+      "engine": "pilot-unified-graph",
+      "gitContext": null,
+      "threadMessages": 2,
+      "hasAgentReply": true
+    },
+    {
+      "case": "chat-smoke-intake-multiple_agents",
+      "ticketId": "AGSYS-5111",
+      "threadId": "thread_chat_flow_smoke_intake_multiple_agents_1775652578081",
+      "runId": "023b5881-3c9b-4f73-a660-8dad33a03ab8",
+      "responseStatus": "completed",
+      "approvalsUsed": 1,
+      "pipeline": "unified-task-intake",
+      "modeRequested": "multiple_agents",
+      "modeApplied": "multiple_agents",
+      "engine": "pilot-unified-graph",
+      "gitContext": null,
+      "threadMessages": 2,
+      "hasAgentReply": true
+    }
+  ]
+}

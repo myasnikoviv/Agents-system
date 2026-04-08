@@ -1,6 +1,9 @@
 import axios from 'axios';
 import { ExternalExecutionInput, ExternalExecutionResult } from './ExternalExecutionAdapter';
 import { getCockpitExecutorConfig } from './CockpitExecutorConfig';
+import fs from 'fs';
+import path from 'path';
+import { randomUUID } from 'crypto';
 
 export interface OpenHandsConversationResponse {
   conversation_id: string;
@@ -109,8 +112,29 @@ export class OpenHandsExecutionProvider {
       ) || '';
   }
 
+  private writeDiagnostics(traceId: string, event: Record<string, unknown>): void {
+    const enabled = String(process.env.OPENHANDS_DIAGNOSTICS_ENABLED || 'true').toLowerCase() !== 'false';
+    if (!enabled) return;
+    const root = process.env.OPENHANDS_DIAGNOSTICS_DIR
+      || path.resolve(process.cwd(), 'docs/process/runs/openhands-diagnostics');
+    const day = new Date().toISOString().slice(0, 10);
+    const filePath = path.join(root, `trace-${day}.jsonl`);
+    const row = JSON.stringify({
+      ts: new Date().toISOString(),
+      traceId,
+      ...event,
+    });
+    try {
+      fs.mkdirSync(root, { recursive: true });
+      fs.appendFileSync(filePath, `${row}\n`, 'utf-8');
+    } catch {
+      // Do not fail execution because of diagnostics write issues.
+    }
+  }
+
   async runTask(input: ExternalExecutionInput): Promise<ExternalExecutionResult> {
     const startedAt = Date.now();
+    const traceId = randomUUID();
     const cfg = getCockpitExecutorConfig();
     const model = input.model || cfg.openhands.model || 'anthropic/claude-sonnet-4-6';
     const provider = this.getProviderFromModel(model);
@@ -135,6 +159,22 @@ export class OpenHandsExecutionProvider {
       defaultMaxPollAttempts,
     );
     const requestTimeoutMs = this.parsePositiveInt(process.env.OPENHANDS_REQUEST_TIMEOUT_MS, 10000);
+    const promptChars = String(input.prompt || '').length;
+    const approxPromptTokens = Math.ceil(promptChars / 4);
+    this.writeDiagnostics(traceId, {
+      phase: 'start',
+      provider,
+      model,
+      serverUrl: this.serverUrl,
+      timeoutMs: requestedTimeoutMs,
+      requestTimeoutMs,
+      pollIntervalMs,
+      maxPollAttempts,
+      retries: maxRunRetries,
+      promptChars,
+      approxPromptTokens,
+      cwd: input.cwd || process.cwd(),
+    });
 
     const keyTeaser = apiKey.length > 8 ? `${apiKey.slice(0, 4)}...${apiKey.slice(-4)}` : '***';
     console.log(`[OpenHandsExecutionProvider] Running task with provider=${provider}, model=${model}, apiKey=${keyTeaser}, retries=${maxRunRetries}`);
@@ -142,6 +182,7 @@ export class OpenHandsExecutionProvider {
     let lastError = 'OpenHands execution failed';
     let lastConversationId = '';
     for (let runAttempt = 1; runAttempt <= maxRunRetries; runAttempt++) {
+      this.writeDiagnostics(traceId, { phase: 'attempt_start', runAttempt });
       try {
         const convResponse = await axios.post(`${this.serverUrl}/api/conversations`, {
           agent: {
@@ -167,9 +208,16 @@ export class OpenHandsExecutionProvider {
 
         const conversationId = String(convResponse.data?.conversation_id || '').trim();
         lastConversationId = conversationId;
+        this.writeDiagnostics(traceId, {
+          phase: 'conversation_created',
+          runAttempt,
+          conversationId,
+          httpStatus: convResponse.status,
+        });
 
         let isRunning = true;
         let status = 'running';
+        let previousStatus = '';
         let statusAttempts = 0;
         let latestStatusPayload: any = null;
 
@@ -179,6 +227,17 @@ export class OpenHandsExecutionProvider {
           const statusRes = await axios.get(`${this.serverUrl}/api/conversations/${conversationId}`, { timeout: requestTimeoutMs });
           latestStatusPayload = statusRes.data;
           status = String(statusRes.data?.execution_status || '').trim() || 'unknown';
+          if (status !== previousStatus || statusAttempts === 1 || statusAttempts % 10 === 0) {
+            this.writeDiagnostics(traceId, {
+              phase: 'status_poll',
+              runAttempt,
+              conversationId,
+              status,
+              statusAttempts,
+              httpStatus: statusRes.status,
+            });
+            previousStatus = status;
+          }
           if (status !== 'running' && status !== 'pending') {
             isRunning = false;
           }
@@ -216,6 +275,15 @@ export class OpenHandsExecutionProvider {
 
         const ok = status === 'finished' || status === 'completed';
         if (ok) {
+          this.writeDiagnostics(traceId, {
+            phase: 'attempt_success',
+            runAttempt,
+            conversationId,
+            status,
+            statusAttempts,
+            eventsCount: events.length,
+            durationMs: Date.now() - startedAt,
+          });
           return {
             ok: true,
             executor: 'openhands-sdk' as any,
@@ -232,6 +300,15 @@ export class OpenHandsExecutionProvider {
           : `OpenHands reported execution status=${status}`;
         const combinedError = `${statusFailureText}${statusErrorText ? ` | details=${statusErrorText}` : ''}`;
         lastError = combinedError;
+        this.writeDiagnostics(traceId, {
+          phase: 'attempt_failed',
+          runAttempt,
+          conversationId,
+          status,
+          statusAttempts,
+          eventsCount: events.length,
+          error: combinedError,
+        });
         const emptyErrorStatus = status === 'error' && !String(statusErrorText || '').trim();
         const retryableErrorStatus = status === 'error' || status === 'failed';
         const retry =
@@ -251,6 +328,12 @@ export class OpenHandsExecutionProvider {
 
         const delayMs = this.backoffDelayMs(runAttempt, backoffBaseMs, backoffMaxMs);
         console.warn(`[OpenHandsExecutionProvider] attempt ${runAttempt}/${maxRunRetries} failed; retrying in ${delayMs}ms: ${combinedError}`);
+        this.writeDiagnostics(traceId, {
+          phase: 'retry_scheduled',
+          runAttempt,
+          delayMs,
+          error: combinedError,
+        });
         await this.sleep(delayMs);
       } catch (error: any) {
         const statusCode = Number(error?.response?.status);
@@ -260,8 +343,21 @@ export class OpenHandsExecutionProvider {
           error?.message ||
           'OpenHands server communication failed';
         lastError = String(errMsg);
+        this.writeDiagnostics(traceId, {
+          phase: 'attempt_exception',
+          runAttempt,
+          statusCode: Number.isFinite(statusCode) ? statusCode : null,
+          error: lastError,
+          conversationId: lastConversationId || null,
+        });
         const retry = runAttempt < maxRunRetries && this.shouldRetry(lastError, Number.isFinite(statusCode) ? statusCode : undefined);
         if (!retry) {
+          this.writeDiagnostics(traceId, {
+            phase: 'attempt_exception_final',
+            runAttempt,
+            error: lastError,
+            durationMs: Date.now() - startedAt,
+          });
           return {
             ok: false,
             executor: 'openhands-sdk' as any,
@@ -274,10 +370,23 @@ export class OpenHandsExecutionProvider {
         }
         const delayMs = this.backoffDelayMs(runAttempt, backoffBaseMs, backoffMaxMs);
         console.warn(`[OpenHandsExecutionProvider] attempt ${runAttempt}/${maxRunRetries} transport error; retrying in ${delayMs}ms (status=${statusCode || 'n/a'}): ${lastError}`);
+        this.writeDiagnostics(traceId, {
+          phase: 'retry_scheduled_exception',
+          runAttempt,
+          delayMs,
+          statusCode: Number.isFinite(statusCode) ? statusCode : null,
+          error: lastError,
+        });
         await this.sleep(delayMs);
       }
     }
 
+    this.writeDiagnostics(traceId, {
+      phase: 'final_failure',
+      error: lastError,
+      conversationId: lastConversationId || null,
+      durationMs: Date.now() - startedAt,
+    });
     return {
       ok: false,
       executor: 'openhands-sdk' as any,

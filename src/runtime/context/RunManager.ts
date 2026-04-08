@@ -36,6 +36,23 @@ export class RunManager {
   }
 
   /**
+   * Returns currently active run id for thread, if any.
+   */
+  static getActiveRunId(threadId: string): string | null {
+    return this.activeRuns.get(threadId) || null;
+  }
+
+  /**
+   * Cancels active run for a thread.
+   */
+  static cancelThreadRun(threadId: string, reason: string): { cancelled: boolean; runId: string | null } {
+    const runId = this.activeRuns.get(threadId) || null;
+    if (!runId) return { cancelled: false, runId: null };
+    this.cancelRun(runId, reason);
+    return { cancelled: true, runId };
+  }
+
+  /**
    * Returns true if the run has been cancelled.
    */
   static isCancelled(runId: string): boolean {
@@ -60,5 +77,9 @@ export class RunManager {
     }
     // We keep it in cancelledRuns for a short while or just clean up
     this.cancelledRuns.delete(runId);
+    // Clear guardrail counters/timers to avoid stale memory growth.
+    import('../guards/Guardrails')
+      .then(({ Guardrails }) => Guardrails.clear(runId))
+      .catch(() => undefined);
   }
 }

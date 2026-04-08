@@ -30,6 +30,15 @@ const KNOWN_EVENT_TYPES = new Set<string>([
   'agent.waiting_for_approval',
   'governance.rule_check',
   'run.failed',
+  'worker.starting',
+  'worker.spawned',
+  'worker.reused',
+  'worker.failed',
+  'worker.state_changed',
+  'worker.heartbeat',
+  'worker.unhealthy',
+  'task.queued',
+  'task.dispatched',
 ]);
 
 function validateCanonicalEventInput(event: Omit<RuntimeEvent, 'id' | 'timestamp'>): void {

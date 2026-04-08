@@ -3,6 +3,7 @@ import { TaskPackage } from '../pm/models/pm-types';
 import { ToolDiscoveryService } from '../ToolDiscoveryService';
 import { BlackboardService } from '../BlackboardService';
 import { DetectedLanguage } from '../LanguageDetection';
+import { assertWorkerProjectIsolation, buildAgentIdentity } from '../identity/AgentIdentity';
 
 export type ResponseMode = 'handoff' | 'final' | 'clarify' | 'tool_call';
 
@@ -67,6 +68,9 @@ export interface RunContext {
     instructions: string;
     skills: string[]; // Added for telemetry
     handoffPolicy?: string;
+    workerId?: string;
+    identityKey?: string;
+    memoryNamespace?: string;
   };
 
   workPackage?: TaskPackage; // Added for autonomous execution (Sprint 4)
@@ -144,11 +148,21 @@ export class RunContextAssembler {
       throw new Error(`Stage ${effectiveStageId} not found in pipeline ${pipeline.slug}`);
     }
 
+    const agentIdentity = buildAgentIdentity({
+      projectId: projectContext?.projectId || process.env.ACTIVE_PROJECT_ID || 'default',
+      agentSlug: agent.slug,
+      workerId: memory.workerId,
+    });
+    const isolation = assertWorkerProjectIsolation(agentIdentity);
+    if (!isolation.ok) {
+      throw new Error(`RunContextAssembler identity isolation failed: ${isolation.reason}`);
+    }
+
     const ctx: RunContext = {
       runId: memory.runId || `run_${Date.now()}`,
       threadId: memory.threadId || 'default-thread',
       chainId: memory.threadId || 'default-thread',
-      projectId: projectContext?.projectId || process.env.ACTIVE_PROJECT_ID || 'default',
+      projectId: agentIdentity.projectId,
       workspacePath: projectContext?.workspacePath || process.cwd(),
       
       workPackage: memory.workPackage, // Hydrated from memory/blackboard
@@ -180,7 +194,10 @@ export class RunContextAssembler {
         mission: agent.mission || 'Execute assigned task strictly.',
         instructions: agent.instructions || '',
         skills: agent.skills || [],
-        handoffPolicy: 'standard'
+        handoffPolicy: 'standard',
+        workerId: agentIdentity.workerId,
+        identityKey: agentIdentity.identityKey,
+        memoryNamespace: agentIdentity.memoryNamespace,
       },
 
       artifacts: {

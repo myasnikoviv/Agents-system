@@ -1,5 +1,5 @@
 import React, { useMemo, useState, useEffect, useRef } from 'react';
-import { Mic, Send, Cpu, Activity, LayoutDashboard, Terminal, Settings, PanelLeftClose, PanelLeftOpen, Globe2, ChevronDown, Plus, PencilLine, Folder, FolderPlus, Laptop, ShieldCheck, GitBranch, RefreshCw, Trash2 } from 'lucide-react';
+import { Mic, Send, Square, Cpu, Activity, LayoutDashboard, Terminal, Settings, PanelLeftClose, PanelLeftOpen, Globe2, ChevronDown, Plus, PencilLine, Folder, FolderPlus, Laptop, ShieldCheck, GitBranch, RefreshCw, Trash2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { ArtifactRenderer } from './ArtifactRenderer';
 import { apiUrl, fetchJsonSafe } from '../../lib/http';
@@ -34,6 +34,17 @@ interface RuntimeFooterState {
     activeBranch?: string;
     worktreePath?: string;
     preflightToken?: string | null;
+}
+interface CanonicalSseEvent {
+    id?: string;
+    type?: string;
+    runId?: string;
+    chainId?: string;
+    projectId?: string;
+    timestamp?: number | string;
+    actor?: { id?: string; role?: string };
+    payload?: Record<string, any>;
+    [key: string]: any;
 }
 
 interface CatalogState {
@@ -78,6 +89,31 @@ interface AgentRuntimeStatus {
     lastUpdated: string;
     delegatedFrom?: string | null;
     isPaused?: boolean;
+}
+interface WorkerHealthRow {
+    projectId: string;
+    agentSlug: string;
+    workerId: string;
+    enabled: boolean;
+    availabilityState: 'hot' | 'cold';
+    executionState: 'active' | 'standby';
+    rawLifecycleState: string;
+    heartbeatFreshness: 'fresh' | 'stale' | 'dead';
+    heartbeatAgeMs: number;
+    lastHeartbeatAt: number;
+    assignedTask?: {
+        taskId: string;
+        stageId?: string;
+        pipelineId?: string;
+        runId: string;
+    } | null;
+}
+interface SwarmSummaryState {
+    workersTotal: number;
+    activeWorkers: number;
+    standbyWorkers: number;
+    unhealthyWorkers: number;
+    queuePressure: number;
 }
 interface PersistedThreadMessage {
     id: string;
@@ -186,11 +222,19 @@ export function CockpitPage() {
     const [currentThreadId, setCurrentThreadId] = useState<string | null>(null);
     const [currentTicketId, setCurrentTicketId] = useState<string | null>(null);
     const [status, setStatus] = useState<string>('idle');
+    const [activeRunId, setActiveRunId] = useState<string | null>(null);
     const [observability, setObservability] = useState<ObservabilityState | null>(null);
     const [gitContext, setGitContext] = useState<GitContext | null>(null);
     const [catalog, setCatalog] = useState<CatalogState>({ agents: [], pipelines: [], skills: [] });
     const [agentRegistry, setAgentRegistry] = useState<AgentRegistryEntry[]>([]);
     const [agentRuntime, setAgentRuntime] = useState<Record<string, AgentRuntimeStatus>>({});
+    const [swarmSummary, setSwarmSummary] = useState<SwarmSummaryState>({
+        workersTotal: 0,
+        activeWorkers: 0,
+        standbyWorkers: 0,
+        unhealthyWorkers: 0,
+        queuePressure: 0,
+    });
 
     const [selectedProvider, setSelectedProvider] = useState<RuntimeProvider>('claude-cli');
     const [selectedModel, setSelectedModel] = useState('auto');
@@ -330,12 +374,22 @@ export function CockpitPage() {
         const text = String(content || '').trim();
         if (!text) return;
         const key = threadId && threadId.trim().length > 0 ? threadId : activeThreadKeyRef.current;
+        const nowTs = (timestamp || new Date()).getTime();
         setMessagesByThread((prev) => {
             const existing = prev[key] || [];
             const last = existing[existing.length - 1];
             if (last && last.role === 'agent' && String(last.content || '').trim() === text) {
                 return prev;
             }
+            // Drop near-duplicate telemetry chatter within recent window.
+            const duplicateRecent = existing
+                .slice(-8)
+                .some((msg) =>
+                    msg.role === 'agent' &&
+                    String(msg.content || '').trim() === text &&
+                    Math.abs(nowTs - new Date(msg.timestamp).getTime()) <= 15000
+                );
+            if (duplicateRecent) return prev;
             return {
                 ...prev,
                 [key]: [
@@ -349,6 +403,32 @@ export function CockpitPage() {
                 ],
             };
         });
+    };
+
+    const normalizeSseEvent = (raw: CanonicalSseEvent): RuntimeEvent => {
+        const timestamp = raw?.timestamp ?? Date.now();
+        const timestampIso = typeof timestamp === 'number'
+            ? new Date(timestamp).toISOString()
+            : String(timestamp);
+        const payload = raw?.payload && typeof raw.payload === 'object' ? raw.payload : {};
+        return {
+            event_id: String(raw?.event_id || raw?.id || `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`),
+            event_type: String(raw?.event_type || raw?.type || '').trim(),
+            timestamp: timestampIso,
+            pipeline_run_id: String(raw?.pipeline_run_id || raw?.runId || ''),
+            runId: String(raw?.runId || ''),
+            chainId: String(raw?.chainId || raw?.thread_id || ''),
+            agent_role: String(raw?.agent_role || raw?.actor?.role || raw?.actor?.id || 'system'),
+            actor: raw?.actor || undefined,
+            source_stage: String(raw?.source_stage || payload.stageId || ''),
+            target_stage: String(raw?.target_stage || payload.nextStageId || ''),
+            status: String(raw?.status || payload.status || ''),
+            plane_issue_id: String(raw?.plane_issue_id || raw?.projectId || ''),
+            thread_id: String(raw?.thread_id || raw?.chainId || ''),
+            payload,
+            type: String(raw?.type || ''),
+            id: String(raw?.id || ''),
+        };
     };
 
     // Auto-scroll refs
@@ -435,10 +515,10 @@ export function CockpitPage() {
 
         source.onmessage = (e) => {
             try {
-                const data = JSON.parse(e.data);
+                const data = JSON.parse(e.data) as CanonicalSseEvent;
                 if (data.type === 'connected') return;
-                const event = data as RuntimeEvent;
-                const threadKey = String(event.thread_id || '').trim() || '__global__';
+                const event = normalizeSseEvent(data);
+                const threadKey = String(event.thread_id || event.chainId || '').trim() || '__global__';
                 setEventsByThread((prev) => ({
                     ...prev,
                     [threadKey]: [...(prev[threadKey] || []), event].slice(-120),
@@ -447,7 +527,8 @@ export function CockpitPage() {
                 const eventType = String(event.event_type || '').trim();
                 const isHandoffEvent = eventType === 'swarm_handoff' || eventType === 'swarm.handoff';
                 const roleLabel = String(event.agent_role || 'system').trim();
-                const resolvedSlug = resolveAgentSlug(roleLabel);
+                const payloadAgentSlug = String(event.payload?.agentSlug || '').trim();
+                const resolvedSlug = payloadAgentSlug || resolveAgentSlug(roleLabel);
                 if (resolvedSlug && resolvedSlug !== 'system') {
                     setAgentRuntime((prev) => {
                         const display = resolveAgentDisplay(resolvedSlug);
@@ -466,19 +547,31 @@ export function CockpitPage() {
                         const status: AgentLiveStatus =
                             isHardFailure
                                 ? 'unavailable'
-                                : eventType === 'stage.started' || eventType === 'tool.called'
+                                : eventType === 'stage.started' || eventType === 'agent.started' || eventType === 'tool.called' || eventType === 'tool.call'
+                                    || eventType === 'worker.starting' || eventType === 'worker.spawned' || eventType === 'worker.reused'
                                     ? 'active'
-                                    : eventType === 'swarm_stage_completed' || eventType === 'run.completed'
+                                    : eventType === 'swarm_stage_completed' || eventType === 'agent.completed' || eventType === 'run.completed' || eventType === 'run.cancelled' || eventType === 'worker.state_changed'
                                         ? 'standby'
+                                        : eventType === 'worker.failed' || eventType === 'worker.unhealthy'
+                                            ? 'unavailable'
                                         : existing.status;
                         const currentStage =
                             String(event.payload?.stageId || event.source_stage || existing.currentStage || 'n/a').trim() || 'n/a';
                         let currentTask = existing.currentTask || 'n/a';
+                        const stageRaw = String(event.payload?.stageId || event.source_stage || '').trim();
+                        const stageTitleRaw = String(event.payload?.stageTitle || event.payload?.toStageTitle || '').trim();
+                        const stageLabel = stageTitleRaw || (/^\d+$/.test(stageRaw) ? `step #${stageRaw}` : (stageRaw || 'n/a'));
                         if (eventType === 'stage.started') {
-                            currentTask = `stage: ${currentStage}`;
-                        } else if (eventType === 'tool.called') {
+                            currentTask = `stage: ${stageLabel}`;
+                        } else if (eventType === 'agent.started') {
+                            currentTask = `stage: ${stageLabel}`;
+                        } else if (eventType === 'tool.called' || eventType === 'tool.call') {
                             currentTask = `tool: ${String(event.payload?.tool || 'tool').trim()}`;
-                        } else if (eventType === 'swarm_stage_completed' || eventType === 'run.completed') {
+                        } else if (eventType === 'worker.heartbeat') {
+                            currentTask = `heartbeat #${String(event.payload?.heartbeatCount || '?')}`;
+                        } else if (eventType === 'worker.failed') {
+                            currentTask = `failed: ${String(event.payload?.reason || 'runtime failure').trim()}`;
+                        } else if (eventType === 'swarm_stage_completed' || eventType === 'agent.completed' || eventType === 'run.completed' || eventType === 'run.cancelled') {
                             currentTask = 'n/a';
                         }
                         const currentIssue =
@@ -505,7 +598,27 @@ export function CockpitPage() {
                     });
                 }
 
-                const eventId = String(event.event_id || '').trim();
+                if (eventType === 'run.started') {
+                    setStatus('running');
+                    if (event.pipeline_run_id) setActiveRunId(String(event.pipeline_run_id));
+                }
+                if (eventType === 'run.cancelled') {
+                    setStatus('cancelled');
+                    setIsAwaitingAgentReply(false);
+                    setIsProcessing(false);
+                }
+                if (eventType === 'run.completed') {
+                    setStatus('completed');
+                    setIsAwaitingAgentReply(false);
+                    setIsProcessing(false);
+                }
+                if (eventType === 'run.failed') {
+                    setStatus('failed');
+                    setIsAwaitingAgentReply(false);
+                    setIsProcessing(false);
+                }
+
+                const eventId = String(event.event_id || event.id || '').trim();
                 const shouldPropagateToChat =
                     !!threadKey &&
                     threadKey !== '__global__' &&
@@ -514,17 +627,37 @@ export function CockpitPage() {
 
                 if (shouldPropagateToChat) {
                     let chatText: string | null = null;
+                    const stageRaw = String(event.payload?.stageId || event.source_stage || '').trim();
+                    const stageTitleRaw = String(event.payload?.stageTitle || event.payload?.toStageTitle || '').trim();
+                    const stageLabel = stageTitleRaw || (/^\d+$/.test(stageRaw) ? `step #${stageRaw}` : (stageRaw || 'n/a'));
                     if (eventType === 'swarm_stage_completed') {
                         const stageMessage = String(event.payload?.message || '').trim();
                         if (stageMessage) {
                             chatText = stageMessage;
                         } else {
-                            const stageLabel = String(event.payload?.stageId || event.source_stage || 'n/a').trim();
                             chatText = `Swarm update: **${roleLabel}** completed stage \`${stageLabel}\`.`;
                         }
+                    } else if (eventType === 'swarm.handoff') {
+                        const fromAgent = String(event.payload?.fromAgentTitle || event.payload?.fromAgentId || 'unknown').trim();
+                        const toAgent = String(event.payload?.toAgentTitle || event.payload?.toAgentId || 'unknown').trim();
+                        chatText = stageLabel && stageLabel !== 'n/a'
+                            ? `Handoff: \`${fromAgent}\` -> \`${toAgent}\` (next: \`${stageLabel}\`)`
+                            : `Handoff: \`${fromAgent}\` -> \`${toAgent}\``;
+                    } else if (eventType === 'agent.started') {
+                        chatText = `Agent **${roleLabel}** started \`${stageLabel}\`.`;
+                    } else if (eventType === 'agent.completed') {
+                        const outcome = String(event.payload?.outcome || '').trim();
+                        const summary = String(event.payload?.summary || '').trim();
+                        chatText = outcome
+                            ? `Agent **${roleLabel}** completed \`${stageLabel}\` with status \`${outcome}\`.${summary ? `\n\n${summary}` : ''}`
+                            : `Agent **${roleLabel}** completed \`${stageLabel}\`.${summary ? `\n\n${summary}` : ''}`;
+                    } else if (eventType === 'agent.message') {
+                        chatText = String(event.payload?.message || event.payload?.content || '').trim() || null;
+                    } else if (eventType === 'run.failed') {
+                        chatText = `Run failed: ${String(event.payload?.message || event.payload?.reason || 'unknown error')}`;
+                    } else if (eventType === 'run.cancelled') {
+                        chatText = `Run cancelled: ${String(event.payload?.reason || 'Cancelled by user')}`;
                     } else if (eventType === 'run.completed' && threadKey === activeThreadKeyRef.current) {
-                        setStatus('completed');
-                        setIsAwaitingAgentReply(false);
                         setAgentRuntime((prev) => {
                             const next = { ...prev };
                             for (const [slug, runtime] of Object.entries(next)) {
@@ -640,6 +773,90 @@ export function CockpitPage() {
         };
         void loadCatalog();
         void loadAgentRegistry();
+    }, [selectedProject]);
+
+    useEffect(() => {
+        let cancelled = false;
+        const pollWorkerHealth = async () => {
+            const projectQuery = selectedProject ? `?projectId=${encodeURIComponent(selectedProject)}` : '';
+            const data = await fetchJsonSafe<{ success?: boolean; workers?: WorkerHealthRow[] }>(
+                `/api/cockpit/swarm/workers${projectQuery}`,
+            );
+            if (cancelled || !data?.success || !Array.isArray(data.workers)) return;
+            setAgentRuntime((prev) => {
+                const next: Record<string, AgentRuntimeStatus> = { ...prev };
+                for (const worker of data.workers || []) {
+                    const slug = String(worker.agentSlug || '').trim();
+                    if (!slug) continue;
+                    const display = resolveAgentDisplay(slug);
+                    const existing = next[slug] || {
+                        slug,
+                        title: display.title,
+                        callsign: display.callsign,
+                        status: 'standby' as AgentLiveStatus,
+                        currentStage: 'n/a',
+                        currentTask: 'n/a',
+                        currentIssue: 'n/a',
+                        threadId: selectedThread || currentThreadId || 'n/a',
+                        lastUpdated: '',
+                    };
+                    const status: AgentLiveStatus =
+                        worker.heartbeatFreshness === 'dead' || worker.enabled === false
+                            ? 'unavailable'
+                            : worker.executionState === 'active'
+                                ? 'active'
+                                : 'standby';
+                    const hbSec = Math.max(0, Math.floor(Number(worker.heartbeatAgeMs || 0) / 1000));
+                    const taskLabel = worker.assignedTask?.stageId
+                        ? `${worker.assignedTask.stageId}`
+                        : worker.assignedTask?.taskId
+                            ? `${worker.assignedTask.taskId}`
+                            : '';
+                    next[slug] = {
+                        ...existing,
+                        title: display.title,
+                        callsign: display.callsign,
+                        status,
+                        currentTask: status === 'active'
+                            ? `worker:${worker.workerId} ${taskLabel ? `[${taskLabel}] ` : ''}(${hbSec}s ago)`
+                            : 'n/a',
+                        currentStage: String(worker.rawLifecycleState || existing.currentStage || 'n/a'),
+                        lastUpdated: new Date().toISOString(),
+                    };
+                }
+                return next;
+            });
+        };
+        void pollWorkerHealth();
+        const timer = window.setInterval(() => void pollWorkerHealth(), 3000);
+        return () => {
+            cancelled = true;
+            window.clearInterval(timer);
+        };
+    }, [selectedProject, selectedThread, currentThreadId]);
+
+    useEffect(() => {
+        let cancelled = false;
+        const pollSwarmSummary = async () => {
+            const projectQuery = selectedProject ? `?projectId=${encodeURIComponent(selectedProject)}` : '';
+            const data = await fetchJsonSafe<{ success?: boolean; summary?: SwarmSummaryState }>(
+                `/api/cockpit/swarm/summary${projectQuery}`,
+            );
+            if (cancelled || !data?.success || !data.summary) return;
+            setSwarmSummary({
+                workersTotal: Number(data.summary.workersTotal || 0),
+                activeWorkers: Number(data.summary.activeWorkers || 0),
+                standbyWorkers: Number(data.summary.standbyWorkers || 0),
+                unhealthyWorkers: Number(data.summary.unhealthyWorkers || 0),
+                queuePressure: Number(data.summary.queuePressure || 0),
+            });
+        };
+        void pollSwarmSummary();
+        const timer = window.setInterval(() => void pollSwarmSummary(), 3000);
+        return () => {
+            cancelled = true;
+            window.clearInterval(timer);
+        };
     }, [selectedProject]);
 
     useEffect(() => {
@@ -766,7 +983,7 @@ export function CockpitPage() {
     const handleSend = async () => {
         const hasText = input.trim().length > 0;
         const hasTokens = promptTokens.length > 0;
-        if ((!hasText && !hasTokens) || isProcessing) return;
+        if ((!hasText && !hasTokens) || isProcessing || isAwaitingAgentReply) return;
         
         const threadIdToUse = String(selectedThread || '').trim() || `thread_${Date.now()}`;
         if (!selectedThread) {
@@ -796,6 +1013,7 @@ export function CockpitPage() {
 
         setIsProcessing(true);
         setIsAwaitingAgentReply(true);
+        setStatus('running');
 
         try {
             const res = await fetch(apiUrl('/api/chat'), {
@@ -817,6 +1035,7 @@ export function CockpitPage() {
                     setCurrentThreadId(responseThreadId);
                     setSelectedThread(responseThreadId);
                 }
+                if (data.runId) setActiveRunId(String(data.runId));
                 setCurrentTicketId(data.ticketId || null);
                 setStatus(data.status);
                 if (data.observability) setObservability(data.observability);
@@ -852,6 +1071,7 @@ export function CockpitPage() {
         } catch (error) {
             console.error('Chat error:', error);
             setIsAwaitingAgentReply(false);
+            setStatus('failed');
             appendMessageToThread(threadIdToUse, {
                 id: `chat-error-${Date.now()}`,
                 role: 'agent',
@@ -860,6 +1080,33 @@ export function CockpitPage() {
             });
         } finally {
             setIsProcessing(false);
+        }
+    };
+
+    const handleStop = async () => {
+        const threadIdToCancel = String(selectedThread || currentThreadId || '').trim();
+        if (!threadIdToCancel && !activeRunId) return;
+        try {
+            await fetch(apiUrl('/api/chat/cancel'), {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    threadId: threadIdToCancel || undefined,
+                    runId: activeRunId || undefined,
+                    reason: 'Cancelled by user from cockpit',
+                }),
+            });
+            setStatus('cancelled');
+            setIsProcessing(false);
+            setIsAwaitingAgentReply(false);
+            appendMessageToThread(threadIdToCancel || activeThreadKeyRef.current, {
+                id: `chat-cancel-${Date.now()}`,
+                role: 'agent',
+                content: 'Run cancelled by user.',
+                timestamp: new Date(),
+            });
+        } catch (error) {
+            console.error('Cancel error:', error);
         }
     };
 
@@ -1681,6 +1928,7 @@ export function CockpitPage() {
                             className="task-textarea"
                             placeholder="Describe the feature, issue, or strategy idea..."
                             value={input}
+                            disabled={isProcessing || isAwaitingAgentReply}
                             onChange={e => {
                                 const value = e.target.value;
                                 const cursor = e.target.selectionStart ?? value.length;
@@ -1911,15 +2159,28 @@ export function CockpitPage() {
                                 >
                                     <Mic size={15} />
                                 </button>
-                                <button 
-                                    className="icon-btn icon-btn-codex-send"
-                                    onClick={handleSend}
-                                    disabled={(!input.trim() && promptTokens.length === 0) || isProcessing || isRecording}
-                                    aria-label="Send task"
-                                    title="Send task"
-                                >
-                                    <Send size={15} />
-                                </button>
+                                {isProcessing ? (
+                                    <button
+                                        className="icon-btn icon-btn-codex-send"
+                                        onClick={handleStop}
+                                        disabled={false}
+                                        aria-label="Stop run"
+                                        title="Stop run"
+                                        style={{ color: '#ef4444' }}
+                                    >
+                                        <Square size={14} />
+                                    </button>
+                                ) : (
+                                    <button 
+                                        className="icon-btn icon-btn-codex-send"
+                                        onClick={handleSend}
+                                        disabled={(!input.trim() && promptTokens.length === 0) || isRecording || isAwaitingAgentReply}
+                                        aria-label="Send task"
+                                        title="Send task"
+                                    >
+                                        <Send size={15} />
+                                    </button>
+                                )}
                             </div>
                         </div>
                         <input
@@ -2053,9 +2314,11 @@ export function CockpitPage() {
                             <div className="agent-info">
                                 <div className="agent-name">Swarm Controller</div>
                                 <div className="agent-activity">
-                                    {sortedAgentStatusRows.length > 0
-                                        ? `${sortedAgentStatusRows.filter((row) => row.status === 'active').length} active / ${sortedAgentStatusRows.length} total agents`
-                                        : 'No discovered agents yet'}
+                                    {swarmSummary.workersTotal > 0
+                                        ? `${swarmSummary.activeWorkers} active / ${swarmSummary.workersTotal} workers`
+                                        : sortedAgentStatusRows.length > 0
+                                            ? `${sortedAgentStatusRows.filter((row) => row.status === 'active').length} active / ${sortedAgentStatusRows.length} total agents`
+                                            : 'No discovered agents yet'}
                                 </div>
                             </div>
                         </div>
@@ -2068,6 +2331,8 @@ export function CockpitPage() {
                                 <span>Ticket: {currentTicketId || 'n/a'}</span>
                                 <span>Branch: {gitContext?.activeBranch || runtimeFooter.activeBranch || 'n/a'}</span>
                                 <span>Worktree: {gitContext?.worktreePath || runtimeFooter.worktreePath || 'n/a'}</span>
+                                <span>Queue pressure: {swarmSummary.queuePressure}</span>
+                                <span>Unhealthy workers: {swarmSummary.unhealthyWorkers}</span>
                             </div>
                         </div>
                     </div>
