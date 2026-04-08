@@ -1,13 +1,14 @@
 import { executeUnifiedSwarmRun, resumeUnifiedSwarmRun, type PilotState } from './UnifiedSwarmGraph';
 import { executeMultipleAgentsRun } from './MultipleAgentsRuntime';
 import { runGovernancePhase } from '../governance/GovernanceEngineCore';
-import { analyzeTaskForCompliance } from '../compliance/TaskAnalyzer';
-import { buildExecutionPlan } from '../compliance/ExecutionPlanBuilder';
 import { collectComplianceActualEvidence } from '../compliance/ComplianceEvidenceCollector';
 import { evaluateCompliance } from '../compliance/ComplianceEvaluator';
 import { applyComplianceEnforcement } from '../compliance/ComplianceEnforcementLoop';
 import { writeComplianceLedger } from '../compliance/ComplianceLedger';
 import { logGovernance } from '../governance/GovernanceLogger';
+import { buildPlannerDecision } from '../planner/PlannerEngine';
+import { resolveAdaptivePipelineRoute } from '../planner/AdaptivePipelineRouter';
+import { applyPerformanceFeedbackOrder, collectAgentPerformanceScores } from '../performance/PerformanceFeedback';
 import {
   collectRunCostMetrics,
   decideAdaptiveOptimization,
@@ -80,7 +81,8 @@ function buildMockFinalState(initialState: Partial<PilotState>) {
 export async function executeRuntimeRun(initialState: Partial<PilotState>): Promise<RuntimeExecutionResult> {
   const modeRequested = normalizeMode(initialState.executionOptions?.mode);
   const ticket = initialState.ticketId || 'AGSYS-UNKNOWN';
-  const pipeline = initialState.selected_pipeline || 'unified-task-intake';
+  const selectedPipeline = String(initialState.selected_pipeline || '').trim();
+  const enforcedPipeline = String((initialState as any).enforcement?.pipeline || '').trim();
   const runId = initialState.runId || `run-${Date.now()}`;
   const chainId = initialState.threadId || `thread-${Date.now()}`;
   const projectId = initialState.projectId || 'agent_system';
@@ -120,6 +122,32 @@ export async function executeRuntimeRun(initialState: Partial<PilotState>): Prom
     [...(initialState.messages || [])]
       .reverse()
       .find((m) => m.role === 'user')?.content || '';
+  const plannerDecision = buildPlannerDecision({
+    runId,
+    projectId,
+    ticketId: ticket,
+    message: userMessage,
+    requestedPipeline: selectedPipeline || undefined,
+    requestedAgents: initialState.customAgents || [],
+    requestedSkills: (initialState as any).requestedSkills || [],
+  });
+  const adaptiveRoute = await resolveAdaptivePipelineRoute({
+    enforcedPipeline,
+    selectedPipeline,
+    plannerPipeline: plannerDecision.pipeline,
+    message: userMessage,
+    workspacePath,
+  });
+  const pipeline = adaptiveRoute.pipeline;
+  logGovernance({
+    rule: 'adaptive_pipeline_router',
+    status: 'pass',
+    action: 'log',
+    ticket,
+    runId,
+    chainId,
+    detail: `pipeline=${pipeline};reason=${adaptiveRoute.reason}`,
+  });
 
   if (!hasStrictTicketContext(ticket)) {
     logGovernance({
@@ -142,17 +170,31 @@ export async function executeRuntimeRun(initialState: Partial<PilotState>): Prom
   const mutatingPipelines = ['new-feature', 'bug-fix', 'hotfix', 'refactor', 'strategy-tuning', 'release', 'rollback-incident'];
   const hasMutatingAction = mutatingPipelines.includes(pipeline) && modeRequested !== 'mock';
 
-  const analyzedPlan = analyzeTaskForCompliance({
+  const executionPlan = {
     runId,
     projectId,
     ticketId: ticket,
-    message: userMessage,
-    requestedPipeline: pipeline,
-    requestedAgents: initialState.customAgents || [],
-    requestedSkills: (initialState as any).requestedSkills || [],
+    pipeline,
+    agents: plannerDecision.agents,
+    skills: plannerDecision.skills,
+    stages: plannerDecision.stages,
+    source: plannerDecision.source,
+  };
+  const agentScoreRows = collectAgentPerformanceScores({
+    workspacePath,
+    projectId,
+    agentSlugs: executionPlan.agents,
   });
-  const executionPlan = buildExecutionPlan(analyzedPlan);
-  const enforcedPipeline = String((initialState as any).enforcement?.pipeline || '').trim();
+  executionPlan.agents = applyPerformanceFeedbackOrder(executionPlan.agents, agentScoreRows);
+  logGovernance({
+    rule: 'performance_score_feedback',
+    status: 'pass',
+    action: 'log',
+    ticket,
+    runId,
+    chainId,
+    detail: `agents_ordered=${executionPlan.agents.join(',')};scores=${JSON.stringify(agentScoreRows)}`,
+  });
   const enforcedSkills = Array.isArray((initialState as any).enforcement?.skills)
     ? ((initialState as any).enforcement.skills as string[]).map((s) => String(s || '').trim()).filter(Boolean)
     : [];
@@ -262,12 +304,12 @@ export async function executeRuntimeRun(initialState: Partial<PilotState>): Prom
     projectId,
     chainId,
     actor: { type: 'system', id: 'runtime-router' },
-    payload: { modeRequested, pipeline },
+    payload: { modeRequested, pipeline, planner: plannerDecision },
   }).catch(() => undefined);
   const finalState =
     modeRequested === 'multiple_agents'
-      ? await executeMultipleAgentsRun(initialState)
-      : await executeUnifiedSwarmRun(initialState);
+      ? await executeMultipleAgentsRun({ ...initialState, selected_pipeline: pipeline })
+      : await executeUnifiedSwarmRun({ ...initialState, selected_pipeline: pipeline });
 
   await runGovernancePhase('AFTER_STEP', {
     runId,
@@ -360,6 +402,7 @@ export async function executeRuntimeRun(initialState: Partial<PilotState>): Prom
     workspacePath,
     signalsPath: improvementArtifacts.signalsPath,
     ticketsPath: improvementArtifacts.ticketsPath,
+    proposalPath: templateUpdateProposal.proposalPath,
   });
   logGovernance({
     rule: 'improvement_signal_generator',

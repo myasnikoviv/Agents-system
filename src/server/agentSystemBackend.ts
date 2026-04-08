@@ -1378,6 +1378,151 @@ app.get('/api/cockpit/swarm/utilization', async (_req, res) => {
   }
 });
 
+app.get('/api/cockpit/swarm/performance', async (_req, res) => {
+  try {
+    const projectId = String(_req.query?.projectId || '').trim();
+    const costDir = path.resolve(process.cwd(), 'docs/process/runs/cost');
+    const tokenUsageByAgent: Record<string, number> = {};
+    if (fs.existsSync(costDir)) {
+      const files = fs
+        .readdirSync(costDir)
+        .filter((name) => name.endsWith('.json'))
+        .sort()
+        .slice(-50);
+      for (const name of files) {
+        try {
+          const row = JSON.parse(fs.readFileSync(path.join(costDir, name), 'utf-8'));
+          if (projectId && String(row?.projectId || '') !== projectId) continue;
+          const byAgent = row?.attribution?.byAgent || {};
+          for (const [agentSlug, tokens] of Object.entries(byAgent)) {
+            tokenUsageByAgent[agentSlug] = (tokenUsageByAgent[agentSlug] || 0) + Number(tokens || 0);
+          }
+        } catch {
+          // ignore malformed row
+        }
+      }
+    }
+
+    const { DynamicWorkerSpawnManager } = await import('../runtime/workers/DynamicWorkerSpawnManager');
+    const { scoreAgentPerformance } = await import('../runtime/performance/AgentPerformanceScoring');
+    const rows = DynamicWorkerSpawnManager.utilizationSnapshot({
+      projectId: projectId || undefined,
+    });
+    const scores = rows
+      .map((row: any) =>
+        scoreAgentPerformance({
+          agentSlug: row.agentSlug,
+          invocationCount: Number(row.invocationCount || 0),
+          successfulTaskCount: Number(row.successfulTaskCount || 0),
+          failedTaskCount: Number(row.failedTaskCount || 0),
+          retryTaskCount: Number(row.retryTaskCount || 0),
+          avgTaskDurationMs: Number(row.avgTaskDurationMs || 0),
+          tokenUsage: Number(tokenUsageByAgent[row.agentSlug] || 0),
+        }),
+      )
+      .sort((a: any, b: any) => b.score - a.score);
+
+    res.json({
+      success: true,
+      projectId: projectId || null,
+      rows: scores,
+      summary: {
+        agents: scores.length,
+        avgScore:
+          scores.length > 0
+            ? Math.round(scores.reduce((acc: number, row: any) => acc + Number(row.score || 0), 0) / scores.length)
+            : 0,
+      },
+      serverNow: new Date().toISOString(),
+    });
+  } catch (error: any) {
+    res.status(500).json({
+      success: false,
+      error: 'swarm_performance_fetch_failed',
+      message: error?.message || 'Failed to fetch swarm performance telemetry',
+    });
+  }
+});
+
+app.get('/api/cockpit/swarm/telemetry/aggregate', async (_req, res) => {
+  try {
+    const projectId = String(_req.query?.projectId || '').trim();
+    const { DynamicWorkerSpawnManager } = await import('../runtime/workers/DynamicWorkerSpawnManager');
+    const { ProjectDispatchQueue } = await import('../runtime/queue/ProjectDispatchQueue');
+    const { scoreAgentPerformance } = await import('../runtime/performance/AgentPerformanceScoring');
+
+    const utilizationRows = DynamicWorkerSpawnManager.utilizationSnapshot({
+      projectId: projectId || undefined,
+    });
+    const queueTasks = ProjectDispatchQueue.listTasks(projectId || undefined);
+    const queueDepthByKey = ProjectDispatchQueue.snapshot(projectId || undefined);
+
+    const costDir = path.resolve(process.cwd(), 'docs/process/runs/cost');
+    const tokenUsageByAgent: Record<string, number> = {};
+    let recentCostRows = 0;
+    if (fs.existsSync(costDir)) {
+      const files = fs.readdirSync(costDir).filter((name) => name.endsWith('.json')).sort().slice(-50);
+      for (const name of files) {
+        try {
+          const row = JSON.parse(fs.readFileSync(path.join(costDir, name), 'utf-8'));
+          if (projectId && String(row?.projectId || '') !== projectId) continue;
+          recentCostRows += 1;
+          const byAgent = row?.attribution?.byAgent || {};
+          for (const [agentSlug, tokens] of Object.entries(byAgent)) {
+            tokenUsageByAgent[agentSlug] = (tokenUsageByAgent[agentSlug] || 0) + Number(tokens || 0);
+          }
+        } catch {
+          // ignore malformed cost rows
+        }
+      }
+    }
+
+    const performanceRows = utilizationRows
+      .map((row: any) =>
+        scoreAgentPerformance({
+          agentSlug: row.agentSlug,
+          invocationCount: Number(row.invocationCount || 0),
+          successfulTaskCount: Number(row.successfulTaskCount || 0),
+          failedTaskCount: Number(row.failedTaskCount || 0),
+          retryTaskCount: Number(row.retryTaskCount || 0),
+          avgTaskDurationMs: Number(row.avgTaskDurationMs || 0),
+          tokenUsage: Number(tokenUsageByAgent[row.agentSlug] || 0),
+        }),
+      )
+      .sort((a: any, b: any) => b.score - a.score);
+
+    res.json({
+      success: true,
+      projectId: projectId || null,
+      telemetry: {
+        utilization: utilizationRows,
+        performance: performanceRows,
+        queue: {
+          totalTasks: queueTasks.length,
+          depthByKey: queueDepthByKey,
+          tasks: queueTasks,
+        },
+        costAttribution: {
+          recentCostRows,
+          tokenUsageByAgent,
+        },
+      },
+      summary: {
+        workers: utilizationRows.length,
+        agentsScored: performanceRows.length,
+        queueTasks: queueTasks.length,
+      },
+      serverNow: new Date().toISOString(),
+    });
+  } catch (error: any) {
+    res.status(500).json({
+      success: false,
+      error: 'swarm_telemetry_aggregate_failed',
+      message: error?.message || 'Failed to aggregate swarm telemetry',
+    });
+  }
+});
+
 app.get('/api/cockpit/swarm/queue/tasks', async (_req, res) => {
   try {
     const projectId = String(_req.query?.projectId || '').trim();

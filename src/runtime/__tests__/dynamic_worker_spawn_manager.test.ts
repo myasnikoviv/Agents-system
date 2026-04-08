@@ -38,6 +38,41 @@ describe('DynamicWorkerSpawnManager', () => {
     expect(two.worker.memoryNamespace).toBe('memory:proj-b:developer');
   });
 
+  it('creates dedicated worker per agent within same project and reuses only agent-owned worker', async () => {
+    const devFirst = await DynamicWorkerSpawnManager.ensureWorker(
+      { runId: 'r1', projectId: 'proj-a', chainId: 'c1', agentSlug: 'developer' },
+      { emitEvents: false },
+    );
+    const qaFirst = await DynamicWorkerSpawnManager.ensureWorker(
+      { runId: 'r2', projectId: 'proj-a', chainId: 'c2', agentSlug: 'tdd-qa' },
+      { emitEvents: false },
+    );
+    const devSecond = await DynamicWorkerSpawnManager.ensureWorker(
+      { runId: 'r3', projectId: 'proj-a', chainId: 'c3', agentSlug: 'developer' },
+      { emitEvents: false },
+    );
+
+    expect(devFirst.worker.workerId).not.toBe(qaFirst.worker.workerId);
+    expect(devFirst.worker.memoryNamespace).toBe('memory:proj-a:developer');
+    expect(qaFirst.worker.memoryNamespace).toBe('memory:proj-a:tdd-qa');
+    expect(devSecond.worker.workerId).toBe(devFirst.worker.workerId);
+    expect(devSecond.worker.workerId).not.toBe(qaFirst.worker.workerId);
+  });
+
+  it('tracks task-level memory namespace per assigned task', async () => {
+    const first = await DynamicWorkerSpawnManager.ensureWorker(
+      { runId: 'r-task-1', projectId: 'proj-a', chainId: 'c-task-1', agentSlug: 'developer', taskId: 'task-1' },
+      { emitEvents: false },
+    );
+    const second = await DynamicWorkerSpawnManager.ensureWorker(
+      { runId: 'r-task-2', projectId: 'proj-a', chainId: 'c-task-2', agentSlug: 'developer', taskId: 'task-2' },
+      { emitEvents: false },
+    );
+
+    expect(first.worker.assignedTask?.taskMemoryNamespace).toBe('memory:proj-a:developer:task:task-1');
+    expect(second.worker.assignedTask?.taskMemoryNamespace).toBe('memory:proj-a:developer:task:task-2');
+  });
+
   it('reports worker health by heartbeat age', async () => {
     await DynamicWorkerSpawnManager.ensureWorker(
       { runId: 'r1', projectId: 'proj-a', chainId: 'c1', agentSlug: 'developer' },

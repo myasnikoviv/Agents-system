@@ -50,6 +50,22 @@ export class ProjectDispatchQueue {
     return next;
   }
 
+  static pickupForWorker(projectId: string, agentSlug: string, workerId: string): DispatchQueueTask | null {
+    const worker = String(workerId || '').trim();
+    if (!worker) return null;
+    const next = this.pickup(projectId, agentSlug);
+    if (!next) return null;
+    return {
+      ...next,
+      payload: {
+        ...(next.payload || {}),
+        dispatchMode: 'worker_pull',
+        pulledByWorkerId: worker,
+        pulledAt: new Date().toISOString(),
+      },
+    };
+  }
+
   static depth(projectId: string, agentSlug?: string): number {
     if (agentSlug) {
       return (queues.get(queueKey(projectId, agentSlug)) || []).length;
