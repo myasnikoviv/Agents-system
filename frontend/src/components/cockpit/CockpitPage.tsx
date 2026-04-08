@@ -405,6 +405,31 @@ export function CockpitPage() {
         });
     }, [agentStatusRows]);
 
+    const projectScopedWorkers = useMemo<WorkerHealthRow[]>(() => {
+        if (!selectedProject) return swarmWorkers;
+        return swarmWorkers.filter((w) => String(w.projectId || '').trim() === selectedProject);
+    }, [swarmWorkers, selectedProject]);
+
+    const projectRosterSummary = useMemo(() => {
+        const uniqueAgents = new Set<string>();
+        let enabled = 0;
+        let hot = 0;
+        let cold = 0;
+        for (const worker of projectScopedWorkers) {
+            uniqueAgents.add(String(worker.agentSlug || '').trim());
+            if (worker.enabled) enabled += 1;
+            if (worker.availabilityState === 'hot') hot += 1;
+            if (worker.availabilityState === 'cold') cold += 1;
+        }
+        return {
+            uniqueAgents: uniqueAgents.size,
+            enabled,
+            hot,
+            cold,
+            totalWorkers: projectScopedWorkers.length,
+        };
+    }, [projectScopedWorkers]);
+
     const appendMessagesToThread = (threadId: string | undefined, next: ChatMessage[]) => {
         const key = threadId && threadId.trim().length > 0 ? threadId : activeThreadKey;
         if (next.length === 0) return;
@@ -2468,6 +2493,7 @@ export function CockpitPage() {
                                 <span className={swarmSummary.activeWorkers >= 2 ? 'text-emerald-400' : 'text-slate-300'}>
                                     Parallel execution: {swarmSummary.activeWorkers >= 2 ? 'on' : 'off'}
                                 </span>
+                                <span>Project scope: {selectedProject || 'global/unbound'}</span>
                                 <span>Active thread: {selectedThread || 'n/a'}</span>
                                 <span>Ticket: {currentTicketId || 'n/a'}</span>
                                 <span>Branch: {gitContext?.activeBranch || runtimeFooter.activeBranch || 'n/a'}</span>
@@ -2480,6 +2506,13 @@ export function CockpitPage() {
 
                     <div className="catalog-card">
                         <div className="catalog-title">Agent Runtime Board</div>
+                        <div className="catalog-section">
+                            <span>Project agents: {sortedAgentStatusRows.length}</span>
+                            <span>Workers: {projectRosterSummary.totalWorkers}</span>
+                            <span>Enabled workers: {projectRosterSummary.enabled}</span>
+                            <span>Hot workers: {projectRosterSummary.hot}</span>
+                            <span>Cold workers: {projectRosterSummary.cold}</span>
+                        </div>
                         <div className="agent-board">
                             {sortedAgentStatusRows.length === 0 ? (
                                 <div className="agent-board-empty">No agent registry data.</div>
@@ -2530,10 +2563,10 @@ export function CockpitPage() {
                     <div className="catalog-card">
                         <div className="catalog-title">Worker Runtime Board</div>
                         <div className="agent-board">
-                            {swarmWorkers.length === 0 ? (
+                            {projectScopedWorkers.length === 0 ? (
                                 <div className="agent-board-empty">No worker runtime data.</div>
                             ) : (
-                                swarmWorkers.map((worker) => {
+                                projectScopedWorkers.map((worker) => {
                                     const availabilityClass = worker.availabilityState === 'hot' ? 'text-emerald-400' : 'text-slate-400';
                                     const executionClass = worker.executionState === 'active' ? 'text-amber-300' : 'text-slate-300';
                                     const heartbeatClass =
