@@ -2,12 +2,9 @@ import { GovernanceEngineContext, GovernanceRule, GovernanceRuleEvaluation } fro
 import { checkImprovementArtifact, checkPreflightToken, checkTestReport } from './ArtifactEvidenceChecker';
 import { collectEventEvidence } from './EventEvidenceCollector';
 import { readLoopPressure, readTelemetry } from './TelemetryReader';
+import { listEvaluators, registerEvaluator, resolveEvaluator, type GovernanceEvaluatorContract } from './EvaluatorRegistry';
 
-type DeterministicHandler = (
-  rule: GovernanceRule,
-  ctx: GovernanceEngineContext,
-  workspacePath: string,
-) => Promise<GovernanceRuleEvaluation>;
+type DeterministicHandler = GovernanceEvaluatorContract['evaluate'];
 
 function isValidTicketContext(ticketId: string): boolean {
   const value = String(ticketId || '').trim();
@@ -83,7 +80,10 @@ const DETERMINISTIC_HANDLERS: Record<string, DeterministicHandler> = {
   },
   cost_guard_tokens: async (rule, ctx, workspacePath) => {
     const t = readTelemetry(workspacePath, ctx.runId);
-    const threshold = Number(process.env.GOVERNANCE_COST_GUARD_MAX_TOKENS || '120000');
+    const threshold =
+      Number(rule.thresholds?.maxTokens || 0) > 0
+        ? Number(rule.thresholds?.maxTokens)
+        : Number(process.env.GOVERNANCE_COST_GUARD_MAX_TOKENS || '120000');
     const pass = t.totalTokens <= threshold;
     return {
       ruleId: rule.id,
@@ -106,13 +106,42 @@ const DETERMINISTIC_HANDLERS: Record<string, DeterministicHandler> = {
   },
 };
 
+let builtinsRegistered = false;
+
+export function registerDeterministicEvaluator(input: GovernanceEvaluatorContract): void {
+  registerEvaluator({
+    evaluatorType: input.evaluatorType,
+    evaluate: input.evaluate,
+    source: input.source || 'plugin',
+    allowOverrideBuiltin: input.allowOverrideBuiltin === true,
+  });
+}
+
+function ensureBuiltinEvaluatorsRegistered(): void {
+  if (builtinsRegistered && listEvaluators().length > 0) return;
+  for (const [evaluatorType, evaluate] of Object.entries(DETERMINISTIC_HANDLERS)) {
+    registerEvaluator({
+      evaluatorType,
+      evaluate,
+      source: 'builtin',
+    });
+  }
+  builtinsRegistered = true;
+}
+
+export function listDeterministicEvaluators(): Array<{ evaluatorType: string; isBuiltin: boolean }> {
+  ensureBuiltinEvaluatorsRegistered();
+  return listEvaluators();
+}
+
 export async function evaluateDeterministic(
   rule: GovernanceRule,
   ctx: GovernanceEngineContext,
 ): Promise<GovernanceRuleEvaluation> {
+  ensureBuiltinEvaluatorsRegistered();
   const workspacePath = ctx.workspacePath || process.cwd();
   const checkKey = String(rule.deterministicCheck || '');
-  const handler = DETERMINISTIC_HANDLERS[checkKey];
+  const handler = resolveEvaluator(checkKey);
   if (handler) {
     return handler(rule, ctx, workspacePath);
   }
