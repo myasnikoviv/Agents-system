@@ -206,6 +206,25 @@ interface EvaluatorRow {
   isBuiltin: boolean;
 }
 
+interface GovernanceRuleHistoryEntry {
+  id: string;
+  ruleId: string;
+  action: 'create' | 'update' | 'disable';
+  timestamp: string;
+  actorId: string;
+}
+
+interface GovernanceControlAction {
+  id: string;
+  timestamp: string;
+  action: string;
+  projectId?: string | null;
+  actorId?: string | null;
+  reason?: string;
+  target?: Record<string, unknown>;
+  result?: Record<string, unknown>;
+}
+
 
 interface CliStatus {
   codex?: { loggedIn: boolean };
@@ -323,6 +342,9 @@ export function CockpitSettingsPage() {
     evaluatorType: '',
     aliasTo: '',
   });
+  const [historyRuleId, setHistoryRuleId] = useState('');
+  const [ruleHistory, setRuleHistory] = useState<GovernanceRuleHistoryEntry[]>([]);
+  const [controlActions, setControlActions] = useState<GovernanceControlAction[]>([]);
 
   const [generalSettings, setGeneralSettings] = useState<GeneralSettings>({
     defaultOpenBehavior: 'finder',
@@ -532,6 +554,7 @@ export function CockpitSettingsPage() {
     };
     void loadGovernance();
     void loadEvaluators();
+    void loadControlActions();
   }, [currentSection, governanceProjectId]);
 
   useEffect(() => {
@@ -548,6 +571,15 @@ export function CockpitSettingsPage() {
     };
     void loadPolicy();
   }, [currentSection, governanceProjectId]);
+
+  useEffect(() => {
+    if (currentSection !== 'governance') return;
+    if (!historyRuleId.trim()) {
+      setRuleHistory([]);
+      return;
+    }
+    void loadRuleHistory(historyRuleId.trim());
+  }, [currentSection, historyRuleId]);
 
   useEffect(() => {
     const loadGeneralFromApi = async () => {
@@ -1259,6 +1291,30 @@ export function CockpitSettingsPage() {
     }
   };
 
+  const loadRuleHistory = async (ruleId: string) => {
+    try {
+      const res = await fetch(apiUrl(`/api/governance/rules/${encodeURIComponent(ruleId)}/history`));
+      const data = await res.json();
+      if (!data?.success || !Array.isArray(data.history)) throw new Error(data?.message || 'failed_to_load_rule_history');
+      setRuleHistory(data.history as GovernanceRuleHistoryEntry[]);
+    } catch (error: any) {
+      setGovernanceMessage(`Rule history load failed: ${String(error?.message || 'unknown')}`);
+      setRuleHistory([]);
+    }
+  };
+
+  const loadControlActions = async () => {
+    try {
+      const res = await fetch(apiUrl(`/api/cockpit/control-actions?projectId=${encodeURIComponent(governanceProjectId)}&limit=100`));
+      const data = await res.json();
+      if (!data?.success || !Array.isArray(data.actions)) throw new Error(data?.message || 'failed_to_load_control_actions');
+      setControlActions(data.actions as GovernanceControlAction[]);
+    } catch (error: any) {
+      setGovernanceMessage(`Control actions load failed: ${String(error?.message || 'unknown')}`);
+      setControlActions([]);
+    }
+  };
+
   const sectionTitle = currentSection.replace('-', ' ').replace(/\b\w/g, (m) => m.toUpperCase());
   const settingsCardClass = 'mb-3 rounded-xl border border-slate-700 bg-slate-900 p-3.5';
   const settingsNoteClass = 'mb-3 text-sm text-slate-400';
@@ -1384,13 +1440,16 @@ export function CockpitSettingsPage() {
                         type="button"
                         className="rounded-md border border-slate-600 bg-slate-800 px-2 py-1 text-xs text-slate-100"
                         onClick={() =>
-                          setGovernanceEditor({
-                            id: rule.id,
-                            triggerPhases: (rule.triggerPhases || []).join(','),
-                            evidence: (rule.evidence || []).join('\n'),
-                            deterministicCheck: rule.deterministicCheck || '',
-                            thresholdsJson: JSON.stringify(rule.thresholds || {}, null, 2),
-                          })
+                          {
+                            setGovernanceEditor({
+                              id: rule.id,
+                              triggerPhases: (rule.triggerPhases || []).join(','),
+                              evidence: (rule.evidence || []).join('\n'),
+                              deterministicCheck: rule.deterministicCheck || '',
+                              thresholdsJson: JSON.stringify(rule.thresholds || {}, null, 2),
+                            });
+                            setHistoryRuleId(rule.id);
+                          }
                         }
                       >
                         Edit
@@ -1481,6 +1540,56 @@ export function CockpitSettingsPage() {
               <div className="mt-3 flex flex-wrap gap-2">
                 <Button variant="secondary" onClick={registerEvaluatorAlias}>Register Alias</Button>
                 <Button variant="secondary" onClick={loadEvaluators}>Refresh Evaluators</Button>
+              </div>
+            </section>
+            <section className={settingsCardClass}>
+              <h2><ShieldCheck size={16} />Governance Audit Timeline</h2>
+              <p className={settingsNoteClass}>Rule-level history and project control-action feed for traceability.</p>
+              <div className={settingsGridClass}>
+                <label>
+                  Rule ID for History
+                  <input
+                    value={historyRuleId}
+                    onChange={(e) => setHistoryRuleId(e.target.value)}
+                    placeholder="e.g. git_preflight"
+                  />
+                </label>
+              </div>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <Button variant="secondary" onClick={() => loadRuleHistory(historyRuleId.trim())}>Refresh Rule History</Button>
+                <Button variant="secondary" onClick={loadControlActions}>Refresh Control Actions</Button>
+              </div>
+              <div className="mt-3 grid grid-cols-1 gap-2 lg:grid-cols-2">
+                <div className="rounded-lg border border-slate-700 bg-slate-950 p-2.5">
+                  <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-300">Rule History ({ruleHistory.length})</div>
+                  <div className="flex max-h-64 flex-col gap-1 overflow-auto">
+                    {ruleHistory.length === 0 ? (
+                      <div className="text-xs text-slate-500">No rule history loaded.</div>
+                    ) : (
+                      ruleHistory.map((entry) => (
+                        <div key={entry.id} className="rounded border border-slate-800 bg-slate-900 p-2 text-xs text-slate-200">
+                          <div><strong>{entry.action}</strong> · {entry.ruleId}</div>
+                          <div className="text-slate-400">{entry.timestamp} · actor: {entry.actorId || 'n/a'}</div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+                <div className="rounded-lg border border-slate-700 bg-slate-950 p-2.5">
+                  <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-300">Control Actions ({controlActions.length})</div>
+                  <div className="flex max-h-64 flex-col gap-1 overflow-auto">
+                    {controlActions.length === 0 ? (
+                      <div className="text-xs text-slate-500">No control actions loaded.</div>
+                    ) : (
+                      controlActions.map((entry) => (
+                        <div key={entry.id} className="rounded border border-slate-800 bg-slate-900 p-2 text-xs text-slate-200">
+                          <div><strong>{entry.action}</strong> · {entry.projectId || 'n/a'}</div>
+                          <div className="text-slate-400">{entry.timestamp} · actor: {entry.actorId || 'n/a'}</div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
               </div>
             </section>
           </>
