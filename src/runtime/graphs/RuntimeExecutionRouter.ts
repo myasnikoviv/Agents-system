@@ -60,23 +60,6 @@ function buildMockFinalState(initialState: Partial<PilotState>) {
       .reverse()
       .find((m) => m.role === 'user')?.content || '';
 
-  if (!hasStrictTicketContext(ticket)) {
-    logGovernance({
-      rule: 'ticket_context_required',
-      status: 'fail',
-      action: 'block',
-      ticket,
-      runId,
-      chainId,
-      detail: `invalid_ticket_context:${ticket}`,
-    });
-    await emitGuardBlockEvent(
-      { runId, projectId, chainId },
-      { stage: 'governance.before_run', rule: 'ticket_context_required', reason: 'invalid_or_missing_ticket_context' },
-    ).catch(() => undefined);
-    throw new Error(`[GovernancePhase:BEFORE_RUN] blocked ticket=${ticket} reason=ticket_context_required`);
-  }
-
   const mockResponse = userMessage
     ? `Mock mode is enabled. Request captured: "${userMessage.slice(0, 180)}${userMessage.length > 180 ? '…' : ''}".`
     : 'Mock mode is enabled. Request captured.';
@@ -128,6 +111,23 @@ export async function executeRuntimeRun(initialState: Partial<PilotState>): Prom
     [...(initialState.messages || [])]
       .reverse()
       .find((m) => m.role === 'user')?.content || '';
+
+  if (!hasStrictTicketContext(ticket)) {
+    logGovernance({
+      rule: 'ticket_context_required',
+      status: 'fail',
+      action: 'block',
+      ticket,
+      runId,
+      chainId,
+      detail: `invalid_ticket_context:${ticket}`,
+    });
+    await emitGuardBlockEvent(
+      { runId, projectId, chainId },
+      { stage: 'governance.before_run', rule: 'ticket_context_required', reason: 'invalid_or_missing_ticket_context' },
+    ).catch(() => undefined);
+    throw new Error(`[GovernancePhase:before_run] blocked ticket=${ticket} reason=ticket_context_required`);
+  }
 
   // Sprint 5.5 — Identify if pipeline involves mutating actions (ENF-001 logic)
   const mutatingPipelines = ['new-feature', 'bug-fix', 'hotfix', 'refactor', 'strategy-tuning', 'release', 'rollback-incident'];

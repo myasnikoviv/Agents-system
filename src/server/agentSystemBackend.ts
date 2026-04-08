@@ -1548,6 +1548,12 @@ app.post('/api/chat/approve', async (req, res) => {
       .reverse()
       .find((m: { role: string; content: string }) => m.role === 'assistant')?.content;
 
+    const resolvedProjectId = String(finalState.projectId || 'default');
+    ensureThreadInProject(resolvedProjectId, threadId);
+    if (assistantMessage && String(assistantMessage).trim()) {
+      appendThreadMessage(threadId, 'agent', String(assistantMessage));
+    }
+
     res.json({
       success: true,
       message: assistantMessage || 'Resumed and completed.',

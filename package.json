@@ -9,6 +9,7 @@
     "verify:providers": "tsx scripts/verify_provider_consistency.ts",
     "verify:providers:semantic": "tsx scripts/verify_provider_semantic_consistency.ts",
     "verify:learning-trend": "tsx scripts/verify_learning_effect_trend.ts",
+    "verify:chat-flow": "tsx scripts/verify_chat_entrypoint_flow.ts",
     "bootstrap:learning-trend": "tsx scripts/bootstrap_learning_trend_evidence.ts",
     "generate:real-telemetry": "tsx scripts/generate_real_telemetry_dataset.ts",
     "test:scenarios": "jest --runInBand src/runtime/__tests__/dynamic_pipeline_executor.test.ts src/runtime/__tests__/run_ledger.test.ts src/runtime/__tests__/agent_workbench_scheduler.test.ts",
