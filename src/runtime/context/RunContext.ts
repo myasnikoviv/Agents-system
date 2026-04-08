@@ -249,7 +249,8 @@ export class RunContextAssembler {
     });
     const boundary = validateTenantBoundary(tenancy);
     if (!boundary.ok) {
-      throw new Error(`RunContextAssembler tenancy boundary failed: ${boundary.reason}`);
+      const reason = 'reason' in boundary ? boundary.reason : 'invalid_tenant_boundary';
+      throw new Error(`RunContextAssembler tenancy boundary failed: ${reason}`);
     }
     ctx.tenantId = tenancy.tenantId;
     ctx.workspaceId = tenancy.workspaceId;

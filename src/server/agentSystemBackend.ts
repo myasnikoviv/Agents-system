@@ -2937,9 +2937,6 @@ app.post('/api/chat', async (req, res) => {
         messages: [{ role: 'user', content: message }],
         artifactLogs: [message],
         projectId,
-        tenantId: auth?.tenantId,
-        workspaceId: auth?.workspaceId,
-        userId: auth?.userId,
         workspacePath: effectiveWorkspacePath,
         agentContextPath: effectiveAgentContextPath,
         selected_pipeline:
