@@ -7,6 +7,7 @@ import { StreamRenderer, type RuntimeEvent } from './StreamRenderer';
 import { ObservabilityPanels } from './ObservabilityPanels';
 import './CockpitPage.css';
 const RUNTIME_MODE_KEY = 'cockpit.runtime.mode.v1';
+const CHAT_EVENT_RENDER_MODE_KEY = 'cockpit.chat.event.render.mode.v1';
 
 export interface ChatMessage {
     id: string;
@@ -198,6 +199,7 @@ interface DirectoryPickerWindow extends Window {
 }
 
 type RuntimeProvider = 'claude-cli' | 'codex-cli' | 'openhands-sdk';
+type ChatEventRenderMode = 'humanized' | 'raw' | 'both';
 
 const toRenderableMarkdown = (raw: string): string =>
     String(raw || '').replace(
@@ -213,6 +215,11 @@ export function CockpitPage() {
         return 'multiple_agents';
     });
     const [messagesByThread, setMessagesByThread] = useState<Record<string, ChatMessage[]>>({});
+    const [chatEventRenderMode, setChatEventRenderMode] = useState<ChatEventRenderMode>(() => {
+        const stored = localStorage.getItem(CHAT_EVENT_RENDER_MODE_KEY);
+        if (stored === 'humanized' || stored === 'raw' || stored === 'both') return stored;
+        return 'humanized';
+    });
     const [input, setInput] = useState('');
     const [isRecording, setIsRecording] = useState(false);
     const [eventsByThread, setEventsByThread] = useState<Record<string, RuntimeEvent[]>>({});
@@ -282,6 +289,10 @@ export function CockpitPage() {
         statusSummary: { total: 0, done: 0, inProgress: 0, todo: 0 },
     });
     const [uploadedAttachments, setUploadedAttachments] = useState<UploadedAttachment[]>([]);
+    const [replayEnabled, setReplayEnabled] = useState(false);
+    const [replayPlaying, setReplayPlaying] = useState(false);
+    const [replayIndex, setReplayIndex] = useState(0);
+    const [replaySpeedMs, setReplaySpeedMs] = useState(350);
     const [isProjectModalOpen, setIsProjectModalOpen] = useState(false);
     const [projectDirectory, setProjectDirectory] = useState('');
     const [projectAgentContextDirectory, setProjectAgentContextDirectory] = useState('');
@@ -295,6 +306,7 @@ export function CockpitPage() {
     const [newChainScope, setNewChainScope] = useState<'current' | 'unbound'>('current');
     const activeThreadKey = selectedThread || currentThreadId || '__unbound_thread__';
     const messages = messagesByThread[activeThreadKey] || [];
+    const activeEvents = eventsByThread[activeThreadKey] || [];
     const agentRegistryRef = useRef<AgentRegistryEntry[]>([]);
 
     const resolveAgentSlug = (rawRole: string): string => {
@@ -308,6 +320,35 @@ export function CockpitPage() {
         const byCallsign = registry.find((agent) => agent.callsign.toLowerCase() === probe);
         if (byCallsign) return byCallsign.slug;
         return probe;
+    };
+
+    useEffect(() => {
+        localStorage.setItem(CHAT_EVENT_RENDER_MODE_KEY, chatEventRenderMode);
+    }, [chatEventRenderMode]);
+
+    const formatRawEventForChat = (event: RuntimeEvent): string | null => {
+        const eventType = String(event.event_type || event.type || '').trim();
+        if (!eventType) return null;
+        const role = String(event.agent_role || event.actor?.role || event.actor?.id || 'system').trim();
+        const stageRaw = String(event.payload?.stageId || event.source_stage || '').trim();
+        const stageTitleRaw = String(event.payload?.stageTitle || event.payload?.toStageTitle || '').trim();
+        const stageLabel = stageTitleRaw || stageRaw || 'n/a';
+        const payloadPreview = String(
+            event.payload?.message ||
+            event.payload?.summary ||
+            event.payload?.detail ||
+            event.payload?.reason ||
+            event.payload?.status ||
+            event.payload?.content ||
+            ''
+        ).trim();
+        const lines = [
+            `event: \`${eventType}\``,
+            `agent: \`${role}\``,
+            `stage: \`${stageLabel}\``,
+        ];
+        if (payloadPreview) lines.push(`payload: ${payloadPreview.slice(0, 280)}`);
+        return lines.join('\n');
     };
 
     const resolveAgentDisplay = (slug: string) => {
@@ -443,6 +484,7 @@ export function CockpitPage() {
     const audioChunksRef = useRef<Blob[]>([]);
     const recognitionRef = useRef<SpeechRecognitionInstance | null>(null);
     const seenChatEventIdsRef = useRef<Set<string>>(new Set());
+    const seenStreamEventIdsRef = useRef<Set<string>>(new Set());
     const activeThreadKeyRef = useRef(activeThreadKey);
 
     useEffect(() => {
@@ -519,6 +561,17 @@ export function CockpitPage() {
                 const data = JSON.parse(e.data) as CanonicalSseEvent;
                 if (data.type === 'connected') return;
                 const event = normalizeSseEvent(data);
+                const canonicalEventId = String(event.event_id || event.id || '').trim();
+                if (canonicalEventId) {
+                    if (seenStreamEventIdsRef.current.has(canonicalEventId)) {
+                        return;
+                    }
+                    seenStreamEventIdsRef.current.add(canonicalEventId);
+                    if (seenStreamEventIdsRef.current.size > 2000) {
+                        const first = seenStreamEventIdsRef.current.values().next().value as string | undefined;
+                        if (first) seenStreamEventIdsRef.current.delete(first);
+                    }
+                }
                 const threadKey = String(event.thread_id || event.chainId || '').trim() || '__global__';
                 setEventsByThread((prev) => ({
                     ...prev,
@@ -599,21 +652,22 @@ export function CockpitPage() {
                     });
                 }
 
-                if (eventType === 'run.started') {
+                const isActiveThreadEvent = threadKey === activeThreadKeyRef.current;
+                if (eventType === 'run.started' && isActiveThreadEvent) {
                     setStatus('running');
                     if (event.pipeline_run_id) setActiveRunId(String(event.pipeline_run_id));
                 }
-                if (eventType === 'run.cancelled') {
+                if (eventType === 'run.cancelled' && isActiveThreadEvent) {
                     setStatus('cancelled');
                     setIsAwaitingAgentReply(false);
                     setIsProcessing(false);
                 }
-                if (eventType === 'run.completed') {
+                if (eventType === 'run.completed' && isActiveThreadEvent) {
                     setStatus('completed');
                     setIsAwaitingAgentReply(false);
                     setIsProcessing(false);
                 }
-                if (eventType === 'run.failed') {
+                if (eventType === 'run.failed' && isActiveThreadEvent) {
                     setStatus('failed');
                     setIsAwaitingAgentReply(false);
                     setIsProcessing(false);
@@ -627,38 +681,67 @@ export function CockpitPage() {
                     !seenChatEventIdsRef.current.has(eventId);
 
                 if (shouldPropagateToChat) {
-                    let chatText: string | null = null;
+                    const chatTexts: string[] = [];
                     const stageRaw = String(event.payload?.stageId || event.source_stage || '').trim();
                     const stageTitleRaw = String(event.payload?.stageTitle || event.payload?.toStageTitle || '').trim();
                     const stageLabel = stageTitleRaw || (/^\d+$/.test(stageRaw) ? `step #${stageRaw}` : (stageRaw || 'n/a'));
-                    if (eventType === 'swarm_stage_completed') {
-                        const stageMessage = String(event.payload?.message || '').trim();
-                        if (stageMessage) {
-                            chatText = stageMessage;
-                        } else {
-                            chatText = `Swarm update: **${roleLabel}** completed stage \`${stageLabel}\`.`;
+                    const normalizeStepMessage = (raw: string): string => {
+                        const value = String(raw || '').trim();
+                        const compact = value.replace(/\s+/g, ' ');
+                        const match = compact.match(/^agent\s+(.+?)\s+(completed|started)\s+(\d+)$/i);
+                        if (match) {
+                            const [, agent, action, step] = match;
+                            return `Agent **${agent}** ${action.toLowerCase()} step #${step}.`;
                         }
-                    } else if (eventType === 'swarm.handoff') {
-                        const fromAgent = String(event.payload?.fromAgentTitle || event.payload?.fromAgentId || 'unknown').trim();
-                        const toAgent = String(event.payload?.toAgentTitle || event.payload?.toAgentId || 'unknown').trim();
-                        chatText = stageLabel && stageLabel !== 'n/a'
-                            ? `Handoff: \`${fromAgent}\` -> \`${toAgent}\` (next: \`${stageLabel}\`)`
-                            : `Handoff: \`${fromAgent}\` -> \`${toAgent}\``;
-                    } else if (eventType === 'agent.started') {
-                        chatText = `Agent **${roleLabel}** started \`${stageLabel}\`.`;
-                    } else if (eventType === 'agent.completed') {
-                        const outcome = String(event.payload?.outcome || '').trim();
-                        const summary = String(event.payload?.summary || '').trim();
-                        chatText = outcome
-                            ? `Agent **${roleLabel}** completed \`${stageLabel}\` with status \`${outcome}\`.${summary ? `\n\n${summary}` : ''}`
-                            : `Agent **${roleLabel}** completed \`${stageLabel}\`.${summary ? `\n\n${summary}` : ''}`;
-                    } else if (eventType === 'agent.message') {
-                        chatText = String(event.payload?.message || event.payload?.content || '').trim() || null;
-                    } else if (eventType === 'run.failed') {
-                        chatText = `Run failed: ${String(event.payload?.message || event.payload?.reason || 'unknown error')}`;
-                    } else if (eventType === 'run.cancelled') {
-                        chatText = `Run cancelled: ${String(event.payload?.reason || 'Cancelled by user')}`;
-                    } else if (eventType === 'run.completed' && threadKey === activeThreadKeyRef.current) {
+                        return compact;
+                    };
+                    const inAllowlist =
+                        eventType === 'swarm_stage_completed' ||
+                        eventType === 'swarm.handoff' ||
+                        eventType === 'agent.started' ||
+                        eventType === 'agent.completed' ||
+                        eventType === 'agent.message' ||
+                        eventType === 'run.failed' ||
+                        eventType === 'run.cancelled';
+
+                    if ((chatEventRenderMode === 'raw' || chatEventRenderMode === 'both') && inAllowlist) {
+                        const rawText = formatRawEventForChat(event);
+                        if (rawText) chatTexts.push(rawText);
+                    }
+
+                    if (chatEventRenderMode === 'humanized' || chatEventRenderMode === 'both') {
+                        let chatText: string | null = null;
+                        if (eventType === 'swarm_stage_completed') {
+                            const stageMessage = String(event.payload?.message || '').trim();
+                            if (stageMessage) {
+                                chatText = normalizeStepMessage(stageMessage);
+                            } else {
+                                chatText = `Swarm update: **${roleLabel}** completed stage \`${stageLabel}\`.`;
+                            }
+                        } else if (eventType === 'swarm.handoff') {
+                            const fromAgent = String(event.payload?.fromAgentTitle || event.payload?.fromAgentId || 'unknown').trim();
+                            const toAgent = String(event.payload?.toAgentTitle || event.payload?.toAgentId || 'unknown').trim();
+                            chatText = stageLabel && stageLabel !== 'n/a'
+                                ? `Handoff: \`${fromAgent}\` -> \`${toAgent}\` (next: \`${stageLabel}\`)`
+                                : `Handoff: \`${fromAgent}\` -> \`${toAgent}\``;
+                        } else if (eventType === 'agent.started') {
+                            chatText = `Agent **${roleLabel}** started \`${stageLabel}\`.`;
+                        } else if (eventType === 'agent.completed') {
+                            const outcome = String(event.payload?.outcome || '').trim();
+                            const summary = String(event.payload?.summary || '').trim();
+                            chatText = outcome
+                                ? `Agent **${roleLabel}** completed \`${stageLabel}\` with status \`${outcome}\`.${summary ? `\n\n${summary}` : ''}`
+                                : `Agent **${roleLabel}** completed \`${stageLabel}\`.${summary ? `\n\n${summary}` : ''}`;
+                        } else if (eventType === 'agent.message') {
+                            chatText = String(event.payload?.message || event.payload?.content || '').trim() || null;
+                        } else if (eventType === 'run.failed') {
+                            chatText = `Run failed: ${String(event.payload?.message || event.payload?.reason || 'unknown error')}`;
+                        } else if (eventType === 'run.cancelled') {
+                            chatText = `Run cancelled: ${String(event.payload?.reason || 'Cancelled by user')}`;
+                        }
+                        if (chatText) chatTexts.push(chatText);
+                    }
+                    if (eventType === 'run.completed' && threadKey === activeThreadKeyRef.current) {
                         setAgentRuntime((prev) => {
                             const next = { ...prev };
                             for (const [slug, runtime] of Object.entries(next)) {
@@ -674,13 +757,16 @@ export function CockpitPage() {
                         });
                     }
 
-                    if (chatText) {
+                    if (chatTexts.length > 0) {
                         seenChatEventIdsRef.current.add(eventId);
                         if (seenChatEventIdsRef.current.size > 500) {
                             const first = seenChatEventIdsRef.current.values().next().value as string | undefined;
                             if (first) seenChatEventIdsRef.current.delete(first);
                         }
-                        appendAgentMessageIfChanged(threadKey, chatText, new Date(event.timestamp || Date.now()));
+                        const ts = new Date(event.timestamp || Date.now());
+                        for (const chatText of chatTexts) {
+                            appendAgentMessageIfChanged(threadKey, chatText, ts);
+                        }
                     }
                 }
 
@@ -710,6 +796,30 @@ export function CockpitPage() {
         window.addEventListener('click', handleClickOutside);
         return () => window.removeEventListener('click', handleClickOutside);
     }, []);
+
+    useEffect(() => {
+        if (!replayEnabled || !replayPlaying) return;
+        const total = activeEvents.length;
+        if (total === 0) return;
+        const timer = window.setInterval(() => {
+            setReplayIndex((prev) => {
+                if (prev >= total) {
+                    setReplayPlaying(false);
+                    return total;
+                }
+                return prev + 1;
+            });
+        }, Math.max(100, replaySpeedMs));
+        return () => window.clearInterval(timer);
+    }, [replayEnabled, replayPlaying, replaySpeedMs, activeEvents.length]);
+
+    useEffect(() => {
+        if (!replayEnabled) return;
+        const total = activeEvents.length;
+        if (replayIndex > total) {
+            setReplayIndex(total);
+        }
+    }, [activeEvents.length, replayEnabled, replayIndex]);
 
     const handleFileAttach = async (event: React.ChangeEvent<HTMLInputElement>) => {
         const files = Array.from(event.target.files || []);
@@ -807,6 +917,12 @@ export function CockpitPage() {
                             : worker.executionState === 'active'
                                 ? 'active'
                                 : 'standby';
+                    const existingUpdatedAtMs = existing.lastUpdated ? new Date(existing.lastUpdated).getTime() : 0;
+                    const existingIsRecentActive =
+                        existing.status === 'active' &&
+                        Number.isFinite(existingUpdatedAtMs) &&
+                        (Date.now() - existingUpdatedAtMs) < 15000;
+                    const effectiveStatus: AgentLiveStatus = existingIsRecentActive ? 'active' : status;
                     const hbSec = Math.max(0, Math.floor(Number(worker.heartbeatAgeMs || 0) / 1000));
                     const taskLabel = worker.assignedTask?.stageId
                         ? `${worker.assignedTask.stageId}`
@@ -817,8 +933,8 @@ export function CockpitPage() {
                         ...existing,
                         title: display.title,
                         callsign: display.callsign,
-                        status,
-                        currentTask: status === 'active'
+                        status: effectiveStatus,
+                        currentTask: effectiveStatus === 'active'
                             ? `worker:${worker.workerId} ${taskLabel ? `[${taskLabel}] ` : ''}(${hbSec}s ago)`
                             : 'n/a',
                         currentStage: String(worker.rawLifecycleState || existing.currentStage || 'n/a'),
@@ -1072,6 +1188,7 @@ export function CockpitPage() {
         } catch (error) {
             console.error('Chat error:', error);
             setIsAwaitingAgentReply(false);
+            setIsProcessing(false);
             setStatus('failed');
             appendMessageToThread(threadIdToUse, {
                 id: `chat-error-${Date.now()}`,
@@ -1080,7 +1197,9 @@ export function CockpitPage() {
                 timestamp: new Date()
             });
         } finally {
-            setIsProcessing(false);
+            if (mode !== 'multiple_agents') {
+                setIsProcessing(false);
+            }
         }
     };
 
@@ -1110,6 +1229,12 @@ export function CockpitPage() {
             console.error('Cancel error:', error);
         }
     };
+
+    const replayVisibleEvents = useMemo(() => {
+        if (!replayEnabled) return activeEvents;
+        const cut = Math.max(0, Math.min(replayIndex, activeEvents.length));
+        return activeEvents.slice(0, cut);
+    }, [activeEvents, replayEnabled, replayIndex]);
 
     const handleApprove = async () => {
         if (!currentThreadId || isProcessing) return;
@@ -2160,7 +2285,7 @@ export function CockpitPage() {
                                 >
                                     <Mic size={15} />
                                 </button>
-                                {isProcessing ? (
+                                {(isProcessing || isAwaitingAgentReply || status === 'running') ? (
                                     <button
                                         className="icon-btn icon-btn-codex-send"
                                         onClick={handleStop}
@@ -2388,8 +2513,75 @@ export function CockpitPage() {
                     </div>
 
                     <div className="feed-container">
-                        <StreamRenderer events={eventsByThread[activeThreadKey] || []} />
-                        <ObservabilityPanels events={eventsByThread[activeThreadKey] || []} />
+                        <div className="mb-2 rounded-md border border-white/10 bg-slate-900/40 px-3 py-2">
+                            <div className="flex items-center gap-2 text-xs text-slate-300">
+                                <span className="uppercase tracking-wide text-slate-400">Run Replay</span>
+                                <button
+                                    className={`rounded border px-2 py-0.5 ${
+                                        chatEventRenderMode === 'raw'
+                                            ? 'border-amber-500/40 text-amber-300'
+                                            : chatEventRenderMode === 'both'
+                                                ? 'border-violet-500/40 text-violet-300'
+                                                : 'border-emerald-500/40 text-emerald-300'
+                                    }`}
+                                    onClick={() =>
+                                        setChatEventRenderMode((prev) =>
+                                            prev === 'humanized' ? 'raw' : prev === 'raw' ? 'both' : 'humanized'
+                                        )
+                                    }
+                                    title="Switch chat event rendering mode"
+                                >
+                                    Chat: {chatEventRenderMode === 'raw' ? 'Raw' : chatEventRenderMode === 'both' ? 'Both' : 'Humanized'}
+                                </button>
+                                <button
+                                    className={`rounded border px-2 py-0.5 ${replayEnabled ? 'border-cyan-500/40 text-cyan-300' : 'border-white/20 text-slate-300'}`}
+                                    onClick={() => {
+                                        setReplayEnabled((v) => !v);
+                                        setReplayPlaying(false);
+                                        setReplayIndex(0);
+                                    }}
+                                >
+                                    {replayEnabled ? 'Disable' : 'Enable'}
+                                </button>
+                                <button
+                                    className="rounded border border-white/20 px-2 py-0.5 text-slate-300 disabled:opacity-40"
+                                    disabled={!replayEnabled || activeEvents.length === 0}
+                                    onClick={() => setReplayPlaying((v) => !v)}
+                                >
+                                    {replayPlaying ? 'Pause' : 'Play'}
+                                </button>
+                                <button
+                                    className="rounded border border-white/20 px-2 py-0.5 text-slate-300 disabled:opacity-40"
+                                    disabled={!replayEnabled}
+                                    onClick={() => {
+                                        setReplayPlaying(false);
+                                        setReplayIndex(0);
+                                    }}
+                                >
+                                    Reset
+                                </button>
+                                <label className="ml-2 text-slate-400">
+                                    speed
+                                    <select
+                                        className="ml-1 rounded border border-white/20 bg-slate-950 px-1 py-0.5 text-slate-200"
+                                        value={replaySpeedMs}
+                                        onChange={(e) => setReplaySpeedMs(Number(e.target.value))}
+                                        disabled={!replayEnabled}
+                                    >
+                                        <option value={150}>fast</option>
+                                        <option value={350}>normal</option>
+                                        <option value={700}>slow</option>
+                                    </select>
+                                </label>
+                                {replayEnabled && (
+                                    <span className="ml-auto text-slate-500">
+                                        {Math.min(replayIndex, activeEvents.length)} / {activeEvents.length}
+                                    </span>
+                                )}
+                            </div>
+                        </div>
+                        <StreamRenderer events={replayVisibleEvents} />
+                        <ObservabilityPanels events={replayVisibleEvents} />
                         <div ref={feedEndRef} />
                     </div>
                 </section>
