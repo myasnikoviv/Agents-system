@@ -1988,6 +1988,24 @@ app.post('/api/governance/rules/:ruleId/disable', async (req, res) => {
   }
 });
 
+app.delete('/api/governance/rules/:ruleId', async (req, res) => {
+  try {
+    const ruleId = String(req.params?.ruleId || '').trim();
+    const force = String(req.query?.force || '').trim() === 'true';
+    const { deleteGovernanceRule } = await import('../runtime/governance/RuleRegistry');
+    const result = deleteGovernanceRule(ruleId, { force }, process.cwd());
+    appendControlActionAudit({
+      action: 'governance_rule_delete',
+      actorId: 'cockpit-user',
+      target: { ruleId, force },
+      result: { ok: true, ...result },
+    });
+    res.json({ success: true, ruleId, force, ...result, serverNow: new Date().toISOString() });
+  } catch (error: any) {
+    res.status(400).json({ success: false, error: 'governance_rule_delete_failed', message: error?.message || 'Failed to delete rule' });
+  }
+});
+
 app.get('/api/governance/evaluators', async (_req, res) => {
   try {
     const { listDeterministicEvaluators } = await import('../runtime/governance/DeterministicEvaluationEngine');
