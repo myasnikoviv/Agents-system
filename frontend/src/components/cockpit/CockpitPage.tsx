@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { ArtifactRenderer } from './ArtifactRenderer';
 import { apiUrl, fetchJsonSafe } from '../../lib/http';
 import { StreamRenderer, type RuntimeEvent } from './StreamRenderer';
+import { ObservabilityPanels } from './ObservabilityPanels';
 import './CockpitPage.css';
 const RUNTIME_MODE_KEY = 'cockpit.runtime.mode.v1';
 
@@ -591,7 +592,7 @@ export function CockpitPage() {
                                 currentTask: status === 'standby' ? 'n/a' : sanitizeTaskText(currentTask),
                                 currentIssue,
                                 threadId: threadKey,
-                                lastUpdated: event.timestamp || new Date().toISOString(),
+                                lastUpdated: String(event.timestamp || new Date().toISOString()),
                                 delegatedFrom,
                             },
                         };
@@ -2388,6 +2389,7 @@ export function CockpitPage() {
 
                     <div className="feed-container">
                         <StreamRenderer events={eventsByThread[activeThreadKey] || []} />
+                        <ObservabilityPanels events={eventsByThread[activeThreadKey] || []} />
                         <div ref={feedEndRef} />
                     </div>
                 </section>
