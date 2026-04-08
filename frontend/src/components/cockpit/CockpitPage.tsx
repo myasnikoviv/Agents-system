@@ -520,6 +520,45 @@ export function CockpitPage() {
         return { avgMs, maxMs, samples: latencies.length };
     }, [queueSnapshot.assigned]);
 
+    const workerLifecycleTimeline = useMemo(() => {
+        const rows = activeEvents
+            .filter((event) => {
+                const t = String(event.event_type || event.type || '').trim();
+                return (
+                    t === 'worker.starting' ||
+                    t === 'worker.spawned' ||
+                    t === 'worker.reused' ||
+                    t === 'worker.state_changed' ||
+                    t === 'worker.failed' ||
+                    t === 'worker.unhealthy'
+                );
+            })
+            .map((event) => {
+                const type = String(event.event_type || event.type || '').trim();
+                return {
+                    id: String(event.event_id || event.id || `${Date.now()}-${Math.random()}`),
+                    at: new Date(String(event.timestamp || Date.now())).getTime(),
+                    type,
+                    workerId: String(event.payload?.workerId || 'n/a').trim(),
+                    agentSlug: String(event.payload?.agentSlug || event.actor?.id || 'unknown').trim(),
+                    from: String(event.payload?.from || '').trim(),
+                    to: String(event.payload?.to || '').trim(),
+                    taskId: String(event.payload?.taskId || '').trim(),
+                };
+            })
+            .sort((a, b) => b.at - a.at);
+        return rows.slice(0, 16);
+    }, [activeEvents]);
+
+    const resourcePressure = useMemo(() => {
+        const workers = Math.max(1, swarmSummary.workersTotal);
+        const pressure = swarmSummary.queuePressure;
+        const ratio = pressure / workers;
+        if (ratio >= 2) return { label: 'overload', className: 'text-red-400' };
+        if (ratio >= 1) return { label: 'high', className: 'text-amber-300' };
+        return { label: 'normal', className: 'text-emerald-400' };
+    }, [swarmSummary.queuePressure, swarmSummary.workersTotal]);
+
     const appendMessagesToThread = (threadId: string | undefined, next: ChatMessage[]) => {
         const key = threadId && threadId.trim().length > 0 ? threadId : activeThreadKey;
         if (next.length === 0) return;
@@ -2635,6 +2674,7 @@ export function CockpitPage() {
                                 <span>Worktree: {gitContext?.worktreePath || runtimeFooter.worktreePath || 'n/a'}</span>
                                 <span>Queue pressure: {swarmSummary.queuePressure}</span>
                                 <span>Unhealthy workers: {swarmSummary.unhealthyWorkers}</span>
+                                <span className={resourcePressure.className}>Resource pressure: {resourcePressure.label}</span>
                                 {projectSwitchFeedback && (
                                     <>
                                         <span>
@@ -2814,6 +2854,31 @@ export function CockpitPage() {
                                             <span>agent: {row.agentSlug}</span>
                                             <span>stage: {row.stageId}</span>
                                             <span>project: {row.projectId}</span>
+                                        </div>
+                                    </div>
+                                ))
+                            )}
+                        </div>
+                    </div>
+
+                    <div className="catalog-card">
+                        <div className="catalog-title">Worker Lifecycle Timeline</div>
+                        <div className="agent-board">
+                            {workerLifecycleTimeline.length === 0 ? (
+                                <div className="agent-board-empty">No worker lifecycle events yet.</div>
+                            ) : (
+                                workerLifecycleTimeline.map((row) => (
+                                    <div key={`lifecycle-${row.id}`} className="agent-board-row">
+                                        <div className={`agent-dot ${row.type === 'worker.failed' || row.type === 'worker.unhealthy' ? 'unavailable' : 'active'}`} />
+                                        <div className="agent-board-main">
+                                            <div className="agent-board-title">{row.type}</div>
+                                            <div className="agent-board-sub">{new Date(row.at).toLocaleTimeString()}</div>
+                                        </div>
+                                        <div className="agent-board-meta">
+                                            <span>worker: {row.workerId}</span>
+                                            <span>agent: {row.agentSlug}</span>
+                                            {row.from && row.to && <span>state: {row.from} {'->'} {row.to}</span>}
+                                            {row.taskId && <span>task: {row.taskId}</span>}
                                         </div>
                                     </div>
                                 ))
