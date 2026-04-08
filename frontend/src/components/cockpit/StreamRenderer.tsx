@@ -65,11 +65,12 @@ interface StreamEventCardProps {
     forceExpanded?: boolean;
 }
 
-const ALLOWED_TYPES = [
+const PRIORITY_TYPES = [
     'tool.call',
     'tool.result',
     'tool.called',
     'stage.started',
+    'swarm_stage_completed',
     'swarm_handoff',
     'swarm.handoff',
     'agent.started',
@@ -104,10 +105,6 @@ const DEFAULT_EXPANDED_TYPES = ['system.thought', 'agent.message', 'contract_fai
 const StreamEventCard: React.FC<StreamEventCardProps> = ({ event, index, forceExpanded }) => {
     const eventType = String(event.event_type || event.type || '').trim();
     const isHandoff = eventType === 'swarm_handoff' || eventType === 'swarm.handoff';
-    if (!ALLOWED_TYPES.includes(eventType)) {
-        return null;
-    }
-
     const defaultExpanded = DEFAULT_EXPANDED_TYPES.includes(eventType);
     const [expanded, setExpanded] = useState(defaultExpanded);
     const [visible, setVisible] = useState(false);
@@ -144,6 +141,14 @@ const StreamEventCard: React.FC<StreamEventCardProps> = ({ event, index, forceEx
         icon = <TerminalSquare size={14} />;
         iconColorClass = 'text-purple-500';
         containerClass = 'border border-purple-500/20 rounded-md bg-slate-900/60 overflow-hidden text-sm';
+    } else if (eventType === 'swarm_stage_completed') {
+        const stageLabel = String(event.payload?.stageTitle || event.payload?.stageId || event.source_stage || 'n/a').trim();
+        const summary = String(event.payload?.summary || event.payload?.message || '').trim();
+        title = `Stage completed: ${roleLabel} (${stageLabel})`;
+        bodyText = summary;
+        icon = <CheckCircle2 size={14} />;
+        iconColorClass = 'text-emerald-400';
+        containerClass = 'border border-emerald-500/20 rounded-md bg-emerald-950/20 overflow-hidden text-sm text-emerald-100';
     } else if (isHandoff) {
         const fromAgent = String(event.payload?.fromAgentTitle || event.payload?.fromAgentId || 'unknown').trim();
         const toAgent = String(event.payload?.toAgentTitle || event.payload?.toAgentId || roleLabel || 'unknown').trim();
@@ -197,14 +202,41 @@ const StreamEventCard: React.FC<StreamEventCardProps> = ({ event, index, forceEx
         icon = <MessageSquare size={14} />;
         iconColorClass = 'text-slate-300';
         containerClass = 'border border-white/10 rounded-md bg-slate-800/60 overflow-hidden text-sm text-slate-200';
+    } else if (eventType === 'guard.retry') {
+        const attemptRaw = Number(event.payload?.attempt ?? event.payload?.iteration ?? 1);
+        const attempt = Number.isFinite(attemptRaw) && attemptRaw > 0 ? attemptRaw : 1;
+        const rule = String(event.payload?.rule || event.payload?.ruleId || '').trim();
+        const step = String(event.payload?.stepId || event.payload?.stageId || '').trim();
+        title = `Loop progress: retry #${attempt}`;
+        bodyText = [rule ? `rule: ${rule}` : '', step ? `step: ${step}` : '', String(event.payload?.reason || event.payload?.detail || '').trim()]
+            .filter(Boolean)
+            .join('\n');
+        icon = <Activity size={14} />;
+        iconColorClass = 'text-amber-400';
+        containerClass = 'border border-amber-500/20 rounded-md bg-amber-950/20 overflow-hidden text-sm text-amber-100';
     } else if (eventType === 'governance.rule_check') {
         const detail = String(event.payload?.detail || '').trim();
         const rule = String(event.payload?.rule || 'governance').trim();
-        title = `Governance: ${rule}`;
-        bodyText = detail || '(No details available)';
+        const status = String(event.payload?.status || event.payload?.outcome || 'unknown').trim().toLowerCase();
+        const isLoopRule =
+            rule.includes('verification') ||
+            rule.includes('postflight') ||
+            rule.includes('required_pipeline_usage') ||
+            rule.includes('improvement') ||
+            rule.includes('learning');
+        title = isLoopRule ? `Loop result: ${rule}` : `Governance: ${rule}`;
+        bodyText = isLoopRule ? `${status || 'unknown'}${detail ? `\n${detail}` : ''}` : (detail || '(No details available)');
         icon = <CheckCircle2 size={14} />;
-        iconColorClass = 'text-emerald-400';
-        containerClass = 'border border-emerald-500/20 rounded-md bg-emerald-950/20 overflow-hidden text-sm text-emerald-100';
+        if (isLoopRule && (status === 'fail' || status === 'failed' || status === 'blocked')) {
+            iconColorClass = 'text-red-400';
+            containerClass = 'border border-red-500/20 rounded-md bg-red-950/20 overflow-hidden text-sm text-red-100';
+        } else if (isLoopRule && (status === 'pass' || status === 'passed' || status === 'ok')) {
+            iconColorClass = 'text-emerald-400';
+            containerClass = 'border border-emerald-500/20 rounded-md bg-emerald-950/20 overflow-hidden text-sm text-emerald-100';
+        } else {
+            iconColorClass = 'text-emerald-400';
+            containerClass = 'border border-emerald-500/20 rounded-md bg-emerald-950/20 overflow-hidden text-sm text-emerald-100';
+        }
     } else if (eventType === 'worker.starting' || eventType === 'worker.spawned' || eventType === 'worker.reused') {
         const workerId = String(event.payload?.workerId || '').trim();
         const state = String(event.payload?.state || '').trim();
@@ -254,6 +286,16 @@ const StreamEventCard: React.FC<StreamEventCardProps> = ({ event, index, forceEx
         icon = <AlertTriangle size={14} />;
         iconColorClass = 'text-amber-500';
         containerClass = 'border border-amber-500/20 rounded-md bg-amber-950/20 overflow-hidden text-sm text-amber-100';
+    } else {
+        const actor = String(event.payload?.agentSlug || roleLabel || 'system').trim();
+        title = `${eventType || 'runtime.event'}: ${actor}`;
+        bodyText = String(event.payload?.message || event.payload?.detail || event.payload?.summary || '').trim();
+        if (!bodyText) {
+            bodyText = JSON.stringify(event.payload || {}, null, 2);
+        }
+        icon = <Activity size={14} />;
+        iconColorClass = 'text-slate-400';
+        containerClass = 'border border-white/10 rounded-md bg-slate-900/40 overflow-hidden text-sm';
     }
 
     const hasBody = !!bodyText;
@@ -305,16 +347,25 @@ export const StreamRenderer: React.FC<StreamRendererProps> = ({ events }) => {
 
     if (!events || events.length === 0) return null;
 
-    const visibleEvents = events.filter((e) =>
-        ALLOWED_TYPES.includes(String(e.event_type || e.type || '').trim())
-    );
+    const visibleEvents = events.filter((e) => String(e.event_type || e.type || '').trim() !== 'connected');
     if (visibleEvents.length === 0) return null;
+
+    const eventSortWeight = (event: RuntimeEvent): number => {
+        const eventType = String(event.event_type || event.type || '').trim();
+        const idx = PRIORITY_TYPES.indexOf(eventType);
+        return idx >= 0 ? idx : PRIORITY_TYPES.length + 1;
+    };
+    const orderedEvents = [...visibleEvents].sort((a, b) => {
+        const byTs = new Date(String(a.timestamp || 0)).getTime() - new Date(String(b.timestamp || 0)).getTime();
+        if (byTs !== 0) return byTs;
+        return eventSortWeight(a) - eventSortWeight(b);
+    });
 
     return (
         <div className="flex flex-col gap-2 my-3">
             {/* S5-8: Global collapse/expand control */}
             <div className="flex items-center justify-end gap-2 mb-1">
-                <span className="text-[0.72rem] text-slate-500">{visibleEvents.length} events</span>
+                <span className="text-[0.72rem] text-slate-500">{orderedEvents.length} events</span>
                 <button
                     className="inline-flex items-center gap-1 text-[0.72rem] text-slate-400 hover:text-slate-200 border border-white/10 rounded px-2 py-0.5 hover:bg-white/5 transition-colors"
                     onClick={() => setAllExpanded(prev => prev === true ? false : true)}
@@ -332,7 +383,7 @@ export const StreamRenderer: React.FC<StreamRendererProps> = ({ events }) => {
                     Collapse All
                 </button>
             </div>
-            {visibleEvents.map((event, i) => (
+            {orderedEvents.map((event, i) => (
                 <StreamEventCard
                     key={event.event_id || event.id || `ev-${i}`}
                     event={event}
