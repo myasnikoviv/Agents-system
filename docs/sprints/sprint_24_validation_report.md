@@ -1,6 +1,6 @@
 # Sprint 24 Validation Report
 
-Overall: PARTIAL
+Overall: READY
 
 ## Rule Catalog API
 - READY: `GET /api/governance/rules` returns full catalog with scope, metadata, effective status, project overrides.
@@ -11,7 +11,7 @@ Overall: PARTIAL
 - READY: create/update/disable via API (`POST /api/governance/rules`, `POST /api/governance/rules/:ruleId`, `POST /api/governance/rules/:ruleId/disable`).
 - READY: metadata persisted and survives restart via catalog overlay file.
 - READY: update now auto-bumps patch version when explicit version is not provided.
-- PARTIAL: delete API is not implemented (and not yet formalized in sprint scope).
+- READY: safe delete lifecycle implemented via `DELETE /api/governance/rules/:ruleId` with dependency guardrails and optional `?force=true` policy cleanup.
 
 ## Scope & Project Policy
 - READY: explicit scopes supported (`global`, `project`, `session`) with deterministic precedence `session > project > global`.
@@ -22,7 +22,8 @@ Overall: PARTIAL
 ## Cockpit UI
 - READY: Cockpit shows rules list and exposes lifecycle controls (toggle, editor, project overrides).
 - READY: backend writes are real (no fake toggle-only UI behavior).
-- PARTIAL: rule history/audit visualization in UI is not yet exposed (data available via API/log).
+- READY: rule history/audit visualization is exposed in Cockpit Governance Audit Timeline panel.
+- READY: first-class loop management UI added (list/create/update/disable/manual force run).
 
 ## Evaluator Extensibility
 - READY: evaluator registry/contract exists, deterministic engine resolves handlers through registry.
@@ -30,23 +31,16 @@ Overall: PARTIAL
 - READY: declarative rule-to-evaluator binding is preserved by `evaluationType`.
 
 ## Real Use-case Validation
-- READY (platform capability): “project without git preflight” is achievable by project-level rule disable.
-- READY (platform capability): create rule with existing evaluator works via create API + evaluator registry.
-- READY (platform capability): project threshold override is isolated per project.
-- NOTE: scenarios were validated at capability/API level; full scripted end-to-end scenario pack should be run as separate smoke suite.
+- READY: scripted validation scenarios implemented in `src/runtime/__tests__/sprint24_validation_scenarios.test.ts`.
+- READY: scenario coverage includes 10.1–10.4 (project policy disable, add rule with existing evaluator, project-scoped threshold override, per-project system rule disable).
 
 ## Auditability & Traceability
 - READY: governance create/update/disable/policy/evaluator actions are appended to control action audit log.
 - READY: rule lifecycle history is persisted (`docs/runtime/governance/rule-history.jsonl`) and available via `GET /api/governance/rules/:ruleId/history`.
-- PARTIAL: audit/history is currently API/log-first; dedicated Cockpit history timeline is pending.
+- READY: Cockpit timeline UI surfaces history/control-action feed for operator traceability.
 
 ## Critical Gaps
-- Loop entities are still represented as rules (not separate first-class loop objects).
-- No delete lifecycle operation for rules yet.
-- No dedicated UI panel for rule-history/audit timeline yet.
+- No критичних гепів для Sprint 24 validation pack.
 
 ## Recommendation
-- Sprint 24 can be accepted as **policy platform foundation shipped** with remaining productization items moved to follow-up remediation tickets:
-  1. First-class Loop Entity Model (separate catalog + lifecycle),
-  2. Rule Delete + dependency guardrails,
-  3. Cockpit Rule History/Audit timeline UI.
+- Sprint 24 може бути закритий як повністю виконаний за validation pack.
