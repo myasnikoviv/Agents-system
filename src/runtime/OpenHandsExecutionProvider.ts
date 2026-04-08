@@ -4,6 +4,7 @@ import { getCockpitExecutorConfig } from './CockpitExecutorConfig';
 import fs from 'fs';
 import path from 'path';
 import { randomUUID } from 'crypto';
+import { RunManager } from './context/RunManager';
 
 export interface OpenHandsConversationResponse {
   conversation_id: string;
@@ -41,6 +42,33 @@ export class OpenHandsExecutionProvider {
 
   private sleep(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  private cancellableSleep(ms: number, signal?: AbortSignal): Promise<void> {
+    if (!signal) return this.sleep(ms);
+    if (signal.aborted) return Promise.reject(new Error('run_cancelled'));
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        signal.removeEventListener('abort', onAbort);
+        resolve();
+      }, ms);
+      const onAbort = () => {
+        clearTimeout(timer);
+        signal.removeEventListener('abort', onAbort);
+        reject(new Error('run_cancelled'));
+      };
+      signal.addEventListener('abort', onAbort, { once: true });
+    });
+  }
+
+  private throwIfCancelled(runId?: string, signal?: AbortSignal): void {
+    if (signal?.aborted) {
+      throw new Error(`Run ${String(runId || 'unknown')} was cancelled.`);
+    }
+    const rid = String(runId || '').trim();
+    if (rid) {
+      RunManager.checkCancellation(rid);
+    }
   }
 
   private shouldRetry(errorText: string, statusCode?: number): boolean {
@@ -135,6 +163,8 @@ export class OpenHandsExecutionProvider {
   async runTask(input: ExternalExecutionInput): Promise<ExternalExecutionResult> {
     const startedAt = Date.now();
     const traceId = randomUUID();
+    const runId = String(input.runId || '').trim();
+    const abortSignal = (runId ? RunManager.getAbortSignal(runId) : undefined) || undefined;
     const cfg = getCockpitExecutorConfig();
     const model = input.model || cfg.openhands.model || 'anthropic/claude-sonnet-4-6';
     const provider = this.getProviderFromModel(model);
@@ -184,6 +214,7 @@ export class OpenHandsExecutionProvider {
     for (let runAttempt = 1; runAttempt <= maxRunRetries; runAttempt++) {
       this.writeDiagnostics(traceId, { phase: 'attempt_start', runAttempt });
       try {
+        this.throwIfCancelled(runId, abortSignal);
         const convResponse = await axios.post(`${this.serverUrl}/api/conversations`, {
           agent: {
             discriminator: 'Agent',
@@ -204,7 +235,7 @@ export class OpenHandsExecutionProvider {
             content: [{ type: 'text', text: input.prompt }],
             run: true
           }
-        }, { timeout: requestTimeoutMs });
+        }, { timeout: requestTimeoutMs, signal: abortSignal });
 
         const conversationId = String(convResponse.data?.conversation_id || '').trim();
         lastConversationId = conversationId;
@@ -223,8 +254,9 @@ export class OpenHandsExecutionProvider {
 
         while (isRunning && statusAttempts < maxPollAttempts) {
           statusAttempts++;
-          await this.sleep(pollIntervalMs);
-          const statusRes = await axios.get(`${this.serverUrl}/api/conversations/${conversationId}`, { timeout: requestTimeoutMs });
+          await this.cancellableSleep(pollIntervalMs, abortSignal);
+          this.throwIfCancelled(runId, abortSignal);
+          const statusRes = await axios.get(`${this.serverUrl}/api/conversations/${conversationId}`, { timeout: requestTimeoutMs, signal: abortSignal });
           latestStatusPayload = statusRes.data;
           status = String(statusRes.data?.execution_status || '').trim() || 'unknown';
           if (status !== previousStatus || statusAttempts === 1 || statusAttempts % 10 === 0) {
@@ -247,7 +279,8 @@ export class OpenHandsExecutionProvider {
           status = 'timeout';
         }
 
-        const eventsRes = await axios.get(`${this.serverUrl}/api/conversations/${conversationId}/events/search?limit=50`, { timeout: requestTimeoutMs });
+        this.throwIfCancelled(runId, abortSignal);
+        const eventsRes = await axios.get(`${this.serverUrl}/api/conversations/${conversationId}/events/search?limit=50`, { timeout: requestTimeoutMs, signal: abortSignal });
         const events = Array.isArray(eventsRes.data?.events) ? eventsRes.data.events : [];
         const reversedEvents = [...events].reverse();
         const lastMessage = reversedEvents.find((e: any) => e.role === 'assistant');
@@ -336,6 +369,17 @@ export class OpenHandsExecutionProvider {
         });
         await this.sleep(delayMs);
       } catch (error: any) {
+        if (abortSignal?.aborted || String(error?.message || '').toLowerCase().includes('cancelled')) {
+          return {
+            ok: false,
+            executor: 'openhands-sdk',
+            stdout: '',
+            stderr: `run_cancelled:${runId || 'unknown'}`,
+            exitCode: 130,
+            durationMs: Date.now() - startedAt,
+            command: lastConversationId ? ['openhands', 'run', lastConversationId] : []
+          };
+        }
         const statusCode = Number(error?.response?.status);
         const errMsg =
           error?.response?.data?.message ||

@@ -155,10 +155,44 @@ let runtimeFooter = {
   preflightToken: null as string | null,
 };
 
+type RuntimeEnforcementProfile = {
+  pipeline?: string;
+  skills?: string[];
+};
+let runtimeEnforcementByProject: Record<string, RuntimeEnforcementProfile> = {};
+
 const defaultContractRegistry = {
   version: 'agent-system-1.0',
   catalog: [],
   types: [],
+};
+
+const CONTROL_ACTION_AUDIT_FILE = path.resolve(process.cwd(), 'docs/runtime/governance/logs/control-actions.jsonl');
+
+const appendControlActionAudit = (input: {
+  action: string;
+  projectId?: string;
+  actorId?: string;
+  reason?: string;
+  target?: Record<string, any>;
+  result?: Record<string, any>;
+}) => {
+  try {
+    fs.mkdirSync(path.dirname(CONTROL_ACTION_AUDIT_FILE), { recursive: true });
+    const row = {
+      id: `audit-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+      timestamp: new Date().toISOString(),
+      action: input.action,
+      projectId: input.projectId || null,
+      actorId: input.actorId || 'cockpit-user',
+      reason: input.reason || '',
+      target: input.target || {},
+      result: input.result || {},
+    };
+    fs.appendFileSync(CONTROL_ACTION_AUDIT_FILE, `${JSON.stringify(row)}\n`, 'utf-8');
+  } catch {
+    // non-blocking audit
+  }
 };
 
 const PLANE_BASE_URL = (process.env.PLANE_BASE_URL || 'http://127.0.0.1:3000').replace(/\/$/, '');
@@ -970,12 +1004,51 @@ for (const project of projectStore.values()) {
 restoreSettingsStore();
 runtimeFooter = loadRuntimeState('runtime_footer', runtimeFooter);
 runtimeSelection = loadRuntimeState('runtime_selection', runtimeSelection);
+runtimeEnforcementByProject = loadRuntimeState<Record<string, RuntimeEnforcementProfile>>('runtime_enforcement_by_project', {});
 void refreshCatalog();
 const runtimeFromSettingsAtBoot = getRuntimeSelectionFromExecutorSettings();
 if (runtimeFromSettingsAtBoot) {
   runtimeSelection = runtimeFromSettingsAtBoot;
   saveRuntimeState('runtime_selection', runtimeSelection);
 }
+
+const parseRuntimeDirectives = (rawMessage: string): {
+  cleanedMessage: string;
+  requestedPipeline?: string;
+  requestedAgents: string[];
+  requestedSkills: string[];
+} => {
+  const lines = String(rawMessage || '').split('\n');
+  const keep: string[] = [];
+  const requestedAgents: string[] = [];
+  const requestedSkills: string[] = [];
+  let requestedPipeline: string | undefined;
+  for (const line of lines) {
+    const trimmed = line.trim();
+    const p = trimmed.match(/^pipeline:(.+)$/i);
+    if (p?.[1]) {
+      requestedPipeline = String(p[1]).trim();
+      continue;
+    }
+    const a = trimmed.match(/^agent:(.+)$/i);
+    if (a?.[1]) {
+      requestedAgents.push(String(a[1]).trim());
+      continue;
+    }
+    const s = trimmed.match(/^skill:(.+)$/i);
+    if (s?.[1]) {
+      requestedSkills.push(String(s[1]).trim());
+      continue;
+    }
+    keep.push(line);
+  }
+  return {
+    cleanedMessage: keep.join('\n').trim(),
+    ...(requestedPipeline ? { requestedPipeline } : {}),
+    requestedAgents: Array.from(new Set(requestedAgents.filter(Boolean))),
+    requestedSkills: Array.from(new Set(requestedSkills.filter(Boolean))),
+  };
+};
 
 app.get('/api/health', (_req, res) => {
   res.json({
@@ -1072,6 +1145,155 @@ app.get('/api/cockpit/swarm/workers', async (_req, res) => {
   }
 });
 
+app.post('/api/cockpit/swarm/workers/control', async (req, res) => {
+  try {
+    const projectId = String(req.body?.projectId || '').trim();
+    const agentSlug = String(req.body?.agentSlug || '').trim();
+    const workerId = String(req.body?.workerId || '').trim();
+    const action = String(req.body?.action || '').trim().toLowerCase();
+
+    if (!projectId) {
+      res.status(400).json({
+        success: false,
+        error: 'project_id_required',
+        message: 'projectId is required',
+      });
+      return;
+    }
+    if (!agentSlug && !workerId) {
+      res.status(400).json({
+        success: false,
+        error: 'worker_selector_required',
+        message: 'agentSlug or workerId is required',
+      });
+      return;
+    }
+    if (!['pause', 'resume', 'restart', 'kill'].includes(action)) {
+      res.status(400).json({
+        success: false,
+        error: 'invalid_action',
+        message: 'action must be one of: pause, resume, restart, kill',
+      });
+      return;
+    }
+
+    const { DynamicWorkerSpawnManager } = await import('../runtime/workers/DynamicWorkerSpawnManager');
+    const control = await DynamicWorkerSpawnManager.controlWorker({
+      projectId,
+      ...(agentSlug ? { agentSlug } : {}),
+      ...(workerId ? { workerId } : {}),
+      action: action as 'pause' | 'resume' | 'restart' | 'kill',
+      runId: `cockpit-control-${Date.now()}`,
+      chainId: 'cockpit-worker-control',
+    });
+
+    if (!control.ok) {
+      const reason = 'reason' in control ? control.reason : 'worker_control_failed';
+      res.status(409).json({
+        success: false,
+        error: 'worker_control_failed',
+        message: reason,
+      });
+      return;
+    }
+
+    const workers = DynamicWorkerSpawnManager.controllerContractSnapshot({
+      projectId,
+      heartbeatTimeoutMs: Number(process.env.RUNTIME_WORKER_HEARTBEAT_TIMEOUT_MS || 45000),
+    });
+
+    res.json({
+      success: true,
+      action,
+      projectId,
+      ...(agentSlug ? { agentSlug } : {}),
+      ...(workerId ? { workerId } : {}),
+      control,
+      workers,
+      serverNow: new Date().toISOString(),
+    });
+    appendControlActionAudit({
+      action: `worker_${action}`,
+      projectId,
+      actorId: 'cockpit-user',
+      target: { agentSlug: agentSlug || null, workerId: workerId || null },
+      result: { ok: true },
+    });
+  } catch (error: any) {
+    res.status(500).json({
+      success: false,
+      error: 'worker_control_exception',
+      message: error?.message || 'Failed to control worker',
+    });
+  }
+});
+
+app.post('/api/cockpit/swarm/workers/bulk', async (req, res) => {
+  try {
+    const projectId = String(req.body?.projectId || '').trim();
+    const action = String(req.body?.action || '').trim().toLowerCase();
+    if (!projectId) {
+      res.status(400).json({ success: false, error: 'project_id_required', message: 'projectId is required' });
+      return;
+    }
+    if (!['pause_all', 'kill_all', 'restart_group'].includes(action)) {
+      res.status(400).json({ success: false, error: 'invalid_action', message: 'action must be pause_all|kill_all|restart_group' });
+      return;
+    }
+    const { DynamicWorkerSpawnManager } = await import('../runtime/workers/DynamicWorkerSpawnManager');
+    const workers = DynamicWorkerSpawnManager.controllerContractSnapshot({ projectId });
+    const mappedAction =
+      action === 'pause_all'
+        ? 'pause'
+        : action === 'kill_all'
+          ? 'kill'
+          : 'restart';
+    const results: Array<{ workerId: string; agentSlug: string; ok: boolean; reason?: string }> = [];
+    for (const worker of workers) {
+      const controlled = await DynamicWorkerSpawnManager.controlWorker({
+        projectId,
+        agentSlug: worker.agentSlug,
+        workerId: worker.workerId,
+        action: mappedAction as 'pause' | 'kill' | 'restart',
+        runId: `bulk-${Date.now()}`,
+        chainId: 'cockpit-worker-bulk',
+      });
+      results.push({
+        workerId: worker.workerId,
+        agentSlug: worker.agentSlug,
+        ok: controlled.ok,
+        ...(!controlled.ok ? { reason: controlled.reason } : {}),
+      });
+    }
+    const after = DynamicWorkerSpawnManager.controllerContractSnapshot({ projectId });
+    res.json({
+      success: true,
+      projectId,
+      action,
+      results,
+      workers: after,
+      summary: {
+        total: results.length,
+        ok: results.filter((r) => r.ok).length,
+        failed: results.filter((r) => !r.ok).length,
+      },
+      serverNow: new Date().toISOString(),
+    });
+    appendControlActionAudit({
+      action: `worker_bulk_${action}`,
+      projectId,
+      actorId: 'cockpit-user',
+      result: { total: results.length, ok: results.filter((r) => r.ok).length, failed: results.filter((r) => !r.ok).length },
+    });
+  } catch (error: any) {
+    res.status(500).json({
+      success: false,
+      error: 'worker_bulk_control_failed',
+      message: error?.message || 'Failed to execute bulk worker control',
+    });
+  }
+});
+
 app.get('/api/cockpit/swarm/summary', async (_req, res) => {
   try {
     const projectId = String(_req.query?.projectId || '').trim();
@@ -1154,6 +1376,385 @@ app.get('/api/cockpit/swarm/utilization', async (_req, res) => {
       message: error?.message || 'Failed to fetch swarm utilization telemetry',
     });
   }
+});
+
+app.get('/api/cockpit/swarm/queue/tasks', async (_req, res) => {
+  try {
+    const projectId = String(_req.query?.projectId || '').trim();
+    const { ProjectDispatchQueue } = await import('../runtime/queue/ProjectDispatchQueue');
+    const tasks = ProjectDispatchQueue.listTasks(projectId || undefined);
+    res.json({
+      success: true,
+      projectId: projectId || null,
+      tasks,
+      total: tasks.length,
+      serverNow: new Date().toISOString(),
+    });
+  } catch (error: any) {
+    res.status(500).json({
+      success: false,
+      error: 'swarm_queue_tasks_fetch_failed',
+      message: error?.message || 'Failed to fetch queue tasks',
+    });
+  }
+});
+
+app.post('/api/cockpit/swarm/queue/reassign', async (req, res) => {
+  try {
+    const projectId = String(req.body?.projectId || '').trim();
+    const taskId = String(req.body?.taskId || '').trim();
+    const toAgentSlug = String(req.body?.toAgentSlug || '').trim();
+    if (!projectId || !taskId || !toAgentSlug) {
+      res.status(400).json({ success: false, error: 'invalid_input', message: 'projectId, taskId, toAgentSlug are required' });
+      return;
+    }
+    const { ProjectDispatchQueue } = await import('../runtime/queue/ProjectDispatchQueue');
+    const task = ProjectDispatchQueue.reassignTask({ projectId, taskId, toAgentSlug, actorId: 'cockpit-user' });
+    if (!task) {
+      res.status(404).json({ success: false, error: 'task_not_found', message: 'Queued task not found for reassignment' });
+      return;
+    }
+    res.json({ success: true, task, queueDepthByKey: ProjectDispatchQueue.snapshot(projectId), serverNow: new Date().toISOString() });
+    appendControlActionAudit({
+      action: 'queue_reassign',
+      projectId,
+      actorId: 'cockpit-user',
+      target: { taskId, toAgentSlug },
+      result: { ok: true },
+    });
+  } catch (error: any) {
+    res.status(500).json({ success: false, error: 'swarm_queue_reassign_failed', message: error?.message || 'Failed to reassign queued task' });
+  }
+});
+
+app.post('/api/cockpit/swarm/queue/retry', async (req, res) => {
+  try {
+    const projectId = String(req.body?.projectId || '').trim();
+    const taskId = String(req.body?.taskId || '').trim();
+    if (!projectId || !taskId) {
+      res.status(400).json({ success: false, error: 'invalid_input', message: 'projectId and taskId are required' });
+      return;
+    }
+    const { ProjectDispatchQueue } = await import('../runtime/queue/ProjectDispatchQueue');
+    const task = ProjectDispatchQueue.retryTask({ projectId, taskId, actorId: 'cockpit-user' });
+    if (!task) {
+      res.status(404).json({ success: false, error: 'task_not_found', message: 'Task not found for retry' });
+      return;
+    }
+    res.json({ success: true, task, queueDepthByKey: ProjectDispatchQueue.snapshot(projectId), serverNow: new Date().toISOString() });
+    appendControlActionAudit({
+      action: 'queue_retry',
+      projectId,
+      actorId: 'cockpit-user',
+      target: { taskId },
+      result: { ok: true },
+    });
+  } catch (error: any) {
+    res.status(500).json({ success: false, error: 'swarm_queue_retry_failed', message: error?.message || 'Failed to retry queued task' });
+  }
+});
+
+app.post('/api/cockpit/swarm/queue/cancel', async (req, res) => {
+  try {
+    const projectId = String(req.body?.projectId || '').trim();
+    const taskId = String(req.body?.taskId || '').trim();
+    if (!projectId || !taskId) {
+      res.status(400).json({ success: false, error: 'invalid_input', message: 'projectId and taskId are required' });
+      return;
+    }
+    const { ProjectDispatchQueue } = await import('../runtime/queue/ProjectDispatchQueue');
+    const task = ProjectDispatchQueue.cancelTask({ projectId, taskId, actorId: 'cockpit-user' });
+    if (!task) {
+      res.status(404).json({ success: false, error: 'task_not_found', message: 'Task not found for cancel' });
+      return;
+    }
+    res.json({ success: true, task, queueDepthByKey: ProjectDispatchQueue.snapshot(projectId), serverNow: new Date().toISOString() });
+    appendControlActionAudit({
+      action: 'queue_cancel',
+      projectId,
+      actorId: 'cockpit-user',
+      target: { taskId },
+      result: { ok: true },
+    });
+  } catch (error: any) {
+    res.status(500).json({ success: false, error: 'swarm_queue_cancel_failed', message: error?.message || 'Failed to cancel queued task' });
+  }
+});
+
+app.post('/api/cockpit/swarm/queue/priority', async (req, res) => {
+  try {
+    const projectId = String(req.body?.projectId || '').trim();
+    const taskId = String(req.body?.taskId || '').trim();
+    const priority = Number(req.body?.priority);
+    if (!projectId || !taskId || !Number.isFinite(priority)) {
+      res.status(400).json({ success: false, error: 'invalid_input', message: 'projectId, taskId, finite priority are required' });
+      return;
+    }
+    const { ProjectDispatchQueue } = await import('../runtime/queue/ProjectDispatchQueue');
+    const task = ProjectDispatchQueue.setTaskPriority({ projectId, taskId, priority, actorId: 'cockpit-user' });
+    if (!task) {
+      res.status(404).json({ success: false, error: 'task_not_found', message: 'Task not found for priority override' });
+      return;
+    }
+    res.json({ success: true, task, queueDepthByKey: ProjectDispatchQueue.snapshot(projectId), serverNow: new Date().toISOString() });
+    appendControlActionAudit({
+      action: 'queue_priority',
+      projectId,
+      actorId: 'cockpit-user',
+      target: { taskId },
+      result: { ok: true, priority },
+    });
+  } catch (error: any) {
+    res.status(500).json({ success: false, error: 'swarm_queue_priority_failed', message: error?.message || 'Failed to override task priority' });
+  }
+});
+
+app.post('/api/cockpit/swarm/projects/control', async (req, res) => {
+  try {
+    const projectId = String(req.body?.projectId || '').trim();
+    const action = String(req.body?.action || '').trim().toLowerCase();
+    if (!projectId) {
+      res.status(400).json({ success: false, error: 'project_id_required', message: 'projectId is required' });
+      return;
+    }
+    if (!['pause_project', 'resume_project', 'clear_queue'].includes(action)) {
+      res.status(400).json({ success: false, error: 'invalid_action', message: 'action must be pause_project|resume_project|clear_queue' });
+      return;
+    }
+    const { DynamicWorkerSpawnManager } = await import('../runtime/workers/DynamicWorkerSpawnManager');
+    const { ProjectDispatchQueue } = await import('../runtime/queue/ProjectDispatchQueue');
+    let cleared = 0;
+    if (action === 'pause_project') {
+      DynamicWorkerSpawnManager.setProjectPaused(projectId, true);
+      const workers = DynamicWorkerSpawnManager.controllerContractSnapshot({ projectId });
+      for (const worker of workers) {
+        await DynamicWorkerSpawnManager.controlWorker({
+          projectId,
+          agentSlug: worker.agentSlug,
+          workerId: worker.workerId,
+          action: 'pause',
+          runId: `project-control-${Date.now()}`,
+          chainId: 'cockpit-project-control',
+        }).catch(() => undefined);
+      }
+    } else if (action === 'resume_project') {
+      DynamicWorkerSpawnManager.setProjectPaused(projectId, false);
+    } else if (action === 'clear_queue') {
+      cleared = ProjectDispatchQueue.clearProject(projectId);
+    }
+
+    const workers = DynamicWorkerSpawnManager.controllerContractSnapshot({ projectId });
+    res.json({
+      success: true,
+      projectId,
+      action,
+      projectPaused: DynamicWorkerSpawnManager.isProjectPaused(projectId),
+      workers,
+      queueDepthByKey: ProjectDispatchQueue.snapshot(projectId),
+      ...(action === 'clear_queue' ? { cleared } : {}),
+      serverNow: new Date().toISOString(),
+    });
+    appendControlActionAudit({
+      action: `project_${action}`,
+      projectId,
+      actorId: 'cockpit-user',
+      result: { ok: true, cleared },
+    });
+  } catch (error: any) {
+    res.status(500).json({
+      success: false,
+      error: 'project_control_failed',
+      message: error?.message || 'Failed to execute project control action',
+    });
+  }
+});
+
+app.get('/api/cockpit/governance/overrides', async (req, res) => {
+  try {
+    const projectId = String(req.query?.projectId || '').trim();
+    const { listManualOverrides } = await import('../runtime/governance/ManualOverrideRegistry');
+    const rows = listManualOverrides(process.cwd()).filter((row) => (projectId ? row.projectId === projectId : true));
+    res.json({ success: true, overrides: rows, total: rows.length, serverNow: new Date().toISOString() });
+  } catch (error: any) {
+    res.status(500).json({ success: false, error: 'governance_overrides_fetch_failed', message: error?.message || 'Failed to fetch governance overrides' });
+  }
+});
+
+app.post('/api/cockpit/governance/overrides', async (req, res) => {
+  try {
+    const projectId = String(req.body?.projectId || '').trim();
+    const scope = String(req.body?.scope || '').trim() as 'global' | 'phase' | 'rule';
+    const reason = String(req.body?.reason || '').trim();
+    const actorId = String(req.body?.actorId || 'cockpit-user').trim();
+    const phase = String(req.body?.phase || '').trim();
+    const ruleId = String(req.body?.ruleId || '').trim();
+    const ticketId = String(req.body?.ticketId || '').trim();
+    const expiresAt = String(req.body?.expiresAt || '').trim();
+    if (!projectId || !scope || !reason) {
+      res.status(400).json({ success: false, error: 'invalid_input', message: 'projectId, scope, reason are required' });
+      return;
+    }
+    if (!['global', 'phase', 'rule'].includes(scope)) {
+      res.status(400).json({ success: false, error: 'invalid_scope', message: 'scope must be global|phase|rule' });
+      return;
+    }
+    const { addManualOverride } = await import('../runtime/governance/ManualOverrideRegistry');
+    const created = addManualOverride(
+      {
+        projectId,
+        scope,
+        ...(scope === 'phase' && phase ? { phase: phase as any } : {}),
+        ...(scope === 'rule' && ruleId ? { ruleId: ruleId as any } : {}),
+        ...(ticketId ? { ticketId } : {}),
+        actorId,
+        reason,
+        ...(expiresAt ? { expiresAt } : {}),
+      },
+      process.cwd(),
+    );
+    res.json({ success: true, override: created, serverNow: new Date().toISOString() });
+    appendControlActionAudit({
+      action: 'governance_override_create',
+      projectId,
+      actorId,
+      reason,
+      target: { scope, phase: phase || null, ruleId: ruleId || null, ticketId: ticketId || null },
+      result: { ok: true, overrideId: created.id },
+    });
+  } catch (error: any) {
+    res.status(500).json({ success: false, error: 'governance_override_create_failed', message: error?.message || 'Failed to create governance override' });
+  }
+});
+
+app.post('/api/cockpit/governance/loops/force', async (req, res) => {
+  try {
+    const loopType = String(req.body?.loopType || '').trim() as 'improvement' | 'validation';
+    const runId = String(req.body?.runId || '').trim() || `manual-loop-${Date.now().toString(36)}`;
+    const projectId = String(req.body?.projectId || '').trim() || 'default';
+    const chainId = String(req.body?.chainId || '').trim() || 'manual-loop';
+    if (!['improvement', 'validation'].includes(loopType)) {
+      res.status(400).json({ success: false, error: 'invalid_loop_type', message: 'loopType must be improvement|validation' });
+      return;
+    }
+    const workspacePath = process.cwd();
+    const {
+      generateImprovementSignals,
+      aggregateSignals,
+      buildImprovementTicketDrafts,
+      writeImprovementArtifacts,
+      enqueueImprovementJob,
+      evaluateLearningTrendKpi,
+    } = await import('../runtime/improvement/ImprovementEngine');
+
+    if (loopType === 'improvement') {
+      const signals = aggregateSignals(
+        generateImprovementSignals({ workspacePath, runId, projectId }),
+      );
+      const tickets = buildImprovementTicketDrafts(signals);
+      const artifacts = writeImprovementArtifacts({ workspacePath, runId, signals, tickets });
+      const queueJobId = await enqueueImprovementJob({
+        runId,
+        projectId,
+        chainId,
+        workspacePath,
+        signalsPath: artifacts.signalsPath,
+        ticketsPath: artifacts.ticketsPath,
+      });
+      res.json({
+        success: true,
+        loopType,
+        runId,
+        projectId,
+        result: { signalsCount: signals.length, ticketsCount: tickets.length, queueJobId, artifacts },
+        serverNow: new Date().toISOString(),
+      });
+      appendControlActionAudit({
+        action: 'force_loop_improvement',
+        projectId,
+        actorId: 'cockpit-user',
+        result: { ok: true, runId, signalsCount: signals.length, ticketsCount: tickets.length },
+      });
+      return;
+    }
+
+    const trend = evaluateLearningTrendKpi({ workspacePath, projectId, runId });
+    res.json({
+      success: true,
+      loopType,
+      runId,
+      projectId,
+      result: trend,
+      serverNow: new Date().toISOString(),
+    });
+    appendControlActionAudit({
+      action: 'force_loop_validation',
+      projectId,
+      actorId: 'cockpit-user',
+      result: { ok: true, runId, pass: trend.pass, score: trend.score },
+    });
+  } catch (error: any) {
+    res.status(500).json({ success: false, error: 'governance_force_loop_failed', message: error?.message || 'Failed to execute forced governance loop' });
+  }
+});
+
+app.get('/api/cockpit/runtime/enforcement', (req, res) => {
+  const projectId = String(req.query?.projectId || '').trim();
+  if (!projectId) {
+    res.status(400).json({ success: false, error: 'project_id_required' });
+    return;
+  }
+  const profile = runtimeEnforcementByProject[projectId] || {};
+  res.json({ success: true, projectId, profile });
+});
+
+app.get('/api/cockpit/control-actions', (req, res) => {
+  try {
+    const projectId = String(req.query?.projectId || '').trim();
+    const limit = Math.max(1, Math.min(500, Number(req.query?.limit || 100)));
+    if (!fs.existsSync(CONTROL_ACTION_AUDIT_FILE)) {
+      res.json({ success: true, actions: [], total: 0 });
+      return;
+    }
+    const rows = fs
+      .readFileSync(CONTROL_ACTION_AUDIT_FILE, 'utf-8')
+      .split('\n')
+      .filter(Boolean)
+      .map((line) => {
+        try {
+          return JSON.parse(line);
+        } catch {
+          return null;
+        }
+      })
+      .filter((v) => Boolean(v))
+      .filter((row: any) => (projectId ? String(row.projectId || '') === projectId : true));
+    const sliced = rows.slice(-limit).reverse();
+    res.json({ success: true, actions: sliced, total: rows.length, limit });
+  } catch (error: any) {
+    res.status(500).json({
+      success: false,
+      error: 'control_actions_fetch_failed',
+      message: error?.message || 'Failed to read control action audit',
+    });
+  }
+});
+
+app.post('/api/cockpit/runtime/enforcement', (req, res) => {
+  const projectId = String(req.body?.projectId || '').trim();
+  if (!projectId) {
+    res.status(400).json({ success: false, error: 'project_id_required' });
+    return;
+  }
+  const pipeline = String(req.body?.pipeline || '').trim();
+  const skills = Array.isArray(req.body?.skills)
+    ? req.body.skills.map((s: any) => String(s || '').trim()).filter(Boolean)
+    : [];
+  runtimeEnforcementByProject[projectId] = {
+    ...(pipeline ? { pipeline } : {}),
+    ...(skills.length > 0 ? { skills: Array.from(new Set(skills)) } : {}),
+  };
+  saveRuntimeState('runtime_enforcement_by_project', runtimeEnforcementByProject);
+  res.json({ success: true, projectId, profile: runtimeEnforcementByProject[projectId] });
 });
 
 app.get('/api/cockpit/providers', (_req, res) => {
@@ -1627,12 +2228,14 @@ app.post('/api/cockpit/settings/:section', (req, res) => {
 });
 
 app.post('/api/chat', async (req, res) => {
-  const message = String(req.body?.message || req.body?.prompt || '').trim();
+  const rawMessage = String(req.body?.message || req.body?.prompt || '').trim();
   const threadId = String(req.body?.threadId || `thread_${Date.now()}`).trim();
   const projectId = String(req.body?.projectId || 'default').trim() || 'default';
   const runId = uuidv4();
   const executionMode = String(req.body?.executionMode || 'multiple_agents').trim();
   const mode = executionMode === 'linear' || executionMode === 'mock' ? executionMode : 'multiple_agents';
+  const parsed = parseRuntimeDirectives(rawMessage);
+  const message = parsed.cleanedMessage || rawMessage;
   const detectedLanguage = detectLanguage(message);
 
   if (!message) {
@@ -1664,7 +2267,28 @@ app.post('/api/chat', async (req, res) => {
         projectId,
         workspacePath: effectiveWorkspacePath,
         agentContextPath: effectiveAgentContextPath,
-        customAgents: catalogSnapshot.agents.map((agent) => agent.slug),
+        selected_pipeline:
+          parsed.requestedPipeline ||
+          runtimeEnforcementByProject[projectId]?.pipeline ||
+          undefined,
+        customAgents:
+          parsed.requestedAgents.length > 0
+            ? parsed.requestedAgents
+            : catalogSnapshot.agents.map((agent) => agent.slug),
+        requestedSkills: Array.from(
+          new Set([
+            ...parsed.requestedSkills,
+            ...(runtimeEnforcementByProject[projectId]?.skills || []),
+          ]),
+        ),
+        enforcement: {
+          ...(runtimeEnforcementByProject[projectId]?.pipeline
+            ? { pipeline: runtimeEnforcementByProject[projectId]?.pipeline }
+            : {}),
+          ...(Array.isArray(runtimeEnforcementByProject[projectId]?.skills)
+            ? { skills: runtimeEnforcementByProject[projectId]?.skills || [] }
+            : {}),
+        },
       });
       const finalState = execution.finalState;
       

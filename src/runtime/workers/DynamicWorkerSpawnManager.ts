@@ -25,6 +25,7 @@ export interface RuntimeWorkerRecord {
     pipelineId?: string;
     runId: string;
   } | null;
+  manuallyPaused?: boolean;
 }
 
 export interface EnsureWorkerInput {
@@ -32,6 +33,7 @@ export interface EnsureWorkerInput {
   projectId: string;
   chainId: string;
   agentSlug: string;
+  workerId?: string;
   taskId?: string;
   stageId?: string;
   pipelineId?: string;
@@ -42,7 +44,10 @@ export interface EnsureWorkerResult {
   spawned: boolean;
 }
 
+export type WorkerControlAction = 'pause' | 'resume' | 'restart' | 'kill';
+
 const pool = new Map<string, RuntimeWorkerRecord>(); // key = projectId:agentSlug
+const pausedProjects = new Set<string>();
 
 function cfg() {
   return {
@@ -82,6 +87,26 @@ async function emitRuntimeEvent(event: {
 }
 
 export class DynamicWorkerSpawnManager {
+  private static findWorker(
+    projectId: string,
+    agentSlug?: string,
+    workerId?: string,
+  ): { key: string; record: RuntimeWorkerRecord } | null {
+    if (agentSlug) {
+      const directKey = keyOf(projectId, agentSlug);
+      const direct = pool.get(directKey);
+      if (!direct) return null;
+      if (workerId && direct.workerId !== workerId) return null;
+      return { key: directKey, record: direct };
+    }
+    if (!workerId) return null;
+    for (const [key, record] of pool.entries()) {
+      if (record.projectId !== projectId) continue;
+      if (record.workerId === workerId) return { key, record };
+    }
+    return null;
+  }
+
   private static onTransition(
     record: RuntimeWorkerRecord,
     from: WorkerLifecycleState,
@@ -151,7 +176,8 @@ export class DynamicWorkerSpawnManager {
     const from = record.state;
     const transition = applyLifecycleTransition(from, to);
     if (!transition.ok) {
-      throw new Error(`DynamicWorkerSpawnManager invalid state transition: ${transition.reason}`);
+      const reason = 'reason' in transition ? transition.reason : 'invalid_transition';
+      throw new Error(`DynamicWorkerSpawnManager invalid state transition: ${reason}`);
     }
     this.onTransition(record, from, transition.to, Date.now());
     record.state = transition.to;
@@ -174,11 +200,17 @@ export class DynamicWorkerSpawnManager {
   static async ensureWorker(input: EnsureWorkerInput, options?: { emitEvents?: boolean }): Promise<EnsureWorkerResult> {
     const emitEvents = options?.emitEvents !== false;
     const projectId = String(input.projectId || 'default').trim() || 'default';
+    if (pausedProjects.has(projectId)) {
+      throw new Error(`project_paused:${projectId}`);
+    }
     const agentSlug = String(input.agentSlug || 'system-core').trim() || 'system-core';
     const key = keyOf(projectId, agentSlug);
     const existing = pool.get(key);
 
     if (existing) {
+      if (existing.manuallyPaused) {
+        throw new Error(`worker_paused:${existing.workerId}`);
+      }
       existing.lastUsedAt = Date.now();
       existing.lastHeartbeatAt = Date.now();
       existing.heartbeatCount += 1;
@@ -217,7 +249,7 @@ export class DynamicWorkerSpawnManager {
       throw new Error(`DynamicWorkerSpawnManager cap enforcement failed: ${cap.reason || 'capacity_exhausted'}`);
     }
 
-    const identity = buildAgentIdentity({ projectId, agentSlug });
+    const identity = buildAgentIdentity({ projectId, agentSlug, ...(input.workerId ? { workerId: input.workerId } : {}) });
     const isolation = assertWorkerProjectIsolation(identity);
     if (!isolation.ok) {
       if (emitEvents) {
@@ -271,6 +303,7 @@ export class DynamicWorkerSpawnManager {
         pipelineId: input.pipelineId,
         runId: input.runId,
       },
+      manuallyPaused: false,
     };
     pool.set(key, record);
     await this.transitionState(record, 'starting', input, emitEvents);
@@ -453,6 +486,7 @@ export class DynamicWorkerSpawnManager {
     heartbeatAgeMs: number;
     assignedTask: RuntimeWorkerRecord['assignedTask'] | null;
     memoryNamespace: string;
+    isPaused: boolean;
   }> {
     const rows = this.healthSnapshot(input);
     return rows.map((row) => ({
@@ -467,10 +501,130 @@ export class DynamicWorkerSpawnManager {
       heartbeatAgeMs: row.heartbeatAgeMs,
       assignedTask: row.assignedTask || null,
       memoryNamespace: row.memoryNamespace,
+      isPaused: Boolean(row.manuallyPaused),
     }));
   }
 
   static clear(): void {
     pool.clear();
+    pausedProjects.clear();
+  }
+
+  static setProjectPaused(projectId: string, paused: boolean): void {
+    const id = String(projectId || '').trim();
+    if (!id) return;
+    if (paused) pausedProjects.add(id);
+    else pausedProjects.delete(id);
+  }
+
+  static isProjectPaused(projectId: string): boolean {
+    const id = String(projectId || '').trim();
+    if (!id) return false;
+    return pausedProjects.has(id);
+  }
+
+  static async controlWorker(input: {
+    projectId: string;
+    agentSlug?: string;
+    workerId?: string;
+    action: WorkerControlAction;
+    runId?: string;
+    chainId?: string;
+    emitEvents?: boolean;
+  }): Promise<{ ok: true; worker?: RuntimeWorkerRecord; removed?: boolean } | { ok: false; reason: string }> {
+    const projectId = String(input.projectId || 'default').trim() || 'default';
+    const action = String(input.action || '').trim() as WorkerControlAction;
+    const found = this.findWorker(projectId, input.agentSlug, input.workerId);
+    if (!found) return { ok: false, reason: 'worker_not_found' };
+    const { key, record } = found;
+
+    const controlEnvelope: EnsureWorkerInput = {
+      runId: input.runId || `control-${Date.now()}`,
+      chainId: input.chainId || 'cockpit-worker-control',
+      projectId,
+      agentSlug: record.agentSlug,
+      taskId: record.assignedTask?.taskId || `control:${record.workerId}`,
+      stageId: record.assignedTask?.stageId,
+      pipelineId: record.assignedTask?.pipelineId,
+    };
+    const emitEvents = input.emitEvents !== false;
+
+    try {
+      if (action === 'pause') {
+        record.manuallyPaused = true;
+        if (record.state === 'active') {
+          await this.transitionState(record, 'standby', controlEnvelope, emitEvents);
+        } else if (record.state !== 'standby') {
+          return { ok: false, reason: `pause_not_allowed_from_${record.state}` };
+        }
+        record.lastUsedAt = Date.now();
+        record.lastHeartbeatAt = Date.now();
+        return { ok: true, worker: { ...record } };
+      }
+
+      if (action === 'resume') {
+        record.manuallyPaused = false;
+        if (record.state === 'hot') {
+          await this.transitionState(record, 'active', controlEnvelope, emitEvents);
+          await this.transitionState(record, 'standby', controlEnvelope, emitEvents);
+        } else if (record.state === 'active') {
+          await this.transitionState(record, 'standby', controlEnvelope, emitEvents);
+        } else if (record.state !== 'standby') {
+          return { ok: false, reason: `resume_not_allowed_from_${record.state}` };
+        }
+        record.lastUsedAt = Date.now();
+        record.lastHeartbeatAt = Date.now();
+        record.heartbeatCount += 1;
+        return { ok: true, worker: { ...record } };
+      }
+
+      if (action === 'restart') {
+        record.manuallyPaused = false;
+        if (record.state === 'active' || record.state === 'standby' || record.state === 'hot') {
+          await this.transitionState(record, 'stopping', controlEnvelope, emitEvents);
+          await this.transitionState(record, 'cold', controlEnvelope, emitEvents);
+        } else if (record.state === 'failed') {
+          await this.transitionState(record, 'cold', controlEnvelope, emitEvents);
+        } else if (record.state !== 'cold') {
+          return { ok: false, reason: `restart_not_allowed_from_${record.state}` };
+        }
+        pool.delete(key);
+        const restarted = await this.ensureWorker(
+          {
+            ...controlEnvelope,
+            runId: `${controlEnvelope.runId}:restart`,
+            workerId: `${record.workerId}-r${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
+            taskId: `restart:${record.agentSlug}:${Date.now()}`,
+          },
+          { emitEvents },
+        );
+        await this.releaseToStandby(
+          {
+            ...controlEnvelope,
+            runId: `${controlEnvelope.runId}:restart-release`,
+            agentSlug: restarted.worker.agentSlug,
+          },
+          { emitEvents },
+        );
+        return { ok: true, worker: { ...restarted.worker, manuallyPaused: false } };
+      }
+
+      if (action === 'kill') {
+        if (record.state === 'active' || record.state === 'standby' || record.state === 'hot') {
+          await this.transitionState(record, 'stopping', controlEnvelope, emitEvents);
+          await this.transitionState(record, 'cold', controlEnvelope, emitEvents);
+        } else if (record.state === 'failed') {
+          // no-op, already terminal
+        } else if (record.state !== 'cold') {
+          return { ok: false, reason: `kill_not_allowed_from_${record.state}` };
+        }
+        pool.delete(key);
+        return { ok: true, removed: true };
+      }
+
+      return { ok: false, reason: 'unknown_action' };
+    } catch (error: any) {
+      return { ok: false, reason: String(error?.message || 'control_failed') };
+    }
   }
 }

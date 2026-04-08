@@ -25,6 +25,7 @@ export class OpenHandsAdapter implements ExecutionAdapter {
 
     const out = await runExternalExecutor({
       executor: 'openhands-sdk',
+      runId: context.runId,
       prompt,
       cwd: context.workspacePath || process.cwd(),
       model: cfg.openhands.model,

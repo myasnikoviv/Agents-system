@@ -57,6 +57,14 @@ export const PilotStateAnnotation = Annotation.Root({
     reducer: (_: string[], y: string[]) => y,  // Replace, not concat
     default: () => [],
   }),
+  requestedSkills: Annotation<string[]>({
+    reducer: (_: string[], y: string[]) => y,
+    default: () => [],
+  }),
+  enforcement: Annotation<{ pipeline?: string; skills?: string[] }>({
+    reducer: (_: { pipeline?: string; skills?: string[] }, y: { pipeline?: string; skills?: string[] }) => y,
+    default: () => ({ pipeline: undefined, skills: [] }),
+  }),
   messages: Annotation<{ role: string, content: string }[]>({
     reducer: (x: { role: string, content: string }[], y: { role: string, content: string }[]) => x.concat(y),
     default: () => [],
