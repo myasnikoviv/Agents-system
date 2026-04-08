@@ -1,3 +1,6 @@
+import fs from 'fs';
+import path from 'path';
+import Database from 'better-sqlite3';
 import { buildAgentIdentity, assertWorkerProjectIsolation } from '../identity/AgentIdentity';
 import { WorkerLifecycleState, applyLifecycleTransition } from './WorkerLifecycleStateMachine';
 
@@ -51,8 +54,34 @@ export interface EnsureWorkerResult {
 
 export type WorkerControlAction = 'pause' | 'resume' | 'restart' | 'kill';
 
-const pool = new Map<string, RuntimeWorkerRecord>(); // key = projectId:agentSlug
-const pausedProjects = new Set<string>();
+let db: Database.Database | null = null;
+
+function getDb(): Database.Database {
+  if (db) return db;
+  const dbPath = path.resolve(process.cwd(), '.agent-system', 'worker-pool.db');
+  fs.mkdirSync(path.dirname(dbPath), { recursive: true });
+  db = new Database(dbPath);
+  db.pragma('journal_mode = WAL');
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS runtime_worker_pool (
+      worker_key TEXT PRIMARY KEY,
+      worker_json TEXT NOT NULL,
+      project_id TEXT NOT NULL,
+      agent_slug TEXT NOT NULL,
+      worker_id TEXT NOT NULL,
+      state TEXT NOT NULL,
+      last_used_at INTEGER NOT NULL,
+      created_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_runtime_worker_pool_project ON runtime_worker_pool(project_id);
+    CREATE INDEX IF NOT EXISTS idx_runtime_worker_pool_project_agent ON runtime_worker_pool(project_id, agent_slug);
+    CREATE INDEX IF NOT EXISTS idx_runtime_worker_pool_state ON runtime_worker_pool(state);
+    CREATE TABLE IF NOT EXISTS runtime_paused_projects (
+      project_id TEXT PRIMARY KEY
+    );
+  `);
+  return db;
+}
 
 function cfg() {
   return {
@@ -64,6 +93,92 @@ function cfg() {
 
 function keyOf(projectId: string, agentSlug: string): string {
   return `${projectId}:${agentSlug}`;
+}
+
+function safeJsonParse(raw: string): any {
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+function mapRowToRecord(row: any): RuntimeWorkerRecord | null {
+  const parsed = safeJsonParse(String(row?.worker_json || ''));
+  if (!parsed || typeof parsed !== 'object') return null;
+  return parsed as RuntimeWorkerRecord;
+}
+
+function poolGet(key: string): RuntimeWorkerRecord | undefined {
+  const row = getDb().prepare(`SELECT worker_json FROM runtime_worker_pool WHERE worker_key = ?`).get(key) as any;
+  if (!row) return undefined;
+  return mapRowToRecord(row) || undefined;
+}
+
+function poolSet(key: string, record: RuntimeWorkerRecord): void {
+  getDb()
+    .prepare(
+      `INSERT INTO runtime_worker_pool (worker_key, worker_json, project_id, agent_slug, worker_id, state, last_used_at, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(worker_key) DO UPDATE SET
+         worker_json = excluded.worker_json,
+         project_id = excluded.project_id,
+         agent_slug = excluded.agent_slug,
+         worker_id = excluded.worker_id,
+         state = excluded.state,
+         last_used_at = excluded.last_used_at`,
+    )
+    .run(
+      key,
+      JSON.stringify(record),
+      record.projectId,
+      record.agentSlug,
+      record.workerId,
+      record.state,
+      Number(record.lastUsedAt || Date.now()),
+      Number(record.createdAt || Date.now()),
+    );
+}
+
+function poolDelete(key: string): void {
+  getDb().prepare(`DELETE FROM runtime_worker_pool WHERE worker_key = ?`).run(key);
+}
+
+function poolEntries(): Array<[string, RuntimeWorkerRecord]> {
+  const rows = getDb().prepare(`SELECT worker_key, worker_json FROM runtime_worker_pool`).all() as Array<any>;
+  return rows
+    .map((row) => [String(row.worker_key), mapRowToRecord(row)] as const)
+    .filter((entry): entry is [string, RuntimeWorkerRecord] => Boolean(entry[1]));
+}
+
+function poolValues(): RuntimeWorkerRecord[] {
+  return poolEntries().map(([, record]) => record);
+}
+
+function poolSize(): number {
+  const row = getDb().prepare(`SELECT COUNT(*) as c FROM runtime_worker_pool`).get() as any;
+  return Number(row?.c || 0);
+}
+
+function poolClear(): void {
+  getDb().prepare(`DELETE FROM runtime_worker_pool`).run();
+}
+
+function pausedProjectHas(projectId: string): boolean {
+  const row = getDb().prepare(`SELECT 1 as present FROM runtime_paused_projects WHERE project_id = ?`).get(projectId) as any;
+  return Boolean(row?.present);
+}
+
+function pausedProjectSet(projectId: string, paused: boolean): void {
+  if (paused) {
+    getDb().prepare(`INSERT OR IGNORE INTO runtime_paused_projects(project_id) VALUES (?)`).run(projectId);
+    return;
+  }
+  getDb().prepare(`DELETE FROM runtime_paused_projects WHERE project_id = ?`).run(projectId);
+}
+
+function pausedProjectsClear(): void {
+  getDb().prepare(`DELETE FROM runtime_paused_projects`).run();
 }
 
 function taskMemoryNamespace(projectId: string, agentSlug: string, taskId: string): string {
@@ -103,13 +218,13 @@ export class DynamicWorkerSpawnManager {
   ): { key: string; record: RuntimeWorkerRecord } | null {
     if (agentSlug) {
       const directKey = keyOf(projectId, agentSlug);
-      const direct = pool.get(directKey);
+      const direct = poolGet(directKey);
       if (!direct) return null;
       if (workerId && direct.workerId !== workerId) return null;
       return { key: directKey, record: direct };
     }
     if (!workerId) return null;
-    for (const [key, record] of pool.entries()) {
+    for (const [key, record] of poolEntries()) {
       if (record.projectId !== projectId) continue;
       if (record.workerId === workerId) return { key, record };
     }
@@ -144,35 +259,35 @@ export class DynamicWorkerSpawnManager {
   }
 
   private static eligibleEvictionCandidates(projectId: string): Array<[string, RuntimeWorkerRecord]> {
-    return Array.from(pool.entries())
+    return poolEntries()
       .filter(([, rec]) => rec.projectId === projectId && (rec.state === 'idle' || rec.state === 'hot' || rec.state === 'cold'))
       .sort((a, b) => a[1].lastUsedAt - b[1].lastUsedAt);
   }
 
   private static globalEvictionCandidates(): Array<[string, RuntimeWorkerRecord]> {
-    return Array.from(pool.entries())
+    return poolEntries()
       .filter(([, rec]) => rec.state === 'idle' || rec.state === 'hot' || rec.state === 'cold')
       .sort((a, b) => a[1].lastUsedAt - b[1].lastUsedAt);
   }
 
   private static enforcePoolCaps(projectId: string): { ok: boolean; reason?: string } {
     const { maxWorkersPerProject, maxWorkersGlobal } = cfg();
-    let projectWorkers = Array.from(pool.values()).filter((w) => w.projectId === projectId).length;
+    let projectWorkers = poolValues().filter((w) => w.projectId === projectId).length;
     while (projectWorkers >= maxWorkersPerProject) {
       const candidate = this.eligibleEvictionCandidates(projectId)[0];
       if (!candidate) break;
-      pool.delete(candidate[0]);
+      poolDelete(candidate[0]);
       projectWorkers -= 1;
     }
     if (projectWorkers >= maxWorkersPerProject) {
       return { ok: false, reason: 'project_worker_cap_reached' };
     }
-    while (pool.size >= maxWorkersGlobal) {
+    while (poolSize() >= maxWorkersGlobal) {
       const candidate = this.globalEvictionCandidates()[0];
       if (!candidate) break;
-      pool.delete(candidate[0]);
+      poolDelete(candidate[0]);
     }
-    if (pool.size >= maxWorkersGlobal) {
+    if (poolSize() >= maxWorkersGlobal) {
       return { ok: false, reason: 'global_worker_cap_reached' };
     }
     return { ok: true };
@@ -192,6 +307,7 @@ export class DynamicWorkerSpawnManager {
     }
     this.onTransition(record, from, transition.to, Date.now());
     record.state = transition.to;
+    poolSet(keyOf(record.projectId, record.agentSlug), record);
     if (emitEvents) {
       await emitRuntimeEvent({
         type: 'worker.state_changed',
@@ -211,12 +327,12 @@ export class DynamicWorkerSpawnManager {
   static async ensureWorker(input: EnsureWorkerInput, options?: { emitEvents?: boolean }): Promise<EnsureWorkerResult> {
     const emitEvents = options?.emitEvents !== false;
     const projectId = String(input.projectId || 'default').trim() || 'default';
-    if (pausedProjects.has(projectId)) {
+    if (pausedProjectHas(projectId)) {
       throw new Error(`project_paused:${projectId}`);
     }
     const agentSlug = String(input.agentSlug || 'system-core').trim() || 'system-core';
     const key = keyOf(projectId, agentSlug);
-    const existing = pool.get(key);
+    const existing = poolGet(key);
 
     if (existing) {
       if (existing.manuallyPaused) {
@@ -260,6 +376,7 @@ export class DynamicWorkerSpawnManager {
           },
         });
       }
+      poolSet(key, existing);
       return { worker: { ...existing }, spawned: false };
     }
 
@@ -332,7 +449,7 @@ export class DynamicWorkerSpawnManager {
       },
       manuallyPaused: false,
     };
-    pool.set(key, record);
+    poolSet(key, record);
     await this.transitionState(record, 'starting', input, emitEvents);
     await this.transitionState(record, 'hot', input, emitEvents);
     await this.transitionState(record, 'active', input, emitEvents);
@@ -348,7 +465,7 @@ export class DynamicWorkerSpawnManager {
           workerId: record.workerId,
           identityKey: record.identityKey,
           memoryNamespace: record.memoryNamespace,
-          poolSize: pool.size,
+          poolSize: poolSize(),
         },
       });
     }
@@ -361,12 +478,13 @@ export class DynamicWorkerSpawnManager {
     const projectId = String(input.projectId || 'default').trim() || 'default';
     const agentSlug = String(input.agentSlug || 'system-core').trim() || 'system-core';
     const key = keyOf(projectId, agentSlug);
-    const record = pool.get(key);
+    const record = poolGet(key);
     if (!record) return;
     await this.transitionState(record, 'idle', input, emitEvents);
     record.lastUsedAt = Date.now();
     record.lastHeartbeatAt = Date.now();
     record.heartbeatCount += 1;
+    poolSet(key, record);
   }
 
   static async heartbeat(input: EnsureWorkerInput, options?: { emitEvents?: boolean }): Promise<void> {
@@ -374,10 +492,11 @@ export class DynamicWorkerSpawnManager {
     const projectId = String(input.projectId || 'default').trim() || 'default';
     const agentSlug = String(input.agentSlug || 'system-core').trim() || 'system-core';
     const key = keyOf(projectId, agentSlug);
-    const record = pool.get(key);
+    const record = poolGet(key);
     if (!record) return;
     record.lastHeartbeatAt = Date.now();
     record.heartbeatCount += 1;
+    poolSet(key, record);
     if (emitEvents) {
       await emitRuntimeEvent({
         type: 'worker.heartbeat',
@@ -399,9 +518,10 @@ export class DynamicWorkerSpawnManager {
     const projectId = String(input.projectId || 'default').trim() || 'default';
     const agentSlug = String(input.agentSlug || 'system-core').trim() || 'system-core';
     const key = keyOf(projectId, agentSlug);
-    const record = pool.get(key);
+    const record = poolGet(key);
     if (!record) return;
     await this.transitionState(record, 'failed', input, emitEvents);
+    poolSet(key, record);
     if (emitEvents) {
       await emitRuntimeEvent({
         type: 'worker.failed',
@@ -418,7 +538,7 @@ export class DynamicWorkerSpawnManager {
   }
 
   static snapshot(): RuntimeWorkerRecord[] {
-    return Array.from(pool.values()).map((w) => ({ ...w }));
+    return poolValues().map((w) => ({ ...w }));
   }
 
   static pruneIdleWorkers(input?: {
@@ -430,13 +550,13 @@ export class DynamicWorkerSpawnManager {
     const now = Number(input?.now || Date.now());
     const idleTimeoutMs = Math.max(1000, Number(input?.idleTimeoutMs || cfg().idleTimeoutMs));
     const removed: string[] = [];
-    for (const [key, worker] of pool.entries()) {
+    for (const [key, worker] of poolEntries()) {
       if (projectId && worker.projectId !== projectId) continue;
       if (worker.state === 'active' || worker.state === 'starting') continue;
       const idleForMs = now - Number(worker.lastUsedAt || worker.createdAt || now);
       if (idleForMs >= idleTimeoutMs) {
         removed.push(key);
-        pool.delete(key);
+        poolDelete(key);
       }
     }
     return { removed: removed.length, keys: removed };
@@ -545,21 +665,20 @@ export class DynamicWorkerSpawnManager {
   }
 
   static clear(): void {
-    pool.clear();
-    pausedProjects.clear();
+    poolClear();
+    pausedProjectsClear();
   }
 
   static setProjectPaused(projectId: string, paused: boolean): void {
     const id = String(projectId || '').trim();
     if (!id) return;
-    if (paused) pausedProjects.add(id);
-    else pausedProjects.delete(id);
+    pausedProjectSet(id, paused);
   }
 
   static isProjectPaused(projectId: string): boolean {
     const id = String(projectId || '').trim();
     if (!id) return false;
-    return pausedProjects.has(id);
+    return pausedProjectHas(id);
   }
 
   static async controlWorker(input: {
@@ -598,6 +717,7 @@ export class DynamicWorkerSpawnManager {
         }
         record.lastUsedAt = Date.now();
         record.lastHeartbeatAt = Date.now();
+        poolSet(key, record);
         return { ok: true, worker: { ...record } };
       }
 
@@ -614,6 +734,7 @@ export class DynamicWorkerSpawnManager {
         record.lastUsedAt = Date.now();
         record.lastHeartbeatAt = Date.now();
         record.heartbeatCount += 1;
+        poolSet(key, record);
         return { ok: true, worker: { ...record } };
       }
 
@@ -627,7 +748,7 @@ export class DynamicWorkerSpawnManager {
         } else if (record.state !== 'cold') {
           return { ok: false, reason: `restart_not_allowed_from_${record.state}` };
         }
-        pool.delete(key);
+        poolDelete(key);
         const restarted = await this.ensureWorker(
           {
             ...controlEnvelope,
@@ -657,7 +778,7 @@ export class DynamicWorkerSpawnManager {
         } else if (record.state !== 'cold') {
           return { ok: false, reason: `kill_not_allowed_from_${record.state}` };
         }
-        pool.delete(key);
+        poolDelete(key);
         return { ok: true, removed: true };
       }
 
