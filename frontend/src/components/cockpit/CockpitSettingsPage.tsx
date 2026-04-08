@@ -225,6 +225,23 @@ interface GovernanceControlAction {
   result?: Record<string, unknown>;
 }
 
+interface GovernanceLoopRow {
+  id: string;
+  kind: 'improvement' | 'validation';
+  enabledByDefault: boolean;
+  disabled?: boolean;
+  scope?: { level: 'global' | 'project' | 'session'; projectId?: string; sessionId?: string };
+  metadata?: {
+    name?: string;
+    description?: string;
+    version?: string;
+    owner?: string;
+    tags?: string[];
+    updatedAt?: string;
+  };
+  config?: Record<string, unknown>;
+}
+
 
 interface CliStatus {
   codex?: { loggedIn: boolean };
@@ -345,6 +362,22 @@ export function CockpitSettingsPage() {
   const [historyRuleId, setHistoryRuleId] = useState('');
   const [ruleHistory, setRuleHistory] = useState<GovernanceRuleHistoryEntry[]>([]);
   const [controlActions, setControlActions] = useState<GovernanceControlAction[]>([]);
+  const [governanceLoops, setGovernanceLoops] = useState<GovernanceLoopRow[]>([]);
+  const [loopEditor, setLoopEditor] = useState<{
+    id: string;
+    kind: 'improvement' | 'validation';
+    scopeLevel: 'global' | 'project' | 'session';
+    scopeProjectId: string;
+    scopeSessionId: string;
+    configJson: string;
+  }>({
+    id: '',
+    kind: 'improvement',
+    scopeLevel: 'global',
+    scopeProjectId: '',
+    scopeSessionId: '',
+    configJson: '{}',
+  });
 
   const [generalSettings, setGeneralSettings] = useState<GeneralSettings>({
     defaultOpenBehavior: 'finder',
@@ -555,6 +588,7 @@ export function CockpitSettingsPage() {
     void loadGovernance();
     void loadEvaluators();
     void loadControlActions();
+    void loadLoops();
   }, [currentSection, governanceProjectId]);
 
   useEffect(() => {
@@ -1315,6 +1349,87 @@ export function CockpitSettingsPage() {
     }
   };
 
+  const loadLoops = async () => {
+    try {
+      const res = await fetch(apiUrl('/api/governance/loops'));
+      const data = await res.json();
+      if (!data?.success || !Array.isArray(data.loops)) throw new Error(data?.message || 'failed_to_load_loops');
+      setGovernanceLoops(data.loops as GovernanceLoopRow[]);
+    } catch (error: any) {
+      setGovernanceMessage(`Loop catalog load failed: ${String(error?.message || 'unknown')}`);
+      setGovernanceLoops([]);
+    }
+  };
+
+  const saveLoopEntity = async () => {
+    try {
+      const id = loopEditor.id.trim();
+      if (!id) {
+        setGovernanceMessage('Loop id is required.');
+        return;
+      }
+      const config = JSON.parse(loopEditor.configJson || '{}');
+      const scope: GovernanceLoopRow['scope'] = {
+        level: loopEditor.scopeLevel,
+        ...(loopEditor.scopeProjectId.trim() ? { projectId: loopEditor.scopeProjectId.trim() } : {}),
+        ...(loopEditor.scopeSessionId.trim() ? { sessionId: loopEditor.scopeSessionId.trim() } : {}),
+      };
+      const payload = {
+        id,
+        kind: loopEditor.kind,
+        scope,
+        config,
+      };
+      const exists = governanceLoops.some((row) => row.id === id);
+      const endpoint = exists ? `/api/governance/loops/${encodeURIComponent(id)}` : '/api/governance/loops';
+      const res = await fetch(apiUrl(endpoint), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json();
+      if (!data?.success) throw new Error(data?.message || 'loop_save_failed');
+      setGovernanceMessage(`${exists ? 'Updated' : 'Created'} loop ${id}.`);
+      await loadLoops();
+      await loadControlActions();
+    } catch (error: any) {
+      setGovernanceMessage(`Loop save failed: ${String(error?.message || 'unknown')}`);
+    }
+  };
+
+  const toggleLoopEntity = async (loopId: string, currentlyDisabled: boolean) => {
+    try {
+      const res = await fetch(apiUrl(`/api/governance/loops/${encodeURIComponent(loopId)}/disable`), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ disabled: !currentlyDisabled }),
+      });
+      const data = await res.json();
+      if (!data?.success) throw new Error(data?.message || 'loop_toggle_failed');
+      setGovernanceMessage(`Loop ${loopId} ${currentlyDisabled ? 'enabled' : 'disabled'}.`);
+      await loadLoops();
+      await loadControlActions();
+    } catch (error: any) {
+      setGovernanceMessage(`Loop toggle failed: ${String(error?.message || 'unknown')}`);
+    }
+  };
+
+  const forceLoopRun = async (loopId: string) => {
+    try {
+      const res = await fetch(apiUrl('/api/cockpit/governance/loops/force'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ loopId, projectId: governanceProjectId }),
+      });
+      const data = await res.json();
+      if (!data?.success) throw new Error(data?.message || 'loop_force_failed');
+      setGovernanceMessage(`Loop ${loopId} executed: ${JSON.stringify(data.result || {}, null, 0)}`);
+      await loadControlActions();
+    } catch (error: any) {
+      setGovernanceMessage(`Force loop failed: ${String(error?.message || 'unknown')}`);
+    }
+  };
+
   const sectionTitle = currentSection.replace('-', ' ').replace(/\b\w/g, (m) => m.toUpperCase());
   const settingsCardClass = 'mb-3 rounded-xl border border-slate-700 bg-slate-900 p-3.5';
   const settingsNoteClass = 'mb-3 text-sm text-slate-400';
@@ -1590,6 +1705,69 @@ export function CockpitSettingsPage() {
                     )}
                   </div>
                 </div>
+              </div>
+            </section>
+            <section className={settingsCardClass}>
+              <h2><ShieldCheck size={16} />Loop Catalog Management</h2>
+              <p className={settingsNoteClass}>First-class loop entities with lifecycle, scope, and manual trigger.</p>
+              <div className="mt-2 grid grid-cols-1 gap-2">
+                {governanceLoops.map((loop) => (
+                  <div key={loop.id} className="rounded-lg border border-slate-700 bg-slate-950 p-2.5">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div>
+                        <div className="text-sm font-semibold text-slate-100">{loop.metadata?.name || loop.id}</div>
+                        <div className="text-xs text-slate-400">
+                          {loop.id} · {loop.kind} · scope={loop.scope?.level || 'global'} · {loop.disabled ? 'disabled' : 'enabled'}
+                        </div>
+                      </div>
+                      <div className="flex gap-1.5">
+                        <button
+                          type="button"
+                          className="rounded-md border border-slate-600 bg-slate-800 px-2 py-1 text-xs text-slate-100"
+                          onClick={() => toggleLoopEntity(loop.id, Boolean(loop.disabled))}
+                        >
+                          {loop.disabled ? 'Enable' : 'Disable'}
+                        </button>
+                        <button
+                          type="button"
+                          className="rounded-md border border-slate-600 bg-slate-800 px-2 py-1 text-xs text-slate-100"
+                          onClick={() => forceLoopRun(loop.id)}
+                        >
+                          Force Run
+                        </button>
+                        <button
+                          type="button"
+                          className="rounded-md border border-slate-600 bg-slate-800 px-2 py-1 text-xs text-slate-100"
+                          onClick={() =>
+                            setLoopEditor({
+                              id: loop.id,
+                              kind: loop.kind,
+                              scopeLevel: loop.scope?.level || 'global',
+                              scopeProjectId: loop.scope?.projectId || '',
+                              scopeSessionId: loop.scope?.sessionId || '',
+                              configJson: JSON.stringify(loop.config || {}, null, 2),
+                            })
+                          }
+                        >
+                          Edit
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div className={settingsMetaClass}>Loop entities loaded: {governanceLoops.length}</div>
+              <div className={settingsGridClass + ' mt-3'}>
+                <label>Loop ID<input value={loopEditor.id} onChange={(e) => setLoopEditor((p) => ({ ...p, id: e.target.value }))} /></label>
+                <label>Kind<select value={loopEditor.kind} onChange={(e) => setLoopEditor((p) => ({ ...p, kind: e.target.value as 'improvement' | 'validation' }))}><option value="improvement">improvement</option><option value="validation">validation</option></select></label>
+                <label>Scope Level<select value={loopEditor.scopeLevel} onChange={(e) => setLoopEditor((p) => ({ ...p, scopeLevel: e.target.value as 'global' | 'project' | 'session' }))}><option value="global">global</option><option value="project">project</option><option value="session">session</option></select></label>
+                <label>Scope Project ID<input value={loopEditor.scopeProjectId} onChange={(e) => setLoopEditor((p) => ({ ...p, scopeProjectId: e.target.value }))} placeholder="optional project id" /></label>
+                <label>Scope Session ID<input value={loopEditor.scopeSessionId} onChange={(e) => setLoopEditor((p) => ({ ...p, scopeSessionId: e.target.value }))} placeholder="optional session/thread id" /></label>
+                <label>Config JSON<textarea className="min-h-24 rounded-md border border-slate-600 bg-slate-800 px-2.5 py-1.5 text-sm text-slate-100" value={loopEditor.configJson} onChange={(e) => setLoopEditor((p) => ({ ...p, configJson: e.target.value }))} /></label>
+              </div>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <Button variant="secondary" onClick={saveLoopEntity}>Save Loop</Button>
+                <Button variant="secondary" onClick={loadLoops}>Refresh Loops</Button>
               </div>
             </section>
           </>
