@@ -512,12 +512,14 @@ export function CockpitPage() {
     }, [projectScopedWorkers]);
 
     const dispatchLatencySummary = useMemo(() => {
+        const warningThresholdMs = 3000;
         const latencies = queueSnapshot.assigned
             .map((t) => (t.assignedAt && t.queuedAt ? Math.max(0, t.assignedAt - t.queuedAt) : null))
             .filter((v): v is number => Number.isFinite(v as number));
         const avgMs = latencies.length > 0 ? Math.round(latencies.reduce((a, b) => a + b, 0) / latencies.length) : null;
         const maxMs = latencies.length > 0 ? Math.max(...latencies) : null;
-        return { avgMs, maxMs, samples: latencies.length };
+        const warning = maxMs !== null && maxMs > warningThresholdMs;
+        return { avgMs, maxMs, samples: latencies.length, warningThresholdMs, warning };
     }, [queueSnapshot.assigned]);
 
     const workerLifecycleTimeline = useMemo(() => {
@@ -2891,6 +2893,9 @@ export function CockpitPage() {
                             <span>Tracked tasks: {queueSnapshot.totalTracked}</span>
                             <span>Dispatch avg: {dispatchLatencySummary.avgMs === null ? 'n/a' : `${dispatchLatencySummary.avgMs}ms`}</span>
                             <span>Dispatch max: {dispatchLatencySummary.maxMs === null ? 'n/a' : `${dispatchLatencySummary.maxMs}ms`}</span>
+                            <span className={dispatchLatencySummary.warning ? 'text-amber-300' : 'text-slate-300'}>
+                                Dispatch warning: {dispatchLatencySummary.warning ? `max > ${dispatchLatencySummary.warningThresholdMs}ms` : 'none'}
+                            </span>
                         </div>
                         <div className="agent-board">
                             {queueSnapshot.waiting.length === 0 ? (
