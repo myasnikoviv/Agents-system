@@ -243,6 +243,7 @@ export function CockpitPage() {
         unhealthyWorkers: 0,
         queuePressure: 0,
     });
+    const [swarmWorkers, setSwarmWorkers] = useState<WorkerHealthRow[]>([]);
 
     const [selectedProvider, setSelectedProvider] = useState<RuntimeProvider>('claude-cli');
     const [selectedModel, setSelectedModel] = useState('auto');
@@ -894,6 +895,7 @@ export function CockpitPage() {
                 `/api/cockpit/swarm/workers${projectQuery}`,
             );
             if (cancelled || !data?.success || !Array.isArray(data.workers)) return;
+            setSwarmWorkers(data.workers);
             setAgentRuntime((prev) => {
                 const next: Record<string, AgentRuntimeStatus> = { ...prev };
                 for (const worker of data.workers || []) {
@@ -2415,7 +2417,12 @@ export function CockpitPage() {
                                 )}
                             </div>
                             <button type="button" className="runtime-footer-item runtime-footer-item-mode" title="Runtime mode">
-                                <span>{runtimeModeLabel}</span>
+                                <span>
+                                    {runtimeModeLabel}
+                                    {mode === 'multiple_agents'
+                                        ? (swarmSummary.workersTotal > 0 ? ' · distributed runtime active' : ' · distributed runtime not confirmed')
+                                        : ''}
+                                </span>
                             </button>
                             <button type="button" className="runtime-footer-item icon-only" title="Refresh runtime state" onClick={() => void loadRuntimeFooter()}>
                                 <RefreshCw size={12} />
@@ -2508,6 +2515,47 @@ export function CockpitPage() {
                                         )}
                                     </div>
                                 ))
+                            )}
+                        </div>
+                    </div>
+
+                    <div className="catalog-card">
+                        <div className="catalog-title">Worker Runtime Board</div>
+                        <div className="agent-board">
+                            {swarmWorkers.length === 0 ? (
+                                <div className="agent-board-empty">No worker runtime data.</div>
+                            ) : (
+                                swarmWorkers.map((worker) => {
+                                    const availabilityClass = worker.availabilityState === 'hot' ? 'text-emerald-400' : 'text-slate-400';
+                                    const executionClass = worker.executionState === 'active' ? 'text-amber-300' : 'text-slate-300';
+                                    const heartbeatClass =
+                                        worker.heartbeatFreshness === 'fresh'
+                                            ? 'text-emerald-400'
+                                            : worker.heartbeatFreshness === 'stale'
+                                                ? 'text-amber-300'
+                                                : 'text-red-400';
+                                    const assignedTask = worker.assignedTask?.taskId || 'n/a';
+                                    const assignedStage = worker.assignedTask?.stageId || 'n/a';
+                                    return (
+                                        <div key={`${worker.projectId}:${worker.agentSlug}:${worker.workerId}`} className="agent-board-row">
+                                            <div className={`agent-dot ${worker.executionState === 'active' ? 'active' : 'standby'}`} />
+                                            <div className="agent-board-main">
+                                                <div className="agent-board-title">{worker.agentSlug}</div>
+                                                <div className="agent-board-sub">{worker.workerId}</div>
+                                            </div>
+                                            <div className="agent-board-meta">
+                                                <span>project: {worker.projectId || 'n/a'}</span>
+                                                <span className={availabilityClass}>availability: {worker.availabilityState}</span>
+                                                <span className={executionClass}>execution: {worker.executionState}</span>
+                                                <span>lifecycle: {worker.rawLifecycleState}</span>
+                                                <span className={heartbeatClass}>heartbeat: {worker.heartbeatFreshness}</span>
+                                                <span>last heartbeat: {Math.max(0, Math.floor(worker.heartbeatAgeMs / 1000))}s ago</span>
+                                                <span>task: {assignedTask}</span>
+                                                <span>stage: {assignedStage}</span>
+                                            </div>
+                                        </div>
+                                    );
+                                })
                             )}
                         </div>
                     </div>
