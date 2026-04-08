@@ -1842,6 +1842,246 @@ app.post('/api/cockpit/governance/loops/force', async (req, res) => {
   }
 });
 
+app.get('/api/governance/rules', async (req, res) => {
+  try {
+    const projectId = String(req.query?.projectId || '').trim() || 'default';
+    const { loadGovernanceRules } = await import('../runtime/governance/RuleRegistry');
+    const { resolveEnabledRules, getProjectPolicy } = await import('../runtime/governance/ProjectPolicyBinding');
+    const rules = loadGovernanceRules(process.cwd());
+    const enabledSet = resolveEnabledRules(projectId, process.cwd());
+    const policy = getProjectPolicy(projectId, process.cwd());
+    res.json({
+      success: true,
+      projectId,
+      total: rules.length,
+      rules: rules.map((rule: any) => ({
+        ...rule,
+        effectiveEnabled: !rule.disabled && enabledSet.has(rule.id),
+        projectOverride: policy.ruleOverrides?.[rule.id] || null,
+      })),
+      serverNow: new Date().toISOString(),
+    });
+  } catch (error: any) {
+    res.status(500).json({ success: false, error: 'governance_rules_list_failed', message: error?.message || 'Failed to list rules' });
+  }
+});
+
+app.get('/api/governance/rules/:ruleId', async (req, res) => {
+  try {
+    const projectId = String(req.query?.projectId || '').trim() || 'default';
+    const ruleId = String(req.params?.ruleId || '').trim();
+    const { getRuleById } = await import('../runtime/governance/RuleRegistry');
+    const { resolveEnabledRules, getProjectPolicy } = await import('../runtime/governance/ProjectPolicyBinding');
+    const rule = getRuleById(ruleId, process.cwd());
+    if (!rule) {
+      res.status(404).json({ success: false, error: 'governance_rule_not_found', message: `Rule not found: ${ruleId}` });
+      return;
+    }
+    const enabledSet = resolveEnabledRules(projectId, process.cwd());
+    const policy = getProjectPolicy(projectId, process.cwd());
+    res.json({
+      success: true,
+      projectId,
+      rule: {
+        ...rule,
+        effectiveEnabled: !rule.disabled && enabledSet.has(rule.id),
+        projectOverride: policy.ruleOverrides?.[rule.id] || null,
+      },
+      serverNow: new Date().toISOString(),
+    });
+  } catch (error: any) {
+    res.status(500).json({ success: false, error: 'governance_rule_get_failed', message: error?.message || 'Failed to get rule' });
+  }
+});
+
+app.post('/api/governance/rules', async (req, res) => {
+  try {
+    const payload = req.body || {};
+    const id = String(payload.id || '').trim();
+    if (!id) {
+      res.status(400).json({ success: false, error: 'rule_id_required', message: 'id is required' });
+      return;
+    }
+    const { createGovernanceRule } = await import('../runtime/governance/RuleRegistry');
+    const created = createGovernanceRule(
+      {
+        id,
+        triggerPhases: Array.isArray(payload.triggerPhases) ? payload.triggerPhases : ['AFTER_RUN'],
+        evidence: Array.isArray(payload.evidence) ? payload.evidence : [],
+        evaluationType: payload.evaluationType || 'deterministic',
+        deterministicCheck: payload.deterministicCheck || undefined,
+        enforcementMode: payload.enforcementMode || 'soft',
+        enabledByDefault: payload.enabledByDefault !== false,
+        scope: payload.scope || { level: 'global' },
+        thresholds: payload.thresholds || {},
+        metadata: payload.metadata || {},
+      } as any,
+      process.cwd(),
+    );
+    appendControlActionAudit({
+      action: 'governance_rule_create',
+      actorId: 'cockpit-user',
+      target: { ruleId: created.id },
+      result: { ok: true },
+    });
+    res.json({ success: true, rule: created, serverNow: new Date().toISOString() });
+  } catch (error: any) {
+    res.status(400).json({ success: false, error: 'governance_rule_create_failed', message: error?.message || 'Failed to create rule' });
+  }
+});
+
+app.post('/api/governance/rules/:ruleId', async (req, res) => {
+  try {
+    const ruleId = String(req.params?.ruleId || '').trim();
+    const patch = req.body || {};
+    const { updateGovernanceRule } = await import('../runtime/governance/RuleRegistry');
+    const updated = updateGovernanceRule(ruleId, patch, process.cwd());
+    appendControlActionAudit({
+      action: 'governance_rule_update',
+      actorId: 'cockpit-user',
+      target: { ruleId },
+      result: { ok: true },
+    });
+    res.json({ success: true, rule: updated, serverNow: new Date().toISOString() });
+  } catch (error: any) {
+    res.status(400).json({ success: false, error: 'governance_rule_update_failed', message: error?.message || 'Failed to update rule' });
+  }
+});
+
+app.post('/api/governance/rules/:ruleId/disable', async (req, res) => {
+  try {
+    const ruleId = String(req.params?.ruleId || '').trim();
+    const projectId = String(req.body?.projectId || '').trim();
+    const disabled = req.body?.disabled !== false;
+    const { disableGovernanceRule } = await import('../runtime/governance/RuleRegistry');
+    const { getProjectPolicy, updateProjectPolicy } = await import('../runtime/governance/ProjectPolicyBinding');
+    if (projectId) {
+      const policy = getProjectPolicy(projectId, process.cwd());
+      const disabledSet = new Set(policy.disabledRules || []);
+      if (disabled) disabledSet.add(ruleId);
+      else disabledSet.delete(ruleId);
+      const updatedPolicy = updateProjectPolicy(
+        projectId,
+        { disabledRules: Array.from(disabledSet) },
+        process.cwd(),
+      );
+      appendControlActionAudit({
+        action: 'governance_rule_disable_project',
+        projectId,
+        actorId: 'cockpit-user',
+        target: { ruleId, disabled },
+        result: { ok: true },
+      });
+      res.json({ success: true, projectId, policy: updatedPolicy, serverNow: new Date().toISOString() });
+      return;
+    }
+    const updated = disableGovernanceRule(ruleId, { disabled }, process.cwd());
+    appendControlActionAudit({
+      action: 'governance_rule_disable_global',
+      actorId: 'cockpit-user',
+      target: { ruleId, disabled },
+      result: { ok: true },
+    });
+    res.json({ success: true, rule: updated, serverNow: new Date().toISOString() });
+  } catch (error: any) {
+    res.status(400).json({ success: false, error: 'governance_rule_disable_failed', message: error?.message || 'Failed to disable rule' });
+  }
+});
+
+app.get('/api/governance/evaluators', async (_req, res) => {
+  try {
+    const { listDeterministicEvaluators } = await import('../runtime/governance/DeterministicEvaluationEngine');
+    const rows = listDeterministicEvaluators();
+    res.json({ success: true, evaluators: rows, total: rows.length, serverNow: new Date().toISOString() });
+  } catch (error: any) {
+    res.status(500).json({ success: false, error: 'governance_evaluators_list_failed', message: error?.message || 'Failed to list evaluators' });
+  }
+});
+
+app.post('/api/governance/evaluators/register', async (req, res) => {
+  try {
+    const evaluatorType = String(req.body?.evaluatorType || '').trim();
+    const aliasTo = String(req.body?.aliasTo || '').trim();
+    const allowOverrideBuiltin = req.body?.allowOverrideBuiltin === true;
+    if (!evaluatorType || !aliasTo) {
+      res.status(400).json({ success: false, error: 'invalid_input', message: 'evaluatorType and aliasTo are required' });
+      return;
+    }
+    const { registerDeterministicEvaluator, listDeterministicEvaluators } = await import('../runtime/governance/DeterministicEvaluationEngine');
+    const { resolveEvaluator } = await import('../runtime/governance/EvaluatorRegistry');
+    listDeterministicEvaluators();
+    const base = resolveEvaluator(aliasTo);
+    if (!base) {
+      res.status(404).json({ success: false, error: 'alias_target_not_found', message: `Base evaluator not found: ${aliasTo}` });
+      return;
+    }
+    registerDeterministicEvaluator({
+      evaluatorType,
+      evaluate: base,
+      source: 'plugin',
+      allowOverrideBuiltin,
+    } as any);
+    const evaluators = listDeterministicEvaluators();
+    appendControlActionAudit({
+      action: 'governance_evaluator_register',
+      actorId: 'cockpit-user',
+      target: { evaluatorType, aliasTo },
+      result: { ok: true, allowOverrideBuiltin },
+    });
+    res.json({ success: true, evaluatorType, aliasTo, evaluators, total: evaluators.length, serverNow: new Date().toISOString() });
+  } catch (error: any) {
+    res.status(400).json({ success: false, error: 'governance_evaluator_register_failed', message: error?.message || 'Failed to register evaluator' });
+  }
+});
+
+app.get('/api/projects/:projectId/policy', async (req, res) => {
+  try {
+    const projectId = String(req.params?.projectId || '').trim();
+    const { getProjectPolicy } = await import('../runtime/governance/ProjectPolicyBinding');
+    const policy = getProjectPolicy(projectId, process.cwd());
+    res.json({ success: true, policy, serverNow: new Date().toISOString() });
+  } catch (error: any) {
+    res.status(500).json({ success: false, error: 'project_policy_get_failed', message: error?.message || 'Failed to get project policy' });
+  }
+});
+
+app.get('/api/governance/rules/:ruleId/history', async (req, res) => {
+  try {
+    const ruleId = String(req.params?.ruleId || '').trim();
+    const { listGovernanceRuleHistory } = await import('../runtime/governance/RuleRegistry');
+    const history = listGovernanceRuleHistory(ruleId, process.cwd());
+    res.json({ success: true, ruleId, history, total: history.length, serverNow: new Date().toISOString() });
+  } catch (error: any) {
+    res.status(500).json({ success: false, error: 'governance_rule_history_failed', message: error?.message || 'Failed to read rule history' });
+  }
+});
+
+app.post('/api/projects/:projectId/policy', async (req, res) => {
+  try {
+    const projectId = String(req.params?.projectId || '').trim();
+    const { updateProjectPolicy } = await import('../runtime/governance/ProjectPolicyBinding');
+    const payload = req.body || {};
+    const policy = updateProjectPolicy(
+      projectId,
+      {
+        enabledRules: Array.isArray(payload.enabledRules) ? payload.enabledRules : undefined,
+        disabledRules: Array.isArray(payload.disabledRules) ? payload.disabledRules : undefined,
+        ruleOverrides: payload.ruleOverrides && typeof payload.ruleOverrides === 'object' ? payload.ruleOverrides : undefined,
+      },
+      process.cwd(),
+    );
+    appendControlActionAudit({
+      action: 'project_policy_update',
+      projectId,
+      actorId: 'cockpit-user',
+      result: { ok: true },
+    });
+    res.json({ success: true, policy, serverNow: new Date().toISOString() });
+  } catch (error: any) {
+    res.status(400).json({ success: false, error: 'project_policy_update_failed', message: error?.message || 'Failed to update project policy' });
+  }
+});
+
 app.get('/api/cockpit/runtime/enforcement', (req, res) => {
   const projectId = String(req.query?.projectId || '').trim();
   if (!projectId) {
