@@ -5,8 +5,8 @@ describe('WorkerLifecycleStateMachine', () => {
     expect(canTransition('cold', 'starting')).toBe(true);
     expect(canTransition('starting', 'hot')).toBe(true);
     expect(canTransition('hot', 'active')).toBe(true);
-    expect(canTransition('active', 'standby')).toBe(true);
-    expect(canTransition('standby', 'active')).toBe(true);
+    expect(canTransition('active', 'idle')).toBe(true);
+    expect(canTransition('idle', 'active')).toBe(true);
     expect(canTransition('stopping', 'cold')).toBe(true);
     expect(canTransition('failed', 'cold')).toBe(true);
   });
@@ -19,4 +19,3 @@ describe('WorkerLifecycleStateMachine', () => {
     }
   });
 });
-

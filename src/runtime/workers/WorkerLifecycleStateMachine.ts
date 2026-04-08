@@ -1,11 +1,11 @@
-export type WorkerLifecycleState = 'cold' | 'starting' | 'hot' | 'active' | 'standby' | 'stopping' | 'failed';
+export type WorkerLifecycleState = 'cold' | 'starting' | 'hot' | 'active' | 'idle' | 'stopping' | 'failed';
 
 const ALLOWED_TRANSITIONS: Record<WorkerLifecycleState, WorkerLifecycleState[]> = {
   cold: ['starting'],
   starting: ['hot', 'failed'],
   hot: ['active', 'stopping', 'failed'],
-  active: ['standby', 'stopping', 'failed'],
-  standby: ['active', 'stopping', 'failed'],
+  active: ['idle', 'stopping', 'failed'],
+  idle: ['active', 'stopping', 'failed'],
   stopping: ['cold', 'failed'],
   failed: ['cold'],
 };

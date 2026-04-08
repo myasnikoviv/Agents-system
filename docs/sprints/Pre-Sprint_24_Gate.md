@@ -1,383 +1,202 @@
-🟪 Pre-Sprint 24 Gate — Policy & Loop Management Audit
+# Pre-Sprint 24 Gate Report — Policy & Loop Management Audit
+
+Generated: 2026-04-08  
+Branch: `codex/s19-runtime-remediation`
+
+## Decision Summary
+
+- Policy System State: **PARTIALLY MANAGED**
+- Ready for Sprint 24: **YES, with mandatory scope/lifecycle/UI closures below**
+
+Rationale:
+- Rules are declarative and loaded from registry (`docs/runtime/governance/rule-registry.yaml`, `src/runtime/governance/RuleRegistry.ts`).
+- Project-level enabling/disabling exists (`docs/runtime/governance/project-policy.json`, `src/runtime/governance/ProjectPolicyBinding.ts`).
+- Manual overrides exist by API (`/api/cockpit/governance/overrides`) and are project-scoped (`src/runtime/governance/ManualOverrideRegistry.ts`).
+- But rule creation/update lifecycle is still config/code-driven, not fully productized through Cockpit UI/API catalog management.
+
+## Section 1 — Rule Catalog (System Level)
+
+### 1.1 Rule Registry
+- Storage: **YAML + code types**.
+- Primary catalog: `docs/runtime/governance/rule-registry.yaml`.
+- Loader: `loadGovernanceRules` in `src/runtime/governance/RuleRegistry.ts`.
+- Typed contract (IDs/checks/phases): `src/runtime/governance/GovernanceEngineTypes.ts`.
+
+### 1.2 Rule Structure
+Each rule in registry has:
+- `id`
+- `triggerPhases`
+- `evidence`
+- `evaluationType`
+- `deterministicCheck` (for deterministic rules)
+- `enforcementMode`
+- `enabledByDefault`
+
+Gap:
+- Human-friendly `name` and `description` are not part of the current schema.
+
+### 1.3 Rule Discoverability
+- Full rule list via dedicated API endpoint: **NO** (currently missing).
+- Cockpit can show overrides, not full registry catalog from backend.
+
+Output:
+- total rules: **8**
+- storage: **YAML + code-typed schema**
+- accessible via API: **partially** (overrides yes, full catalog no)
+
+## Section 2 — Evaluator Capabilities
+
+### 2.1 Evaluator Types
+Built-in deterministic evaluators (`src/runtime/governance/DeterministicEvaluationEngine.ts`):
+- `preflight_token`
+- `ticket_context_present`
+- `postflight_report`
+- `improvement_artifact`
+- `agent_usage_events`
+- `pipeline_usage_events`
+- `cost_guard_tokens`
+- `loop_pressure_hard`
+
+### 2.2 Extensibility
+- Add new evaluator without code: **NO**.
+- Add via config only: **NO**.
+- Requires code change in deterministic handler map (or enabling hybrid/LLM fallback policy).
+
+### 2.3 Binding
+- Binding model: **static** via `deterministicCheck` -> handler map.
+
+Output:
+- built-in: `[preflight_token, ticket_context_present, postflight_report, improvement_artifact, agent_usage_events, pipeline_usage_events, cost_guard_tokens, loop_pressure_hard]`
+- extensible: **code-only**
+- binding model: **static**
+
+## Section 3 — Rule Scoping (Critical)
+
+### 3.1 Scope Levels
+- global rules (defaults): **YES** (`defaultEnabledRules`)
+- project rules: **YES** (`projects[projectId]`)
+- task/session rules: **PARTIAL** (manual overrides can be ticket-scoped via `ticketId`, but not full first-class task policy object)
+
+### 3.2 Project Isolation
+- Same rule enabled in one project and disabled in another: **YES**.
+
+### 3.3 Inheritance Model
+- system defaults + project overrides: **YES**.
+
+### 3.4 Rule Overrides
+- override enabled/disabled per project: **YES**.
+- override evidence/thresholds per project via structured policy: **PARTIAL**.
+- temporary runtime override: **YES** (`ManualOverrideRegistry`, scopes `global|phase|rule`).
+
+Output:
+- global: **yes**
+- project-level: **yes**
+- overrides: **yes (enable/disable + manual override records)**
+- inheritance: **yes**
+
+## Section 4 — Rule Lifecycle Management
+
+### 4.1 Create Rule
+- UI: **NO**
+- API: **NO** (for rule definitions)
+- Code/config: **YES** (edit YAML + types)
 
-⸻
+### 4.2 Update Rule
+- evidence/trigger/thresholds via UI: **NO**
+- via dedicated rule API: **NO**
+- via config/code: **YES**
 
-🎯 Goal
+### 4.3 Delete / Disable
+- disable rule per project: **YES** (`project-policy.json`)
+- delete rule definition from product UI/API: **NO**
 
-Підтвердити, що система:
+Critical check:
+- Disable system rule for specific project: **YES** (by `disabledRules` and project enabled set).
 
-❗ підтримує декларативні loop-и (rules) як керовану, розширювану і scoped систему
-а не як “YAML + трохи коду”
+Output:
+- create: **code/config**
+- update: **code/config**
+- disable: **yes (project policy + manual override path)**
 
-⸻
+## Section 5 — Loop Execution Model
 
-🧠 Core Problem
+### 5.1 Loop Triggering
+- event/stage-driven: **YES** (governance phases `BEFORE_RUN`, `AFTER_STEP`, `AFTER_RUN`)
+- manual trigger: **YES** (`POST /api/cockpit/governance/loops/force`)
 
-Зараз у системі:
-	•	rules стали декларативними ✅
-	•	але НЕ зрозуміло:
-	•	чи вони керовані користувачем
-	•	чи вони scoped
-	•	чи можна додавати нові loop-и без коду
+### 5.2 Evidence Collection
+Evidence sources include:
+- artifacts (preflight/test/improvement files)
+- runtime events (`agent.started`, `stage.started`)
+- telemetry (`docs/process/runs/cost/*.json`)
 
-⸻
+### 5.3 Determinism
+- Deterministic by default: **YES** (`execution-policy.json` => `strictDeterministic=true`, `llmFallbackEnabled=false`)
+- Can loop run without LLM: **YES**
 
-❗ Decision Gate
+Output:
+- trigger: **phase-based + manual forced loop endpoint**
+- evidence: **artifacts + events + telemetry**
+- deterministic: **yes**
 
-Перед Sprint 24 потрібно відповісти:
+## Section 6 — UI / Cockpit Integration
 
-❓ Чи у нас уже є Policy Management System,
-чи тільки policy config + evaluators
+### 6.1 Rule Visibility
+- rule list in UI: **NO (not full registry list)**
+- status enabled/disabled per project in UI: **PARTIAL** (through policy behavior, no complete rule catalog panel)
 
-⸻
+### 6.2 Editing Capability
+- edit rule definition from UI: **NO**
+- create manual override from API: **YES**
 
-🧩 SECTION 1 — Rule Catalog (System Level)
+### 6.3 Scope UI
+- visible active rules per project: **NO direct complete view**
 
-⸻
+Critical check:
+- disable `git_preflight` for one project: **technically yes via project policy config; not fully UI-managed**
 
-1.1 Rule Registry
-	•	Де зберігається список всіх rules?
-	•	YAML?
-	•	DB?
-	•	code?
-	•	Чи є єдиний catalog:
-	•	system rules
-	•	available rules
+Output:
+- rule list: **no**
+- editing: **partial (overrides only, not definitions)**
+- project config: **partial**
 
-⸻
-
-1.2 Rule Structure
-
-Для кожного rule:
-	•	чи визначено:
-	•	id
-	•	name
-	•	description
-	•	trigger
-	•	evidence
-	•	evaluator
-	•	enforcement action
-
-⸻
-
-1.3 Rule Discoverability
-	•	Чи можна отримати список всіх доступних rules через API?
-	•	Чи Cockpit може їх показати?
-
-⸻
-
-🧾 Output
-
-Rule Catalog:
-- total rules: X
-- storage: YAML / DB / code
-- accessible via API: yes/no
-
-
-⸻
-
-🧩 SECTION 2 — Evaluator Capabilities
-
-⸻
-
-2.1 Evaluator Types
-	•	Які evaluator-и існують?
-	•	git
-	•	tokens
-	•	artifacts
-	•	events
-	•	loop detection
-	•	інші
-
-⸻
-
-2.2 Extensibility
-	•	Чи можна додати новий evaluator:
-	•	без коду?
-	•	через конфіг?
-
-⸻
-
-2.3 Binding
-	•	Як rule прив’язується до evaluator?
-	•	static mapping?
-	•	dynamic?
-
-⸻
-
-🧾 Output
-
-Evaluators:
-- built-in: [...]
-- extensible: yes/no
-- binding model: static/dynamic
-
-
-⸻
-
-🧩 SECTION 3 — Rule Scoping (CRITICAL)
-
-⸻
-
-🔥 Це найважливіша частина
-
-⸻
-
-3.1 Scope Levels
-	•	Чи підтримуються:
-	•	global rules
-	•	project rules
-	•	task/session rules
-
-⸻
-
-3.2 Project Isolation
-	•	Чи один і той самий rule:
-	•	може бути увімкнений в одному проекті
-	•	і вимкнений в іншому?
-
-⸻
-
-3.3 Inheritance Model
-	•	Чи є:
-	•	system defaults
-	•	project overrides
-
-⸻
-
-3.4 Rule Overrides
-	•	Чи можна:
-	•	override rule config per project?
-	•	змінити evidence?
-	•	змінити thresholds?
-
-⸻
-
-🧾 Output
-
-Scopes:
-- global: yes/no
-- project-level: yes/no
-- overrides: yes/no
-- inheritance: yes/no
-
-
-⸻
-
-🧩 SECTION 4 — Rule Lifecycle Management
-
-⸻
-
-4.1 Create Rule
-	•	Чи можна створити новий rule:
-	•	через UI?
-	•	через API?
-	•	тільки через код?
-
-⸻
-
-4.2 Update Rule
-	•	Чи можна змінити:
-	•	evidence
-	•	trigger
-	•	thresholds
-
-⸻
-
-4.3 Delete / Disable
-	•	Чи можна:
-	•	вимкнути rule?
-	•	видалити rule?
-
-⸻
-
-🔥 КРИТИЧНЕ
-	•	Чи можна вимкнути system rule для конкретного проекту?
-
-⸻
-
-🧾 Output
-
-Rule Lifecycle:
-- create: UI/API/code
-- update: UI/API/code
-- disable: yes/no
-
-
-⸻
-
-🧩 SECTION 5 — Loop Execution Model
-
-⸻
-
-5.1 Loop Triggering
-	•	Як запускається loop:
-	•	event-based?
-	•	stage-based?
-	•	manual?
-
-⸻
-
-5.2 Evidence Collection
-	•	Звідки береться evidence:
-	•	artifacts
-	•	events
-	•	LLM analysis
-
-⸻
-
-5.3 Determinism
-	•	Loop:
-	•	deterministic?
-	•	чи LLM-driven?
-
-⸻
-
-🔥 КРИТИЧНЕ
-	•	Чи loop може працювати без LLM?
-
-⸻
-
-🧾 Output
-
-Loop Model:
-- trigger: ...
-- evidence: ...
-- deterministic: yes/no
-
-
-⸻
-
-🧩 SECTION 6 — UI / Cockpit Integration
-
-⸻
-
-6.1 Rule Visibility
-	•	Чи UI показує:
-	•	список rules?
-	•	їх статус (enabled/disabled)?
-
-⸻
-
-6.2 Editing Capability
-	•	Чи можна:
-	•	змінити rule з UI?
-
-⸻
-
-6.3 Scope UI
-	•	Чи видно:
-	•	які rules активні для проекту?
-
-⸻
-
-🔥 КРИТИЧНЕ
-	•	Чи можна відключити git preflight у конкретному проекті?
-
-⸻
-
-🧾 Output
-
-UI:
-- rule list: yes/no
-- editing: yes/no
-- project config: yes/no
-
-
-⸻
-
-🧩 SECTION 7 — Real Use Case Validation
-
-⸻
+## Section 7 — Real Use Case Validation
 
 Scenario 1 — Marketing Project (NO GIT)
-	•	Створити проект без git
-	•	Вимкнути git preflight
-
-👉 Expected:
-	•	execution працює
-	•	rule не тригериться
-
-⸻
+- Current status: **Supported by policy config**, but requires config management path (not yet guided Cockpit UI flow).
 
 Scenario 2 — Add Custom Loop
-	•	Додати новий rule:
-	•	evidence = artifact X
-	•	action = retry
+- Current status: **Requires code/config change** (new deterministic handler + rule schema wiring if new check).
 
-👉 Expected:
-	•	loop реально запускається
+Scenario 3 — Override Rule Threshold
+- Current status: **Partial**.
+- Global env thresholds exist (e.g., `GOVERNANCE_COST_GUARD_MAX_TOKENS`), but no complete per-project threshold editor in Cockpit.
 
-⸻
-
-Scenario 3 — Override Rule
-	•	Змінити threshold (tokens)
-
-👉 Expected:
-	•	новий threshold застосовується
-
-⸻
-
-🧩 SECTION 8 — Gaps & Risks
-
-⸻
-
-Виявити:
-	•	hardcoded rules
-	•	rules без scope
-	•	rules без disable
-	•	evaluator lock-in
-	•	UI відсутність управління
-
-⸻
-
-🧾 Output
+## Section 8 — Gaps & Risks
 
 Gaps:
-- ...
+- No first-class Rule Catalog API (read/write) for Cockpit.
+- No UI for lifecycle management (create/update/delete rule definitions).
+- Evaluator extensibility is code-bound.
+- Rule schema lacks business metadata (`name`, `description`, owner, version).
+- Task/session-level policy is only partial through manual overrides, not full policy object model.
+
 Risks:
-- ...
-
-
-⸻
-
-🧩 FINAL DECISION
-
-⸻
-
-Агент має відповісти:
+- Governance remains "config + code" heavy; operational teams depend on engineering for rule evolution.
+- Scope mistakes in config can silently change enforcement behavior across projects.
+- Without catalog API/UI, traceability/audit UX in Cockpit remains incomplete.
 
 ## Pre-Sprint 24 Decision
 
 Policy System State:
-- FULLY MANAGED
-- PARTIALLY MANAGED
-- CONFIG-ONLY (not productized)
+- **PARTIALLY MANAGED**
 
 Critical Missing Pieces:
-- ...
+- Rule Catalog API (list/get/create/update/disable) with audit trail.
+- Project-scoped policy editor in Cockpit.
+- Evaluator plugin contract for no-code/low-code extension.
+- Full scope model: global -> project -> session/task with explicit precedence.
+- Rule metadata and versioning model.
 
 Ready for Sprint 24:
-- YES / NO
-
-
-⸻
-
-💥 Ключовий сенс цього документу
-
-Це перевіряє одну річ:
-
-❗ чи система реально стала “no-code configurable AI orchestration system”
-
-⸻
-
-🚨 Якщо коротко
-
-Якщо відповідь буде:
-	•	“rules в YAML, UI нема, scope нема”
-
-👉 це означає:
-
-у вас декларативність тільки на папері
-
-⸻
+- **YES**, if Sprint 24 targets productization of policy lifecycle/scoping/UI and not just additional YAML rules.

@@ -17,6 +17,9 @@ export interface RuntimeWorkerRecord {
   coldStartCount: number;
   totalTaskDurationMs: number;
   totalIdleMs: number;
+  successfulTaskCount: number;
+  failedTaskCount: number;
+  retryTaskCount: number;
   lastActivationAt?: number;
   lastStandbyAt?: number;
   assignedTask?: {
@@ -24,6 +27,7 @@ export interface RuntimeWorkerRecord {
     stageId?: string;
     pipelineId?: string;
     runId: string;
+    taskMemoryNamespace?: string;
   } | null;
   manuallyPaused?: boolean;
 }
@@ -37,6 +41,7 @@ export interface EnsureWorkerInput {
   taskId?: string;
   stageId?: string;
   pipelineId?: string;
+  retryCount?: number;
 }
 
 export interface EnsureWorkerResult {
@@ -59,6 +64,10 @@ function cfg() {
 
 function keyOf(projectId: string, agentSlug: string): string {
   return `${projectId}:${agentSlug}`;
+}
+
+function taskMemoryNamespace(projectId: string, agentSlug: string, taskId: string): string {
+  return `memory:${projectId}:${agentSlug}:task:${taskId}`;
 }
 
 async function emitRuntimeEvent(event: {
@@ -120,27 +129,29 @@ export class DynamicWorkerSpawnManager {
       }
       record.lastActivationAt = now;
     }
-    if (to === 'standby' && from === 'active') {
+    if (to === 'idle' && from === 'active') {
       if (record.lastActivationAt) {
         record.totalTaskDurationMs += Math.max(0, now - record.lastActivationAt);
       }
       record.lastStandbyAt = now;
+      record.successfulTaskCount += 1;
       record.assignedTask = null;
     }
     if (to === 'failed') {
+      record.failedTaskCount += 1;
       record.assignedTask = null;
     }
   }
 
   private static eligibleEvictionCandidates(projectId: string): Array<[string, RuntimeWorkerRecord]> {
     return Array.from(pool.entries())
-      .filter(([, rec]) => rec.projectId === projectId && (rec.state === 'standby' || rec.state === 'hot' || rec.state === 'cold'))
+      .filter(([, rec]) => rec.projectId === projectId && (rec.state === 'idle' || rec.state === 'hot' || rec.state === 'cold'))
       .sort((a, b) => a[1].lastUsedAt - b[1].lastUsedAt);
   }
 
   private static globalEvictionCandidates(): Array<[string, RuntimeWorkerRecord]> {
     return Array.from(pool.entries())
-      .filter(([, rec]) => rec.state === 'standby' || rec.state === 'hot' || rec.state === 'cold')
+      .filter(([, rec]) => rec.state === 'idle' || rec.state === 'hot' || rec.state === 'cold')
       .sort((a, b) => a[1].lastUsedAt - b[1].lastUsedAt);
   }
 
@@ -220,7 +231,15 @@ export class DynamicWorkerSpawnManager {
         stageId: input.stageId,
         pipelineId: input.pipelineId,
         runId: input.runId,
+        taskMemoryNamespace: taskMemoryNamespace(
+          projectId,
+          agentSlug,
+          String(input.taskId || `${input.projectId}:${input.agentSlug}:${input.runId}`),
+        ),
       };
+      if (Number(input.retryCount || 0) > 0) {
+        existing.retryTaskCount += Number(input.retryCount || 0);
+      }
       if (existing.state === 'failed') {
         await this.transitionState(existing, 'cold', input, emitEvents);
         await this.transitionState(existing, 'starting', input, emitEvents);
@@ -297,11 +316,19 @@ export class DynamicWorkerSpawnManager {
       coldStartCount: 1,
       totalTaskDurationMs: 0,
       totalIdleMs: 0,
+      successfulTaskCount: 0,
+      failedTaskCount: 0,
+      retryTaskCount: Number(input.retryCount || 0),
       assignedTask: {
         taskId: String(input.taskId || `${input.projectId}:${input.agentSlug}:${input.runId}`),
         stageId: input.stageId,
         pipelineId: input.pipelineId,
         runId: input.runId,
+        taskMemoryNamespace: taskMemoryNamespace(
+          projectId,
+          agentSlug,
+          String(input.taskId || `${input.projectId}:${input.agentSlug}:${input.runId}`),
+        ),
       },
       manuallyPaused: false,
     };
@@ -336,7 +363,7 @@ export class DynamicWorkerSpawnManager {
     const key = keyOf(projectId, agentSlug);
     const record = pool.get(key);
     if (!record) return;
-    await this.transitionState(record, 'standby', input, emitEvents);
+    await this.transitionState(record, 'idle', input, emitEvents);
     record.lastUsedAt = Date.now();
     record.lastHeartbeatAt = Date.now();
     record.heartbeatCount += 1;
@@ -447,6 +474,10 @@ export class DynamicWorkerSpawnManager {
     totalTaskDurationMs: number;
     avgTaskDurationMs: number;
     totalIdleMs: number;
+    successfulTaskCount: number;
+    failedTaskCount: number;
+    retryTaskCount: number;
+    successRate: number;
     lastHeartbeatAt: number;
     state: WorkerLifecycleState;
   }> {
@@ -465,6 +496,14 @@ export class DynamicWorkerSpawnManager {
             ? Math.round(Number(row.totalTaskDurationMs || 0) / Number(row.invocationCount || 1))
             : 0,
         totalIdleMs: Number(row.totalIdleMs || 0),
+        successfulTaskCount: Number(row.successfulTaskCount || 0),
+        failedTaskCount: Number(row.failedTaskCount || 0),
+        retryTaskCount: Number(row.retryTaskCount || 0),
+        successRate:
+          Number(row.successfulTaskCount || 0) + Number(row.failedTaskCount || 0) > 0
+            ? Number(row.successfulTaskCount || 0) /
+              (Number(row.successfulTaskCount || 0) + Number(row.failedTaskCount || 0))
+            : 1,
         lastHeartbeatAt: Number(row.lastHeartbeatAt || 0),
         state: row.state,
       }));
@@ -553,8 +592,8 @@ export class DynamicWorkerSpawnManager {
       if (action === 'pause') {
         record.manuallyPaused = true;
         if (record.state === 'active') {
-          await this.transitionState(record, 'standby', controlEnvelope, emitEvents);
-        } else if (record.state !== 'standby') {
+          await this.transitionState(record, 'idle', controlEnvelope, emitEvents);
+        } else if (record.state !== 'idle') {
           return { ok: false, reason: `pause_not_allowed_from_${record.state}` };
         }
         record.lastUsedAt = Date.now();
@@ -566,10 +605,10 @@ export class DynamicWorkerSpawnManager {
         record.manuallyPaused = false;
         if (record.state === 'hot') {
           await this.transitionState(record, 'active', controlEnvelope, emitEvents);
-          await this.transitionState(record, 'standby', controlEnvelope, emitEvents);
+          await this.transitionState(record, 'idle', controlEnvelope, emitEvents);
         } else if (record.state === 'active') {
-          await this.transitionState(record, 'standby', controlEnvelope, emitEvents);
-        } else if (record.state !== 'standby') {
+          await this.transitionState(record, 'idle', controlEnvelope, emitEvents);
+        } else if (record.state !== 'idle') {
           return { ok: false, reason: `resume_not_allowed_from_${record.state}` };
         }
         record.lastUsedAt = Date.now();
@@ -580,7 +619,7 @@ export class DynamicWorkerSpawnManager {
 
       if (action === 'restart') {
         record.manuallyPaused = false;
-        if (record.state === 'active' || record.state === 'standby' || record.state === 'hot') {
+        if (record.state === 'active' || record.state === 'idle' || record.state === 'hot') {
           await this.transitionState(record, 'stopping', controlEnvelope, emitEvents);
           await this.transitionState(record, 'cold', controlEnvelope, emitEvents);
         } else if (record.state === 'failed') {
@@ -610,7 +649,7 @@ export class DynamicWorkerSpawnManager {
       }
 
       if (action === 'kill') {
-        if (record.state === 'active' || record.state === 'standby' || record.state === 'hot') {
+        if (record.state === 'active' || record.state === 'idle' || record.state === 'hot') {
           await this.transitionState(record, 'stopping', controlEnvelope, emitEvents);
           await this.transitionState(record, 'cold', controlEnvelope, emitEvents);
         } else if (record.state === 'failed') {

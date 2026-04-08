@@ -43,6 +43,23 @@ describe('ProjectDispatchQueue', () => {
     expect(ProjectDispatchQueue.depth('proj-a', 'developer')).toBe(0);
   });
 
+  it('supports worker pull dispatch metadata', () => {
+    const queued = ProjectDispatchQueue.enqueue({
+      runId: 'r3w',
+      projectId: 'proj-a',
+      chainId: 'c3w',
+      pipelineId: 'feature-change',
+      stageId: 'dev',
+      agentSlug: 'developer',
+      payload: { x: 1 },
+    });
+    const pulled = ProjectDispatchQueue.pickupForWorker('proj-a', 'developer', 'worker-developer-1');
+    expect(pulled?.taskId).toBe(queued.taskId);
+    expect((pulled?.payload as any)?.dispatchMode).toBe('worker_pull');
+    expect((pulled?.payload as any)?.pulledByWorkerId).toBe('worker-developer-1');
+    expect(ProjectDispatchQueue.depth('proj-a', 'developer')).toBe(0);
+  });
+
   it('reassigns queued task to another agent with trace payload', () => {
     const queued = ProjectDispatchQueue.enqueue({
       runId: 'r4',
