@@ -23,6 +23,7 @@ export interface RuntimeEvent {
     plane_issue_id?: string;
     thread_id?: string;
     payload?: {
+        [key: string]: any;
         pipelineId?: string;
         stageId?: string;
         stageTitle?: string;
@@ -41,6 +42,20 @@ export interface RuntimeEvent {
         content?: string;
         errors?: string[];
         detail?: string;
+        agentSlug?: string;
+        workerId?: string;
+        state?: string;
+        from?: string;
+        to?: string;
+        heartbeatCount?: number;
+        queueDepth?: number;
+        queueDepthAfterPickup?: number;
+        reason?: string;
+        rule?: string;
+        action?: string;
+        status?: string;
+        prompt?: string;
+        response?: string;
     };
 }
 
