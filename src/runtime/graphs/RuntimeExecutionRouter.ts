@@ -1,4 +1,5 @@
-import { executeQuasiLinearRun, resumeQuasiLinearRun, type PilotState } from './PilotQuasiLinearGraph';
+import { executeUnifiedSwarmRun, resumeUnifiedSwarmRun, type PilotState } from './UnifiedSwarmGraph';
+import { executeMultipleAgentsRun } from './MultipleAgentsRuntime';
 import { runGovernancePhase } from '../governance/GovernanceEngineCore';
 import { analyzeTaskForCompliance } from '../compliance/TaskAnalyzer';
 import { buildExecutionPlan } from '../compliance/ExecutionPlanBuilder';
@@ -31,7 +32,7 @@ import {
   writeTemplateUpdateProposal,
   writeImprovementArtifacts,
 } from '../improvement/ImprovementEngine';
-import { emitGuardBlockEvent } from '../events/EventBus';
+import { emitEvent, emitGuardBlockEvent } from '../events/EventBus';
 
 export type RuntimeExecutionMode = 'mock' | 'linear' | 'multiple_agents';
 
@@ -39,7 +40,7 @@ export interface RuntimeExecutionResult {
   finalState: any;
   modeRequested: RuntimeExecutionMode;
   modeApplied: RuntimeExecutionMode;
-  engine: 'mock' | 'pilot-unified-graph';
+  engine: 'mock' | 'pilot-unified-graph' | 'pilot-multiple-agents-runtime';
 }
 
 function normalizeMode(modeRaw: unknown): RuntimeExecutionMode {
@@ -107,6 +108,14 @@ export async function executeRuntimeRun(initialState: Partial<PilotState>): Prom
   const adaptive = decideAdaptiveOptimization(workspacePath, projectId);
   process.env.RUNTIME_MAX_RETRIES_PER_STEP = String(adaptive.suggestedMaxRetriesPerStep);
   process.env.GOVERNANCE_SMART_SKIP_IMPROVEMENT_LOOP = adaptive.lowRisk ? 'true' : 'false';
+  // Guardrail defaults must fit full pipeline runs (handoffs + loops), not single LLM calls.
+  // They remain overridable via env vars.
+  if (!process.env.RUNTIME_MAX_RUN_TIME_MS) {
+    process.env.RUNTIME_MAX_RUN_TIME_MS = modeRequested === 'mock' ? '120000' : '600000'; // 2m mock, 10m real
+  }
+  if (!process.env.RUNTIME_MAX_TOTAL_LLM_CALLS) {
+    process.env.RUNTIME_MAX_TOTAL_LLM_CALLS = modeRequested === 'mock' ? '40' : '120';
+  }
   const userMessage =
     [...(initialState.messages || [])]
       .reverse()
@@ -202,8 +211,19 @@ export async function executeRuntimeRun(initialState: Partial<PilotState>): Prom
     };
   }
 
-  // Current production engine for both linear and multiple_agents modes.
-  const finalState = await executeQuasiLinearRun(initialState);
+  // Dedicated execution engines by mode.
+  await emitEvent({
+    type: 'run.started',
+    runId,
+    projectId,
+    chainId,
+    actor: { type: 'system', id: 'runtime-router' },
+    payload: { modeRequested, pipeline },
+  }).catch(() => undefined);
+  const finalState =
+    modeRequested === 'multiple_agents'
+      ? await executeMultipleAgentsRun(initialState)
+      : await executeUnifiedSwarmRun(initialState);
 
   await runGovernancePhase('AFTER_STEP', {
     runId,
@@ -378,11 +398,11 @@ export async function executeRuntimeRun(initialState: Partial<PilotState>): Prom
     finalState,
     modeRequested,
     modeApplied: modeRequested,
-    engine: 'pilot-unified-graph',
+    engine: modeRequested === 'multiple_agents' ? 'pilot-multiple-agents-runtime' : 'pilot-unified-graph',
   };
 }
 export async function resumeRuntimeRun(threadId: string, decision: any): Promise<RuntimeExecutionResult> {
-  const finalState = await resumeQuasiLinearRun(threadId, decision);
+  const finalState = await resumeUnifiedSwarmRun(threadId, decision);
   return {
     finalState,
     modeRequested: 'multiple_agents',

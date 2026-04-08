@@ -11,6 +11,7 @@ import { detectLanguage } from '../runtime/LanguageDetection';
 import { fetchRecentEvents } from '../runtime/events/EventBus';
 import { updateCockpitExecutorConfig, getCockpitExecutorConfig } from '../runtime/CockpitExecutorConfig';
 import { DynamicDiscoveryService, AgentRegistry, PipelineRegistry, SkillRegistry } from '../runtime/DynamicDiscoveryService';
+import { runExternalExecutor } from '../runtime/ExternalExecutionAdapter';
 
 dotenv.config();
 
@@ -48,6 +49,14 @@ const planeBindingStore = new Map<string, {
   message?: string;
   checkedAt: string;
 }>();
+type CatalogSnapshot = {
+  discoveryRoot: string;
+  agents: ReturnType<typeof AgentRegistry.getAllAgents>;
+  pipelines: ReturnType<typeof PipelineRegistry.getAllPipelines>;
+  skills: ReturnType<typeof SkillRegistry.getAllSkills>;
+  loadedAt: string;
+};
+const projectCatalogCache = new Map<string, { signature: string; snapshot: CatalogSnapshot }>();
 
 let runtimeSelection = {
   provider: 'codex-cli',
@@ -845,11 +854,64 @@ const appendThreadMessage = (threadId: string, role: 'user' | 'agent', content: 
   persistRuntimeStore();
 };
 
-const refreshCatalog = async (discoveryRoot?: string) => {
+const buildCatalogSignature = (discoveryRoot: string): string => {
+  const normalizedRoot = path.resolve(discoveryRoot || process.cwd());
+  const manifestPath = path.resolve(normalizedRoot, 'AGENTS.md');
   try {
-    await DynamicDiscoveryService.discoverAll(discoveryRoot || process.cwd());
+    const stat = fs.existsSync(manifestPath) ? fs.statSync(manifestPath) : null;
+    if (!stat) return `${normalizedRoot}:manifest-missing`;
+    return `${normalizedRoot}:${stat.size}:${stat.mtimeMs}`;
+  } catch {
+    return `${normalizedRoot}:manifest-unreadable`;
+  }
+};
+
+const applyCatalogSnapshotToRegistries = (snapshot: CatalogSnapshot) => {
+  AgentRegistry.clear();
+  for (const agent of snapshot.agents) AgentRegistry.register(agent);
+  PipelineRegistry.clear();
+  for (const pipeline of snapshot.pipelines) PipelineRegistry.register(pipeline);
+  SkillRegistry.clear();
+  for (const skill of snapshot.skills) SkillRegistry.register(skill);
+};
+
+const loadProjectCatalogSnapshot = async (
+  discoveryRoot?: string,
+  options?: { forceRefresh?: boolean; activate?: boolean },
+): Promise<CatalogSnapshot> => {
+  const root = path.resolve(discoveryRoot || process.cwd());
+  const signature = buildCatalogSignature(root);
+  const cached = projectCatalogCache.get(root);
+  if (!options?.forceRefresh && cached && cached.signature === signature) {
+    if (options?.activate) applyCatalogSnapshotToRegistries(cached.snapshot);
+    return cached.snapshot;
+  }
+
+  await DynamicDiscoveryService.discoverAll(root);
+  const snapshot: CatalogSnapshot = {
+    discoveryRoot: root,
+    agents: AgentRegistry.getAllAgents(),
+    pipelines: PipelineRegistry.getAllPipelines(),
+    skills: SkillRegistry.getAllSkills(),
+    loadedAt: new Date().toISOString(),
+  };
+  projectCatalogCache.set(root, { signature, snapshot });
+  if (options?.activate) applyCatalogSnapshotToRegistries(snapshot);
+  return snapshot;
+};
+
+const refreshCatalog = async (discoveryRoot?: string, options?: { forceRefresh?: boolean; activate?: boolean }) => {
+  try {
+    return await loadProjectCatalogSnapshot(discoveryRoot, options);
   } catch (error) {
     console.error('[agent-system-backend] catalog discovery error:', error);
+    return {
+      discoveryRoot: path.resolve(discoveryRoot || process.cwd()),
+      agents: [],
+      pipelines: [],
+      skills: [],
+      loadedAt: new Date().toISOString(),
+    } as CatalogSnapshot;
   }
 };
 
@@ -941,10 +1003,10 @@ app.get('/api/contracts/context_types', (_req, res) => {
 });
 
 app.get('/api/cockpit/catalog', async (_req, res) => {
-  await refreshCatalog();
-  const agents = AgentRegistry.getAllAgents().map((agent) => agent.slug).sort();
-  const pipelines = PipelineRegistry.getAllPipelines().map((pipeline) => pipeline.slug).sort();
-  const skills = SkillRegistry.getAllSkills().map((skill) => skill.id).sort();
+  const snapshot = await refreshCatalog();
+  const agents = snapshot.agents.map((agent) => agent.slug).sort();
+  const pipelines = snapshot.pipelines.map((pipeline) => pipeline.slug).sort();
+  const skills = snapshot.skills.map((skill) => skill.id).sort();
   res.json({
     success: true,
     agents,
@@ -957,9 +1019,9 @@ app.get('/api/cockpit/agents/registry', async (_req, res) => {
   const projectId = String(_req.query?.projectId || '').trim();
   const project = projectStore.get(projectId);
   const discoveryRoot = project?.agentContextPath || project?.worktreePath || process.cwd();
-  await refreshCatalog(discoveryRoot);
+  const snapshot = await refreshCatalog(discoveryRoot);
   const callsignsBySlug = getAgentCallsignMapFromManifest(discoveryRoot);
-  const agents = AgentRegistry.getAllAgents()
+  const agents = snapshot.agents
     .map((agent) => ({
       slug: agent.slug,
       title: agent.title || agent.slug,
@@ -969,6 +1031,129 @@ app.get('/api/cockpit/agents/registry', async (_req, res) => {
     }))
     .sort((a, b) => a.slug.localeCompare(b.slug));
   res.json({ success: true, agents });
+});
+
+app.get('/api/cockpit/swarm/workers', async (_req, res) => {
+  try {
+    const projectId = String(_req.query?.projectId || '').trim();
+    const heartbeatTimeoutMs = Number(
+      _req.query?.heartbeatTimeoutMs || process.env.RUNTIME_WORKER_HEARTBEAT_TIMEOUT_MS || 45000,
+    );
+    const { DynamicWorkerSpawnManager } = await import('../runtime/workers/DynamicWorkerSpawnManager');
+    const { ProjectDispatchQueue } = await import('../runtime/queue/ProjectDispatchQueue');
+    DynamicWorkerSpawnManager.pruneIdleWorkers({
+      projectId: projectId || undefined,
+      idleTimeoutMs: Number(process.env.RUNTIME_WORKER_IDLE_TIMEOUT_MS || 120000),
+    });
+    const workers = DynamicWorkerSpawnManager.controllerContractSnapshot({
+      projectId: projectId || undefined,
+      heartbeatTimeoutMs,
+    });
+    const queueDepthByKey = ProjectDispatchQueue.snapshot(projectId || undefined);
+    res.json({
+      success: true,
+      workers,
+      queueDepthByKey,
+      summary: {
+        total: workers.length,
+        healthy: workers.filter((w: any) => w.heartbeatFreshness === 'fresh').length,
+        stale: workers.filter((w: any) => w.heartbeatFreshness === 'stale').length,
+        dead: workers.filter((w: any) => w.heartbeatFreshness === 'dead').length,
+      },
+      heartbeatTimeoutMs,
+      serverNow: new Date().toISOString(),
+    });
+  } catch (error: any) {
+    res.status(500).json({
+      success: false,
+      error: 'swarm_workers_fetch_failed',
+      message: error?.message || 'Failed to fetch worker health snapshot',
+    });
+  }
+});
+
+app.get('/api/cockpit/swarm/summary', async (_req, res) => {
+  try {
+    const projectId = String(_req.query?.projectId || '').trim();
+    const heartbeatTimeoutMs = Number(
+      _req.query?.heartbeatTimeoutMs || process.env.RUNTIME_WORKER_HEARTBEAT_TIMEOUT_MS || 45000,
+    );
+    const { DynamicWorkerSpawnManager } = await import('../runtime/workers/DynamicWorkerSpawnManager');
+    const { ProjectDispatchQueue } = await import('../runtime/queue/ProjectDispatchQueue');
+    const workers = DynamicWorkerSpawnManager.controllerContractSnapshot({
+      projectId: projectId || undefined,
+      heartbeatTimeoutMs,
+    });
+    const queueDepthByKey = ProjectDispatchQueue.snapshot(projectId || undefined);
+    const queuePressure = Object.values(queueDepthByKey).reduce((acc, n) => acc + Number(n || 0), 0);
+    const activeWorkers = workers.filter((w: any) => String(w.executionState) === 'active').length;
+    const standbyWorkers = workers.filter((w: any) => String(w.executionState) === 'standby').length;
+    const unhealthyWorkers = workers.filter((w: any) => w.heartbeatFreshness === 'stale' || w.heartbeatFreshness === 'dead').length;
+
+    res.json({
+      success: true,
+      projectId: projectId || null,
+      summary: {
+        workersTotal: workers.length,
+        activeWorkers,
+        standbyWorkers,
+        unhealthyWorkers,
+        queuePressure,
+      },
+      queueDepthByKey,
+      workers,
+      heartbeatTimeoutMs,
+      serverNow: new Date().toISOString(),
+    });
+  } catch (error: any) {
+    res.status(500).json({
+      success: false,
+      error: 'swarm_summary_fetch_failed',
+      message: error?.message || 'Failed to build swarm summary',
+    });
+  }
+});
+
+app.get('/api/cockpit/swarm/utilization', async (_req, res) => {
+  try {
+    const projectId = String(_req.query?.projectId || '').trim();
+    const { DynamicWorkerSpawnManager } = await import('../runtime/workers/DynamicWorkerSpawnManager');
+    const rows = DynamicWorkerSpawnManager.utilizationSnapshot({
+      projectId: projectId || undefined,
+    });
+    const totals = rows.reduce(
+      (acc, row) => {
+        acc.invocationCount += Number(row.invocationCount || 0);
+        acc.coldStartCount += Number(row.coldStartCount || 0);
+        acc.totalTaskDurationMs += Number(row.totalTaskDurationMs || 0);
+        acc.totalIdleMs += Number(row.totalIdleMs || 0);
+        return acc;
+      },
+      { invocationCount: 0, coldStartCount: 0, totalTaskDurationMs: 0, totalIdleMs: 0 },
+    );
+    const avgTaskDurationMs =
+      totals.invocationCount > 0 ? Math.round(totals.totalTaskDurationMs / totals.invocationCount) : 0;
+    res.json({
+      success: true,
+      projectId: projectId || null,
+      rows,
+      summary: {
+        workers: rows.length,
+        invocationCount: totals.invocationCount,
+        coldStartCount: totals.coldStartCount,
+        totalTaskDurationMs: totals.totalTaskDurationMs,
+        avgTaskDurationMs,
+        totalIdleMs: totals.totalIdleMs,
+      },
+      serverNow: new Date().toISOString(),
+    });
+  } catch (error: any) {
+    res.status(500).json({
+      success: false,
+      error: 'swarm_utilization_fetch_failed',
+      message: error?.message || 'Failed to fetch swarm utilization telemetry',
+    });
+  }
 });
 
 app.get('/api/cockpit/providers', (_req, res) => {
@@ -1197,7 +1382,7 @@ app.get('/api/cockpit/chains/:threadId/messages', (req, res) => {
   });
 });
 
-app.post('/api/cockpit/projects/select', (req, res) => {
+app.post('/api/cockpit/projects/select', async (req, res) => {
   const projectId = String(req.body?.projectId || '').trim();
   if (!projectId) {
     res.status(400).json({ success: false, error: 'project_id_required' });
@@ -1224,9 +1409,14 @@ app.post('/api/cockpit/projects/select', (req, res) => {
   }
 
   const discoveryRoot = project.agentContextPath || project.worktreePath || process.cwd();
-  void refreshCatalog(discoveryRoot);
+  await refreshCatalog(discoveryRoot, { activate: true });
+  const { applyProjectSwitchRuntimePolicy } = await import('../runtime/policy/ProjectSwitchRuntimePolicy');
+  const switchPolicy = await applyProjectSwitchRuntimePolicy({
+    activeProjectId: projectId,
+    knownProjectIds: Array.from(projectStore.keys()),
+  });
 
-  res.json({ success: true, project, runtimeFooter });
+  res.json({ success: true, project, runtimeFooter, switchPolicy });
 });
 
 app.post('/api/cockpit/plane/sync', async (req, res) => {
@@ -1328,12 +1518,64 @@ app.post('/api/cockpit/providers/cli/login', (_req, res) => {
   res.json({ success: false, error: 'CLI login is not implemented in standalone backend mode' });
 });
 
-app.post('/api/cockpit/providers/test-message', (_req, res) => {
-  res.json({
-    success: false,
-    status: 'unavailable',
-    message: 'LLM test endpoint is disabled in standalone backend mode',
-  });
+app.post('/api/cockpit/providers/test-message', async (req, res) => {
+  const provider = String(req.body?.provider || runtimeSelection.provider || 'codex-cli').trim();
+  const model = String(req.body?.model || runtimeSelection.model || '').trim();
+  const prompt = String(
+    req.body?.prompt ||
+      'Health-check prompt. Reply with exactly: LLM_TEST_OK',
+  ).trim();
+
+  const executor: 'claude-code' | 'codex-cli' | 'openhands-sdk' =
+    provider === 'claude-cli'
+      ? 'claude-code'
+      : provider === 'openhands-sdk'
+        ? 'openhands-sdk'
+        : 'codex-cli';
+
+  try {
+    const result = await runExternalExecutor({
+      executor,
+      prompt,
+      cwd: process.cwd(),
+      model: model || undefined,
+      timeoutMs: Number(process.env.COCKPIT_PROVIDER_TEST_TIMEOUT_MS || 45000),
+    });
+
+    const output = String(result.stdout || '').trim();
+    const error = String(result.stderr || '').trim();
+    res.json({
+      success: result.ok,
+      status: result.ok ? 'ok' : 'failed',
+      provider,
+      model: model || null,
+      message: result.ok ? 'LLM test completed' : (error || 'Provider test failed'),
+      result: {
+        ok: result.ok,
+        exitCode: result.exitCode,
+        durationMs: result.durationMs,
+        stdout: output.slice(0, 1200),
+        stderr: error.slice(0, 1200),
+        command: result.command,
+      },
+    });
+  } catch (error: any) {
+    res.status(500).json({
+      success: false,
+      status: 'failed',
+      provider,
+      model: model || null,
+      message: error?.message || 'Provider test execution failed',
+      result: {
+        ok: false,
+        exitCode: -1,
+        durationMs: 0,
+        stdout: '',
+        stderr: String(error?.message || error || 'unknown_error'),
+        command: [],
+      },
+    });
+  }
 });
 
 app.post('/api/cockpit/providers/select', (req, res) => {
@@ -1402,7 +1644,7 @@ app.post('/api/chat', async (req, res) => {
     const project = projectStore.get(projectId);
     const effectiveWorkspacePath = project?.worktreePath || process.cwd();
     const effectiveAgentContextPath = project?.agentContextPath || project?.worktreePath || process.cwd();
-    await refreshCatalog(effectiveAgentContextPath);
+    const catalogSnapshot = await refreshCatalog(effectiveAgentContextPath, { activate: true });
 
     ensureThreadInProject(projectId, threadId);
     appendThreadMessage(threadId, 'user', message);
@@ -1422,6 +1664,7 @@ app.post('/api/chat', async (req, res) => {
         projectId,
         workspacePath: effectiveWorkspacePath,
         agentContextPath: effectiveAgentContextPath,
+        customAgents: catalogSnapshot.agents.map((agent) => agent.slug),
       });
       const finalState = execution.finalState;
       
@@ -1562,6 +1805,31 @@ app.post('/api/chat/approve', async (req, res) => {
   } catch (error: any) {
     console.error('[agent-system-backend] /api/chat/approve error:', error);
     res.status(500).json({ success: false, error: 'internal_error', message: error.message });
+  }
+});
+
+app.post('/api/chat/cancel', async (req, res) => {
+  const threadId = String(req.body?.threadId || '').trim();
+  const runId = String(req.body?.runId || '').trim();
+  const reason = String(req.body?.reason || 'Cancelled by user').trim();
+
+  if (!threadId && !runId) {
+    res.status(400).json({ success: false, error: 'threadId_or_runId_required' });
+    return;
+  }
+
+  try {
+    const { RunManager } = await import('../runtime/context/RunManager');
+    if (runId) {
+      RunManager.cancelRun(runId, reason);
+      res.json({ success: true, cancelled: true, runId });
+      return;
+    }
+    const result = RunManager.cancelThreadRun(threadId, reason);
+    res.json({ success: true, cancelled: result.cancelled, runId: result.runId, threadId });
+  } catch (error: any) {
+    console.error('[agent-system-backend] /api/chat/cancel error:', error);
+    res.status(500).json({ success: false, error: 'internal_error', message: error?.message || 'Failed to cancel run' });
   }
 });
 

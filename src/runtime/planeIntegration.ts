@@ -1,5 +1,5 @@
 import { v4 as uuidv4 } from 'uuid';
-import { executeQuasiLinearRun, PilotState } from './graphs/PilotQuasiLinearGraph';
+import { executeUnifiedSwarmRun, PilotState } from './graphs/UnifiedSwarmGraph';
 
 import axios from 'axios';
 
@@ -106,7 +106,7 @@ export async function triggerPipelineFromPlane(issueId: string) {
   };
 
   // Run the quasi-linear graph
-  const finalState = await executeQuasiLinearRun(initialState);
+  const finalState = await executeUnifiedSwarmRun(initialState);
   
   // Sync back to Plane based on result
   await syncStatusToPlane(issueData.id, finalState.status, finalState.artifactLogs);
