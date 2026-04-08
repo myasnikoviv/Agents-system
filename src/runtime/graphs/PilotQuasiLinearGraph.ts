@@ -265,6 +265,22 @@ function localizeSystemMessage(
   return `[System] Stage ${stageId} failed; continuing pipeline with fallback. ${humanized}`;
 }
 
+async function runWithStageTimeout<T>(task: Promise<T>, timeoutMs: number, label: string): Promise<T> {
+  let timer: NodeJS.Timeout | null = null;
+  try {
+    return await Promise.race([
+      task,
+      new Promise<T>((_, reject) => {
+        timer = setTimeout(() => {
+          reject(new Error(`stage_timeout_exceeded:${label}:${timeoutMs}ms`));
+        }, timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 /**
  * DEPRECATED: Hardcoded nodes have been replaced by swarmNode.
  */
@@ -615,8 +631,14 @@ async function swarmNode(state: PilotState): Promise<Partial<PilotState>> {
     console.log(`[PilotGraph:Swarm] Resumed after HITL interrupt for ${agent.slug}. Decision:`, decision);
   }
 
+  const stageTimeoutMs = Number(process.env.RUNTIME_STAGE_TIMEOUT_MS || 60000);
+
   try {
-    result = await executor.run(runContext);
+    result = await runWithStageTimeout(
+      executor.run(runContext),
+      stageTimeoutMs,
+      `${nextStage.id}:${runContext.agent.slug}:primary`,
+    );
   } catch (error: any) {
     const errMsg = error?.message || 'Unknown execution error';
     console.error(`[PilotGraph:Swarm] Stage ${nextStage.id} failed for agent ${runContext.agent.slug}:`, errMsg);
@@ -680,7 +702,11 @@ async function swarmNode(state: PilotState): Promise<Partial<PilotState>> {
     };
 
     try {
-      result = await executor.run(repromptContext as any);
+      result = await runWithStageTimeout(
+        executor.run(repromptContext as any),
+        stageTimeoutMs,
+        `${nextStage.id}:${runContext.agent.slug}:reprompt`,
+      );
     } catch (error: any) {
       const errMsg = error?.message || 'Unknown execution error';
       return {
@@ -853,7 +879,8 @@ export const pilotGraph = new StateGraph(PilotStateAnnotation)
  * always executes through the swarm pipeline loop.
  */
 export async function executeQuasiLinearRun(initialState: Partial<PilotState>) {
-  const threadConfig = { configurable: { threadId: initialState.threadId || 'default' } };
+  const thread = initialState.threadId || 'default';
+  const threadConfig = { configurable: { thread_id: thread, threadId: thread } };
   const finalState = await pilotGraph.invoke(initialState, threadConfig);
   return finalState;
 }
@@ -862,7 +889,7 @@ export async function executeQuasiLinearRun(initialState: Partial<PilotState>) {
  * Resumes an interrupted run.
  */
 export async function resumeQuasiLinearRun(threadId: string, decision: any) {
-  const threadConfig = { configurable: { threadId: threadId } };
+  const threadConfig = { configurable: { thread_id: threadId, threadId } };
   // Use Command({ resume: decision }) to pass value back to interrupt()
   const finalState = await pilotGraph.invoke(new Command({ resume: decision }), threadConfig);
   return finalState;

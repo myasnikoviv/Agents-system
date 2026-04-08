@@ -121,12 +121,20 @@ export class OpenHandsExecutionProvider {
       || process.env.OPENHANDS_API_KEY
       || '';
 
-    const maxRunRetries = this.parsePositiveInt(process.env.OPENHANDS_RETRY_MAX_ATTEMPTS, 4);
+    const requestedTimeoutMs = this.parsePositiveInt(
+      String(input.timeoutMs || process.env.COCKPIT_EXECUTOR_TIMEOUT_MS || ''),
+      45000,
+    );
+    const maxRunRetries = this.parsePositiveInt(process.env.OPENHANDS_RETRY_MAX_ATTEMPTS, 2);
     const backoffBaseMs = this.parsePositiveInt(process.env.OPENHANDS_RETRY_BASE_MS, 1500);
     const backoffMaxMs = this.parsePositiveInt(process.env.OPENHANDS_RETRY_MAX_BACKOFF_MS, 15000);
-    const pollIntervalMs = this.parsePositiveInt(process.env.OPENHANDS_POLL_INTERVAL_MS, 3000);
-    const maxPollAttempts = this.parsePositiveInt(process.env.OPENHANDS_MAX_POLL_ATTEMPTS, 60);
-    const requestTimeoutMs = this.parsePositiveInt(process.env.OPENHANDS_REQUEST_TIMEOUT_MS, 15000);
+    const pollIntervalMs = this.parsePositiveInt(process.env.OPENHANDS_POLL_INTERVAL_MS, 2000);
+    const defaultMaxPollAttempts = Math.max(4, Math.floor(requestedTimeoutMs / pollIntervalMs));
+    const maxPollAttempts = this.parsePositiveInt(
+      process.env.OPENHANDS_MAX_POLL_ATTEMPTS,
+      defaultMaxPollAttempts,
+    );
+    const requestTimeoutMs = this.parsePositiveInt(process.env.OPENHANDS_REQUEST_TIMEOUT_MS, 10000);
 
     const keyTeaser = apiKey.length > 8 ? `${apiKey.slice(0, 4)}...${apiKey.slice(-4)}` : '***';
     console.log(`[OpenHandsExecutionProvider] Running task with provider=${provider}, model=${model}, apiKey=${keyTeaser}, retries=${maxRunRetries}`);

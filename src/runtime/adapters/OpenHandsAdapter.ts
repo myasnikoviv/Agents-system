@@ -28,6 +28,7 @@ export class OpenHandsAdapter implements ExecutionAdapter {
       prompt,
       cwd: context.workspacePath || process.cwd(),
       model: cfg.openhands.model,
+      timeoutMs: Number(process.env.COCKPIT_EXECUTOR_TIMEOUT_MS || 45000),
     });
 
     if (!out.ok) {

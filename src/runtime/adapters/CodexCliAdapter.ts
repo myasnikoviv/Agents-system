@@ -98,7 +98,7 @@ export class CodexCliAdapter implements ExecutionAdapter {
       executor: 'codex-cli',
       prompt,
       cwd: process.cwd(),
-      timeoutMs: Number(process.env.COCKPIT_EXECUTOR_TIMEOUT_MS || 300000),
+      timeoutMs: Number(process.env.COCKPIT_EXECUTOR_TIMEOUT_MS || 45000),
       model: cfg.codex.model,
       binaryPath: cfg.codex.bin,
       sandbox: cfg.codex.sandbox
