@@ -138,6 +138,7 @@ interface QueueTaskSnapshot {
     agentSlug: string;
     status: 'pending' | 'assigned' | 'completed';
     queuedAt: number;
+    assignedAt: number | null;
     updatedAt: number;
 }
 interface PersistedThreadMessage {
@@ -476,6 +477,10 @@ export function CockpitPage() {
                 agentSlug: String(event.payload?.agentSlug || event.actor?.id || existing?.agentSlug || 'unknown').trim(),
                 status: nextStatus,
                 queuedAt: existing?.queuedAt || ts,
+                assignedAt:
+                    nextStatus === 'assigned'
+                        ? ts
+                        : existing?.assignedAt || null,
                 updatedAt: ts,
             });
         }
@@ -491,6 +496,29 @@ export function CockpitPage() {
             queueLength: waiting.length,
         };
     }, [activeEvents]);
+
+    const taskWorkerMapping = useMemo(() => {
+        const rows = projectScopedWorkers
+            .filter((w) => w.assignedTask?.taskId)
+            .map((w) => ({
+                taskId: String(w.assignedTask?.taskId || 'n/a').trim(),
+                stageId: String(w.assignedTask?.stageId || 'n/a').trim(),
+                workerId: String(w.workerId || 'n/a').trim(),
+                agentSlug: String(w.agentSlug || 'unknown').trim(),
+                projectId: String(w.projectId || 'n/a').trim(),
+                status: (w.executionState === 'active' ? 'assigned' : 'pending') as 'pending' | 'assigned',
+            }));
+        return rows.sort((a, b) => a.taskId.localeCompare(b.taskId));
+    }, [projectScopedWorkers]);
+
+    const dispatchLatencySummary = useMemo(() => {
+        const latencies = queueSnapshot.assigned
+            .map((t) => (t.assignedAt && t.queuedAt ? Math.max(0, t.assignedAt - t.queuedAt) : null))
+            .filter((v): v is number => Number.isFinite(v as number));
+        const avgMs = latencies.length > 0 ? Math.round(latencies.reduce((a, b) => a + b, 0) / latencies.length) : null;
+        const maxMs = latencies.length > 0 ? Math.max(...latencies) : null;
+        return { avgMs, maxMs, samples: latencies.length };
+    }, [queueSnapshot.assigned]);
 
     const appendMessagesToThread = (threadId: string | undefined, next: ChatMessage[]) => {
         const key = threadId && threadId.trim().length > 0 ? threadId : activeThreadKey;
@@ -2747,6 +2775,8 @@ export function CockpitPage() {
                             <span>Assigned tasks: {queueSnapshot.assigned.length}</span>
                             <span>Completed tasks: {queueSnapshot.completed.length}</span>
                             <span>Tracked tasks: {queueSnapshot.totalTracked}</span>
+                            <span>Dispatch avg: {dispatchLatencySummary.avgMs === null ? 'n/a' : `${dispatchLatencySummary.avgMs}ms`}</span>
+                            <span>Dispatch max: {dispatchLatencySummary.maxMs === null ? 'n/a' : `${dispatchLatencySummary.maxMs}ms`}</span>
                         </div>
                         <div className="agent-board">
                             {queueSnapshot.waiting.length === 0 ? (
@@ -2763,6 +2793,27 @@ export function CockpitPage() {
                                             <span>status: {task.status}</span>
                                             <span>agent: {task.agentSlug}</span>
                                             <span>updated: {new Date(task.updatedAt).toLocaleTimeString()}</span>
+                                        </div>
+                                    </div>
+                                ))
+                            )}
+                        </div>
+                        <div className="agent-board mt-2">
+                            {taskWorkerMapping.length === 0 ? (
+                                <div className="agent-board-empty">No task-to-worker assignments yet.</div>
+                            ) : (
+                                taskWorkerMapping.slice(0, 10).map((row) => (
+                                    <div key={`map-${row.projectId}-${row.taskId}-${row.workerId}`} className="agent-board-row">
+                                        <div className={`agent-dot ${row.status === 'assigned' ? 'active' : 'standby'}`} />
+                                        <div className="agent-board-main">
+                                            <div className="agent-board-title">{row.taskId}</div>
+                                            <div className="agent-board-sub">worker: {row.workerId}</div>
+                                        </div>
+                                        <div className="agent-board-meta">
+                                            <span>status: {row.status}</span>
+                                            <span>agent: {row.agentSlug}</span>
+                                            <span>stage: {row.stageId}</span>
+                                            <span>project: {row.projectId}</span>
                                         </div>
                                     </div>
                                 ))
