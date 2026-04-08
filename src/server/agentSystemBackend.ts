@@ -1774,12 +1774,27 @@ app.post('/api/cockpit/governance/overrides', async (req, res) => {
 app.post('/api/cockpit/governance/loops/force', async (req, res) => {
   try {
     const loopType = String(req.body?.loopType || '').trim() as 'improvement' | 'validation';
+    const loopId = String(req.body?.loopId || '').trim();
     const runId = String(req.body?.runId || '').trim() || `manual-loop-${Date.now().toString(36)}`;
     const projectId = String(req.body?.projectId || '').trim() || 'default';
     const chainId = String(req.body?.chainId || '').trim() || 'manual-loop';
-    if (!['improvement', 'validation'].includes(loopType)) {
+    if (!loopId && !['improvement', 'validation'].includes(loopType)) {
       res.status(400).json({ success: false, error: 'invalid_loop_type', message: 'loopType must be improvement|validation' });
       return;
+    }
+    let effectiveLoopType: 'improvement' | 'validation' = loopType;
+    if (loopId) {
+      const { getGovernanceLoopById, isGovernanceLoopRunnable } = await import('../runtime/governance/LoopRegistry');
+      const loop = getGovernanceLoopById(loopId, process.cwd());
+      if (!loop) {
+        res.status(404).json({ success: false, error: 'governance_loop_not_found', message: `Loop not found: ${loopId}` });
+        return;
+      }
+      if (!isGovernanceLoopRunnable(loop, { projectId, chainId })) {
+        res.status(403).json({ success: false, error: 'governance_loop_not_runnable', message: `Loop is disabled/out-of-scope: ${loopId}` });
+        return;
+      }
+      effectiveLoopType = loop.kind;
     }
     const workspacePath = process.cwd();
     const {
@@ -1791,7 +1806,7 @@ app.post('/api/cockpit/governance/loops/force', async (req, res) => {
       evaluateLearningTrendKpi,
     } = await import('../runtime/improvement/ImprovementEngine');
 
-    if (loopType === 'improvement') {
+    if (effectiveLoopType === 'improvement') {
       const signals = aggregateSignals(
         generateImprovementSignals({ workspacePath, runId, projectId }),
       );
@@ -1807,7 +1822,8 @@ app.post('/api/cockpit/governance/loops/force', async (req, res) => {
       });
       res.json({
         success: true,
-        loopType,
+        loopType: effectiveLoopType,
+        loopId: loopId || null,
         runId,
         projectId,
         result: { signalsCount: signals.length, ticketsCount: tickets.length, queueJobId, artifacts },
@@ -1817,6 +1833,7 @@ app.post('/api/cockpit/governance/loops/force', async (req, res) => {
         action: 'force_loop_improvement',
         projectId,
         actorId: 'cockpit-user',
+        target: { loopId: loopId || null },
         result: { ok: true, runId, signalsCount: signals.length, ticketsCount: tickets.length },
       });
       return;
@@ -1825,7 +1842,8 @@ app.post('/api/cockpit/governance/loops/force', async (req, res) => {
     const trend = evaluateLearningTrendKpi({ workspacePath, projectId, runId });
     res.json({
       success: true,
-      loopType,
+      loopType: effectiveLoopType,
+      loopId: loopId || null,
       runId,
       projectId,
       result: trend,
@@ -1835,10 +1853,105 @@ app.post('/api/cockpit/governance/loops/force', async (req, res) => {
       action: 'force_loop_validation',
       projectId,
       actorId: 'cockpit-user',
+      target: { loopId: loopId || null },
       result: { ok: true, runId, pass: trend.pass, score: trend.score },
     });
   } catch (error: any) {
     res.status(500).json({ success: false, error: 'governance_force_loop_failed', message: error?.message || 'Failed to execute forced governance loop' });
+  }
+});
+
+app.get('/api/governance/loops', async (_req, res) => {
+  try {
+    const { loadGovernanceLoops } = await import('../runtime/governance/LoopRegistry');
+    const loops = loadGovernanceLoops(process.cwd());
+    res.json({ success: true, total: loops.length, loops, serverNow: new Date().toISOString() });
+  } catch (error: any) {
+    res.status(500).json({ success: false, error: 'governance_loops_list_failed', message: error?.message || 'Failed to list loops' });
+  }
+});
+
+app.get('/api/governance/loops/:loopId', async (req, res) => {
+  try {
+    const loopId = String(req.params?.loopId || '').trim();
+    const { getGovernanceLoopById } = await import('../runtime/governance/LoopRegistry');
+    const loop = getGovernanceLoopById(loopId, process.cwd());
+    if (!loop) {
+      res.status(404).json({ success: false, error: 'governance_loop_not_found', message: `Loop not found: ${loopId}` });
+      return;
+    }
+    res.json({ success: true, loop, serverNow: new Date().toISOString() });
+  } catch (error: any) {
+    res.status(500).json({ success: false, error: 'governance_loop_get_failed', message: error?.message || 'Failed to get loop' });
+  }
+});
+
+app.post('/api/governance/loops', async (req, res) => {
+  try {
+    const payload = req.body || {};
+    const id = String(payload.id || '').trim();
+    const kind = String(payload.kind || '').trim();
+    if (!id || !['improvement', 'validation'].includes(kind)) {
+      res.status(400).json({ success: false, error: 'invalid_input', message: 'id and kind(improvement|validation) are required' });
+      return;
+    }
+    const { createGovernanceLoop } = await import('../runtime/governance/LoopRegistry');
+    const loop = createGovernanceLoop(
+      {
+        id,
+        kind: kind as 'improvement' | 'validation',
+        enabledByDefault: payload.enabledByDefault !== false,
+        scope: payload.scope || { level: 'global' },
+        metadata: payload.metadata || {},
+        config: payload.config && typeof payload.config === 'object' ? payload.config : {},
+      },
+      process.cwd(),
+    );
+    appendControlActionAudit({
+      action: 'governance_loop_create',
+      actorId: 'cockpit-user',
+      target: { loopId: loop.id, kind: loop.kind },
+      result: { ok: true },
+    });
+    res.json({ success: true, loop, serverNow: new Date().toISOString() });
+  } catch (error: any) {
+    res.status(400).json({ success: false, error: 'governance_loop_create_failed', message: error?.message || 'Failed to create loop' });
+  }
+});
+
+app.post('/api/governance/loops/:loopId', async (req, res) => {
+  try {
+    const loopId = String(req.params?.loopId || '').trim();
+    const patch = req.body || {};
+    const { updateGovernanceLoop } = await import('../runtime/governance/LoopRegistry');
+    const loop = updateGovernanceLoop(loopId, patch, process.cwd());
+    appendControlActionAudit({
+      action: 'governance_loop_update',
+      actorId: 'cockpit-user',
+      target: { loopId },
+      result: { ok: true },
+    });
+    res.json({ success: true, loop, serverNow: new Date().toISOString() });
+  } catch (error: any) {
+    res.status(400).json({ success: false, error: 'governance_loop_update_failed', message: error?.message || 'Failed to update loop' });
+  }
+});
+
+app.post('/api/governance/loops/:loopId/disable', async (req, res) => {
+  try {
+    const loopId = String(req.params?.loopId || '').trim();
+    const disabled = req.body?.disabled !== false;
+    const { disableGovernanceLoop } = await import('../runtime/governance/LoopRegistry');
+    const loop = disableGovernanceLoop(loopId, { disabled }, process.cwd());
+    appendControlActionAudit({
+      action: 'governance_loop_disable',
+      actorId: 'cockpit-user',
+      target: { loopId, disabled },
+      result: { ok: true },
+    });
+    res.json({ success: true, loop, serverNow: new Date().toISOString() });
+  } catch (error: any) {
+    res.status(400).json({ success: false, error: 'governance_loop_disable_failed', message: error?.message || 'Failed to disable loop' });
   }
 });
 
