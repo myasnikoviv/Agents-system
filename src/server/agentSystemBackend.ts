@@ -338,6 +338,28 @@ const getAuthContext = (req: express.Request): {
   };
 };
 
+type AuthRole = 'owner' | 'admin' | 'member';
+const AUTH_ROLE_ORDER: Record<AuthRole, number> = { owner: 3, admin: 2, member: 1 };
+
+const requireRole = (
+  req: express.Request,
+  res: express.Response,
+  minRole: AuthRole,
+): { userId: string; email: string; tenantId: string; workspaceId: string; role: string; token: string } | null => {
+  const auth = getAuthContext(req);
+  if (!auth) {
+    res.status(401).json({ success: false, error: 'unauthorized', message: 'Authentication required' });
+    return null;
+  }
+  const normalizedRole = (String(auth.role || '').trim().toLowerCase() || 'member') as AuthRole;
+  const effectiveRole: AuthRole = normalizedRole === 'owner' || normalizedRole === 'admin' ? normalizedRole : 'member';
+  if (AUTH_ROLE_ORDER[effectiveRole] < AUTH_ROLE_ORDER[minRole]) {
+    res.status(403).json({ success: false, error: 'forbidden', message: `Requires role: ${minRole}` });
+    return null;
+  }
+  return auth;
+};
+
 const canUsePlane = (): boolean => Boolean(PLANE_API_KEY && PLANE_BASE_URL && PLANE_WORKSPACE);
 
 const saveRuntimeState = (key: string, value: unknown) => {
@@ -1223,6 +1245,7 @@ app.get('/api/cockpit/swarm/workers', async (_req, res) => {
 });
 
 app.post('/api/cockpit/swarm/workers/control', async (req, res) => {
+  if (!requireRole(req, res, 'admin')) return;
   try {
     const projectId = String(req.body?.projectId || '').trim();
     const agentSlug = String(req.body?.agentSlug || '').trim();
@@ -1306,6 +1329,7 @@ app.post('/api/cockpit/swarm/workers/control', async (req, res) => {
 });
 
 app.post('/api/cockpit/swarm/workers/bulk', async (req, res) => {
+  if (!requireRole(req, res, 'admin')) return;
   try {
     const projectId = String(req.body?.projectId || '').trim();
     const action = String(req.body?.action || '').trim().toLowerCase();
@@ -1622,6 +1646,7 @@ app.get('/api/cockpit/swarm/queue/tasks', async (_req, res) => {
 });
 
 app.post('/api/cockpit/swarm/queue/reassign', async (req, res) => {
+  if (!requireRole(req, res, 'admin')) return;
   try {
     const projectId = String(req.body?.projectId || '').trim();
     const taskId = String(req.body?.taskId || '').trim();
@@ -1650,6 +1675,7 @@ app.post('/api/cockpit/swarm/queue/reassign', async (req, res) => {
 });
 
 app.post('/api/cockpit/swarm/queue/retry', async (req, res) => {
+  if (!requireRole(req, res, 'admin')) return;
   try {
     const projectId = String(req.body?.projectId || '').trim();
     const taskId = String(req.body?.taskId || '').trim();
@@ -1677,6 +1703,7 @@ app.post('/api/cockpit/swarm/queue/retry', async (req, res) => {
 });
 
 app.post('/api/cockpit/swarm/queue/cancel', async (req, res) => {
+  if (!requireRole(req, res, 'admin')) return;
   try {
     const projectId = String(req.body?.projectId || '').trim();
     const taskId = String(req.body?.taskId || '').trim();
@@ -1704,6 +1731,7 @@ app.post('/api/cockpit/swarm/queue/cancel', async (req, res) => {
 });
 
 app.post('/api/cockpit/swarm/queue/priority', async (req, res) => {
+  if (!requireRole(req, res, 'admin')) return;
   try {
     const projectId = String(req.body?.projectId || '').trim();
     const taskId = String(req.body?.taskId || '').trim();
@@ -1732,6 +1760,7 @@ app.post('/api/cockpit/swarm/queue/priority', async (req, res) => {
 });
 
 app.post('/api/cockpit/swarm/projects/control', async (req, res) => {
+  if (!requireRole(req, res, 'admin')) return;
   try {
     const projectId = String(req.body?.projectId || '').trim();
     const action = String(req.body?.action || '').trim().toLowerCase();
@@ -1803,6 +1832,7 @@ app.get('/api/cockpit/governance/overrides', async (req, res) => {
 });
 
 app.post('/api/cockpit/governance/overrides', async (req, res) => {
+  if (!requireRole(req, res, 'admin')) return;
   try {
     const projectId = String(req.body?.projectId || '').trim();
     const scope = String(req.body?.scope || '').trim() as 'global' | 'phase' | 'rule';
@@ -1849,6 +1879,7 @@ app.post('/api/cockpit/governance/overrides', async (req, res) => {
 });
 
 app.post('/api/cockpit/governance/loops/force', async (req, res) => {
+  if (!requireRole(req, res, 'admin')) return;
   try {
     const loopType = String(req.body?.loopType || '').trim() as 'improvement' | 'validation';
     const loopId = String(req.body?.loopId || '').trim();
@@ -1964,6 +1995,7 @@ app.get('/api/governance/loops/:loopId', async (req, res) => {
 });
 
 app.post('/api/governance/loops', async (req, res) => {
+  if (!requireRole(req, res, 'admin')) return;
   try {
     const payload = req.body || {};
     const id = String(payload.id || '').trim();
@@ -1997,6 +2029,7 @@ app.post('/api/governance/loops', async (req, res) => {
 });
 
 app.post('/api/governance/loops/:loopId', async (req, res) => {
+  if (!requireRole(req, res, 'admin')) return;
   try {
     const loopId = String(req.params?.loopId || '').trim();
     const patch = req.body || {};
@@ -2015,6 +2048,7 @@ app.post('/api/governance/loops/:loopId', async (req, res) => {
 });
 
 app.post('/api/governance/loops/:loopId/disable', async (req, res) => {
+  if (!requireRole(req, res, 'admin')) return;
   try {
     const loopId = String(req.params?.loopId || '').trim();
     const disabled = req.body?.disabled !== false;
@@ -2085,6 +2119,7 @@ app.get('/api/governance/rules/:ruleId', async (req, res) => {
 });
 
 app.post('/api/governance/rules', async (req, res) => {
+  if (!requireRole(req, res, 'admin')) return;
   try {
     const payload = req.body || {};
     const id = String(payload.id || '').trim();
@@ -2121,6 +2156,7 @@ app.post('/api/governance/rules', async (req, res) => {
 });
 
 app.post('/api/governance/rules/:ruleId', async (req, res) => {
+  if (!requireRole(req, res, 'admin')) return;
   try {
     const ruleId = String(req.params?.ruleId || '').trim();
     const patch = req.body || {};
@@ -2139,6 +2175,7 @@ app.post('/api/governance/rules/:ruleId', async (req, res) => {
 });
 
 app.post('/api/governance/rules/:ruleId/disable', async (req, res) => {
+  if (!requireRole(req, res, 'admin')) return;
   try {
     const ruleId = String(req.params?.ruleId || '').trim();
     const projectId = String(req.body?.projectId || '').trim();
@@ -2179,6 +2216,7 @@ app.post('/api/governance/rules/:ruleId/disable', async (req, res) => {
 });
 
 app.delete('/api/governance/rules/:ruleId', async (req, res) => {
+  if (!requireRole(req, res, 'owner')) return;
   try {
     const ruleId = String(req.params?.ruleId || '').trim();
     const force = String(req.query?.force || '').trim() === 'true';
@@ -2207,6 +2245,7 @@ app.get('/api/governance/evaluators', async (_req, res) => {
 });
 
 app.post('/api/governance/evaluators/register', async (req, res) => {
+  if (!requireRole(req, res, 'owner')) return;
   try {
     const evaluatorType = String(req.body?.evaluatorType || '').trim();
     const aliasTo = String(req.body?.aliasTo || '').trim();
@@ -2265,6 +2304,7 @@ app.get('/api/governance/rules/:ruleId/history', async (req, res) => {
 });
 
 app.post('/api/projects/:projectId/policy', async (req, res) => {
+  if (!requireRole(req, res, 'admin')) return;
   try {
     const projectId = String(req.params?.projectId || '').trim();
     const { updateProjectPolicy } = await import('../runtime/governance/ProjectPolicyBinding');
@@ -2333,6 +2373,7 @@ app.get('/api/cockpit/control-actions', (req, res) => {
 });
 
 app.post('/api/cockpit/runtime/enforcement', (req, res) => {
+  if (!requireRole(req, res, 'admin')) return;
   const projectId = String(req.body?.projectId || '').trim();
   if (!projectId) {
     res.status(400).json({ success: false, error: 'project_id_required' });
@@ -2413,6 +2454,7 @@ const buildChainsPayload = () => {
 };
 
 app.post('/api/cockpit/chains', (req, res) => {
+  if (!requireRole(req, res, 'member')) return;
   const projectId = String(req.body?.projectId || '').trim();
   const projectLabel = String(req.body?.projectLabel || '').trim();
   const worktreePath = String(req.body?.worktreePath || '').trim();
@@ -2519,6 +2561,7 @@ app.get('/api/cockpit/plane/projects', async (_req, res) => {
 });
 
 app.delete('/api/cockpit/chains/:threadId', (req, res) => {
+  if (!requireRole(req, res, 'member')) return;
   const threadId = String(req.params.threadId || '').trim();
   if (!threadId) {
     res.status(400).json({ success: false, error: 'thread_id_required' });
@@ -2542,6 +2585,7 @@ app.delete('/api/cockpit/chains/:threadId', (req, res) => {
 });
 
 app.delete('/api/cockpit/projects/:projectId', (req, res) => {
+  if (!requireRole(req, res, 'admin')) return;
   const projectId = String(req.params.projectId || '').trim();
   if (!projectId) {
     res.status(400).json({ success: false, error: 'project_id_required' });
@@ -2577,6 +2621,7 @@ app.get('/api/cockpit/chains/:threadId/messages', (req, res) => {
 });
 
 app.post('/api/cockpit/projects/select', async (req, res) => {
+  if (!requireRole(req, res, 'member')) return;
   const projectId = String(req.body?.projectId || '').trim();
   if (!projectId) {
     res.status(400).json({ success: false, error: 'project_id_required' });
@@ -2614,6 +2659,7 @@ app.post('/api/cockpit/projects/select', async (req, res) => {
 });
 
 app.post('/api/cockpit/plane/sync', async (req, res) => {
+  if (!requireRole(req, res, 'admin')) return;
   const projectId = String(req.body?.projectId || '').trim();
   if (!projectId || !projectStore.has(projectId)) {
     res.status(400).json({ success: false, error: 'project_not_found' });
@@ -2636,6 +2682,7 @@ app.get('/api/cockpit/runtime-footer', (_req, res) => {
 });
 
 app.post('/api/cockpit/runtime-footer', (req, res) => {
+  if (!requireRole(req, res, 'admin')) return;
   const patch = req.body || {};
   runtimeFooter = {
     ...runtimeFooter,
@@ -2713,6 +2760,7 @@ app.post('/api/cockpit/providers/cli/login', (_req, res) => {
 });
 
 app.post('/api/cockpit/providers/test-message', async (req, res) => {
+  if (!requireRole(req, res, 'member')) return;
   const provider = String(req.body?.provider || runtimeSelection.provider || 'codex-cli').trim();
   const model = String(req.body?.model || runtimeSelection.model || '').trim();
   const prompt = String(
@@ -2773,6 +2821,7 @@ app.post('/api/cockpit/providers/test-message', async (req, res) => {
 });
 
 app.post('/api/cockpit/providers/select', (req, res) => {
+  if (!requireRole(req, res, 'admin')) return;
   const requestedProvider = String(req.body?.provider || runtimeSelection.provider);
   const model = String(req.body?.model || runtimeSelection.model);
   const provider: RuntimeProvider = isRuntimeProvider(requestedProvider) ? requestedProvider : 'codex-cli';
@@ -2801,6 +2850,7 @@ app.get('/api/cockpit/settings/:section', (req, res) => {
 });
 
 app.post('/api/cockpit/settings/:section', (req, res) => {
+  if (!requireRole(req, res, 'admin')) return;
   const section = req.params.section;
   const settings = req.body || {};
   settingsStore.set(section, settings);
