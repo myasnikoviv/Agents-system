@@ -269,7 +269,6 @@ export function CockpitPage() {
         queuePressure: 0,
     });
     const [swarmWorkers, setSwarmWorkers] = useState<WorkerHealthRow[]>([]);
-    const [swarmRefreshNonce, setSwarmRefreshNonce] = useState(0);
     const [projectSwitchFeedback, setProjectSwitchFeedback] = useState<ProjectSwitchFeedback | null>(null);
 
     const [selectedProvider, setSelectedProvider] = useState<RuntimeProvider>('claude-cli');
@@ -341,7 +340,6 @@ export function CockpitPage() {
     const activeEvents = eventsByThread[activeThreadKey] || [];
     const agentRegistryRef = useRef<AgentRegistryEntry[]>([]);
     const previousProjectRef = useRef<string>('');
-    const requestSwarmRefresh = () => setSwarmRefreshNonce((prev) => prev + 1);
 
     const resolveAgentSlug = (rawRole: string): string => {
         const probe = String(rawRole || '').trim().toLowerCase();
@@ -858,17 +856,6 @@ export function CockpitPage() {
 
                 const eventType = String(event.event_type || '').trim();
                 const isHandoffEvent = eventType === 'swarm_handoff' || eventType === 'swarm.handoff';
-                if (
-                    eventType.startsWith('worker.') ||
-                    eventType.startsWith('swarm.') ||
-                    eventType.startsWith('run.') ||
-                    eventType === 'stage.started' ||
-                    eventType === 'stage.failed' ||
-                    eventType === 'agent.started' ||
-                    eventType === 'agent.completed'
-                ) {
-                    requestSwarmRefresh();
-                }
                 const roleLabel = String(event.agent_role || 'system').trim();
                 const payloadAgentSlug = String(event.payload?.agentSlug || '').trim();
                 const resolvedSlug = payloadAgentSlug || resolveAgentSlug(roleLabel);
@@ -1184,119 +1171,7 @@ export function CockpitPage() {
         void loadAgentRegistry();
     }, [selectedProject]);
 
-    useEffect(() => {
-        let cancelled = false;
-        const pollWorkerHealth = async () => {
-            const projectQuery = selectedProject ? `?projectId=${encodeURIComponent(selectedProject)}` : '';
-            const data = await fetchJsonSafe<{ success?: boolean; workers?: WorkerHealthRow[] }>(
-                `/api/cockpit/swarm/workers${projectQuery}`,
-            );
-            if (cancelled || !data?.success || !Array.isArray(data.workers)) return;
-            const workers = data.workers;
-            setSwarmWorkers(workers);
-            setProjectSwitchFeedback((prev) => {
-                if (!prev || !prev.switching) return prev;
-                if (!selectedProject || prev.toProjectId !== selectedProject) return prev;
-                const currentHot = workers.filter((w) => w.availabilityState === 'hot').length;
-                const coldWorkers = workers.filter((w) => w.availabilityState === 'cold').length;
-                const ready = workers.length > 0;
-                if (!ready) return prev;
-                const now = Date.now();
-                return {
-                    ...prev,
-                    switching: false,
-                    resolvedAtMs: now,
-                    warmupMs: Math.max(0, now - prev.startedAtMs),
-                    currentWorkers: workers.length,
-                    currentHot,
-                    spawned: Math.max(0, workers.length - prev.previousWorkers),
-                    demoted: Math.max(0, prev.previousHot - currentHot),
-                    coldWorkers,
-                };
-            });
-            setAgentRuntime((prev) => {
-                const next: Record<string, AgentRuntimeStatus> = { ...prev };
-                for (const worker of data.workers || []) {
-                    const slug = String(worker.agentSlug || '').trim();
-                    if (!slug) continue;
-                    const display = resolveAgentDisplay(slug);
-                    const existing = next[slug] || {
-                        slug,
-                        title: display.title,
-                        callsign: display.callsign,
-                        status: 'standby' as AgentLiveStatus,
-                        currentStage: 'n/a',
-                        currentTask: 'n/a',
-                        currentIssue: 'n/a',
-                        threadId: selectedThread || currentThreadId || 'n/a',
-                        lastUpdated: '',
-                    };
-                    const status: AgentLiveStatus =
-                        worker.heartbeatFreshness === 'dead' || worker.enabled === false
-                            ? 'unavailable'
-                            : worker.isPaused
-                                ? 'standby'
-                            : worker.executionState === 'active'
-                                ? 'active'
-                                : 'standby';
-                    const existingUpdatedAtMs = existing.lastUpdated ? new Date(existing.lastUpdated).getTime() : 0;
-                    const existingIsRecentActive =
-                        existing.status === 'active' &&
-                        Number.isFinite(existingUpdatedAtMs) &&
-                        (Date.now() - existingUpdatedAtMs) < 15000;
-                    const effectiveStatus: AgentLiveStatus = existingIsRecentActive ? 'active' : status;
-                    const hbSec = Math.max(0, Math.floor(Number(worker.heartbeatAgeMs || 0) / 1000));
-                    const taskLabel = worker.assignedTask?.stageId
-                        ? `${worker.assignedTask.stageId}`
-                        : worker.assignedTask?.taskId
-                            ? `${worker.assignedTask.taskId}`
-                            : '';
-                    next[slug] = {
-                        ...existing,
-                        title: display.title,
-                        callsign: display.callsign,
-                        status: effectiveStatus,
-                        currentTask: effectiveStatus === 'active'
-                            ? `worker:${worker.workerId} ${taskLabel ? `[${taskLabel}] ` : ''}(${hbSec}s ago)`
-                            : 'n/a',
-                        currentStage: String(worker.rawLifecycleState || existing.currentStage || 'n/a'),
-                        lastUpdated: new Date().toISOString(),
-                    };
-                }
-                return next;
-            });
-        };
-        void pollWorkerHealth();
-        const timer = window.setInterval(() => void pollWorkerHealth(), 3000);
-        return () => {
-            cancelled = true;
-            window.clearInterval(timer);
-        };
-    }, [selectedProject, selectedThread, currentThreadId, swarmRefreshNonce]);
-
-    useEffect(() => {
-        let cancelled = false;
-        const pollSwarmSummary = async () => {
-            const projectQuery = selectedProject ? `?projectId=${encodeURIComponent(selectedProject)}` : '';
-            const data = await fetchJsonSafe<{ success?: boolean; summary?: SwarmSummaryState }>(
-                `/api/cockpit/swarm/summary${projectQuery}`,
-            );
-            if (cancelled || !data?.success || !data.summary) return;
-            setSwarmSummary({
-                workersTotal: Number(data.summary.workersTotal || 0),
-                activeWorkers: Number(data.summary.activeWorkers || 0),
-                standbyWorkers: Number(data.summary.standbyWorkers || 0),
-                unhealthyWorkers: Number(data.summary.unhealthyWorkers || 0),
-                queuePressure: Number(data.summary.queuePressure || 0),
-            });
-        };
-        void pollSwarmSummary();
-        const timer = window.setInterval(() => void pollSwarmSummary(), 3000);
-        return () => {
-            cancelled = true;
-            window.clearInterval(timer);
-        };
-    }, [selectedProject, swarmRefreshNonce]);
+    // Swarm control/worker endpoints are intentionally not queried from the client UI.
 
     useEffect(() => {
         const loadProviders = async () => {
