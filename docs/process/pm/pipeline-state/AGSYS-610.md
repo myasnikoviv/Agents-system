@@ -2,8 +2,8 @@
 
 - Active role: PM Orchestrator
 - Pipeline: new-feature
-- Stage: implementation
-- Next: developer
+- Stage: review
+- Next: code-reviewer
 - Ticket: AGSYS-610
 - Branch: codex/s19-runtime-remediation
 - Worktree: /Users/myasnikoviv/development/agent-system
@@ -12,8 +12,11 @@
 ## Gates
 - Requirements pack: completed
 - Assumptions review: completed
-- Implementation: in progress
+- Implementation: completed (slice 1)
+- Verification: completed
 
 ## Notes
-- Ticket moved to In Progress in Plane.
-- Starting Postgres source-of-truth hardening slice 1.
+- Implemented Postgres canonical boot hydration for control-plane settings/state.
+- Added explicit source/fallback metadata to health APIs.
+- Added Postgres store read APIs for canonical load path.
+- Test evidence attached in `docs/process/tests/AGSYS-610.md`.
