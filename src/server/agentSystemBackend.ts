@@ -1716,6 +1716,14 @@ app.get('/api/cockpit/agents/registry', async (_req, res) => {
   res.json({ success: true, agents });
 });
 
+app.use('/api/cockpit/swarm', (_req, res) => {
+  res.status(410).json({
+    success: false,
+    error: 'swarm_client_api_removed',
+    message: 'Swarm client API is disabled. Use /api/system/control-plane/* endpoints.',
+  });
+});
+
 app.get('/api/cockpit/swarm/workers', async (_req, res) => {
   try {
     const projectId = String(_req.query?.projectId || '').trim();
