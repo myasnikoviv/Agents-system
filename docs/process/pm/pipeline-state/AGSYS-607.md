@@ -21,3 +21,4 @@
 - Slice 2 complete: providers/settings/runtime-config routes extracted to `src/server/routes/providerSettingsRoutes.ts`.
 - Slice 3 complete: chains/projects/plane-binding routes extracted to `src/server/routes/chainProjectRoutes.ts`.
 - Slice 4 complete: secrets routes extracted to `src/server/routes/secretsRoutes.ts`.
+- Slice 5 complete: attachment/storage routes extracted to `src/server/routes/attachmentStorageRoutes.ts`.

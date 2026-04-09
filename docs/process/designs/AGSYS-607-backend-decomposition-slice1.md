@@ -62,5 +62,16 @@ Extract telemetry and audit HTTP handlers from `src/server/agentSystemBackend.ts
 3. Added DI registration in backend composition root via `registerSecretsRoutes(app, deps)`.
 
 ## Next Slice
-- Extract attachments/storage-related endpoints into dedicated module.
-- Continue reducing `agentSystemBackend.ts` to composition root + domain wiring.
+## Slice 5 (Attachments/Object Storage)
+1. Added route module: `src/server/routes/attachmentStorageRoutes.ts`.
+2. Moved handlers to module:
+   - `POST /api/cockpit/attachments/upload`
+   - `GET /api/cockpit/attachments`
+   - `GET /api/cockpit/attachments/:id`
+   - `GET /api/cockpit/attachments/:id/content`
+   - `GET /api/cockpit/storage/objects`
+   - `GET /api/cockpit/storage/objects/:id`
+3. Added DI registration in backend composition root via `registerAttachmentStorageRoutes(app, deps)`.
+
+## Completion Status
+- AGSYS-607 decomposition target completed for planned route groups in this remediation cycle.
