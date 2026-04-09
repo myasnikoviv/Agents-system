@@ -36,6 +36,12 @@ export { runGovernancePhase } from './GovernanceEngineCore';
 export type { GovernancePhase, GovernanceEngineContext, GovernancePhaseResult } from './GovernanceEngineTypes';
 export { loadGovernanceRules, getRuleById, GovernanceRegistryError } from './RuleRegistry';
 export { loadGovernanceLoops, getGovernanceLoopById, GovernanceLoopRegistryError } from './LoopRegistry';
-export { resolveEnabledRules } from './ProjectPolicyBinding';
+export {
+  resolveEnabledRules,
+  resolveProjectExecutionProfile,
+  resolveProjectGitPolicy,
+  type ProjectExecutionProfile,
+  type ProjectGitPolicy,
+} from './ProjectPolicyBinding';
 export { listDeterministicEvaluators, registerDeterministicEvaluator } from './DeterministicEvaluationEngine';
 export { listEvaluators, registerEvaluator, resolveEvaluator } from './EvaluatorRegistry';
