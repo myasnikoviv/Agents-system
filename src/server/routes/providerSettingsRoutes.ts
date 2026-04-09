@@ -44,6 +44,8 @@ interface ProviderSettingsRouteDeps {
 }
 
 export function registerProviderSettingsRoutes(app: express.Express, deps: ProviderSettingsRouteDeps): void {
+  const WORKSPACE_SETTINGS_SECTIONS = new Set(['general', 'appearance', 'usage', 'configuration']);
+
   app.get('/api/cockpit/runtime/enforcement', (req, res) => {
     const projectId = String(req.query?.projectId || '').trim();
     if (!projectId) {
@@ -257,6 +259,13 @@ export function registerProviderSettingsRoutes(app: express.Express, deps: Provi
     if (!auth) return res.status(401).json({ success: false, error: 'unauthorized' });
 
     const section = String(req.params.section || '').trim().toLowerCase();
+    if (!WORKSPACE_SETTINGS_SECTIONS.has(section) && section !== 'executor') {
+      return res.status(404).json({
+        success: false,
+        error: 'workspace_settings_section_not_found',
+        message: `Section '${section}' is not exposed via workspace settings API`,
+      });
+    }
     const current = deps.settingsStoreGet(section) || {};
     if (section === 'executor' && current && typeof current === 'object') {
       const cloned = JSON.parse(JSON.stringify(current));
@@ -279,6 +288,13 @@ export function registerProviderSettingsRoutes(app: express.Express, deps: Provi
     if (!auth) return;
 
     const section = String(req.params.section || '').trim().toLowerCase();
+    if (!WORKSPACE_SETTINGS_SECTIONS.has(section) && section !== 'executor') {
+      return res.status(404).json({
+        success: false,
+        error: 'workspace_settings_section_not_found',
+        message: `Section '${section}' is not exposed via workspace settings API`,
+      });
+    }
     const settings = (req.body && typeof req.body === 'object') ? req.body : {};
     if (section === 'executor' && settings.openhands && typeof settings.openhands === 'object') {
       const providedApiKeys = settings.openhands.apiKeys && typeof settings.openhands.apiKeys === 'object'

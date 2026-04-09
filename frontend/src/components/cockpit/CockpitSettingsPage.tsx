@@ -8,14 +8,7 @@ const SECTIONS = [
   'general',
   'appearance',
   'configuration',
-  'governance',
-  'personalization',
   'usage',
-  'mcp-servers',
-  'git',
-  'environment',
-  'worktrees',
-  'archived-threads',
 ] as const;
 
 type SectionId = (typeof SECTIONS)[number];
