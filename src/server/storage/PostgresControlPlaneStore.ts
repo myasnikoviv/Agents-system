@@ -116,6 +116,38 @@ export class PostgresControlPlaneStore {
     return true;
   }
 
+  async getSetting(section: string): Promise<{ value: unknown; updatedAt?: string } | null> {
+    if (!(await this.ensureReady())) return null;
+    const result = await this.client!.query(
+      `SELECT value_json, updated_at
+       FROM cockpit_settings_pg
+       WHERE section = $1
+       LIMIT 1`,
+      [section],
+    );
+    const row = Array.isArray(result?.rows) ? result.rows[0] : null;
+    if (!row) return null;
+    return {
+      value: row?.value_json ?? {},
+      updatedAt: row?.updated_at ? String(row.updated_at) : undefined,
+    };
+  }
+
+  async listSettings(): Promise<Array<{ section: string; value: unknown; updatedAt?: string }>> {
+    if (!(await this.ensureReady())) return [];
+    const result = await this.client!.query(
+      `SELECT section, value_json, updated_at
+       FROM cockpit_settings_pg
+       ORDER BY section ASC`,
+    );
+    const rows = Array.isArray(result?.rows) ? result.rows : [];
+    return rows.map((row: any) => ({
+      section: String(row?.section || ''),
+      value: row?.value_json ?? {},
+      updatedAt: row?.updated_at ? String(row.updated_at) : undefined,
+    }));
+  }
+
   async upsertState(key: string, value: unknown): Promise<boolean> {
     if (!(await this.ensureReady())) return false;
     await this.client!.query(
@@ -125,6 +157,23 @@ export class PostgresControlPlaneStore {
       [key, JSON.stringify(value ?? {})],
     );
     return true;
+  }
+
+  async getState(key: string): Promise<{ value: unknown; updatedAt?: string } | null> {
+    if (!(await this.ensureReady())) return null;
+    const result = await this.client!.query(
+      `SELECT value_json, updated_at
+       FROM cockpit_state_pg
+       WHERE key = $1
+       LIMIT 1`,
+      [key],
+    );
+    const row = Array.isArray(result?.rows) ? result.rows[0] : null;
+    if (!row) return null;
+    return {
+      value: row?.value_json ?? {},
+      updatedAt: row?.updated_at ? String(row.updated_at) : undefined,
+    };
   }
 
   async recordPolicyMetadata(input: {

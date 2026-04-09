@@ -24,6 +24,9 @@ describe('PostgresControlPlaneStore', () => {
     expect(health.enabled).toBe(false);
     expect(await store.upsertState('k', { a: 1 })).toBe(false);
     expect(await store.upsertSetting('s', { b: 2 })).toBe(false);
+    expect(await store.getState('k')).toBeNull();
+    expect(await store.getSetting('s')).toBeNull();
+    expect(await store.listSettings()).toEqual([]);
     expect(await store.recordPolicyMetadata({ eventKind: 'rule_update', entityId: 'r1' })).toBe(false);
     expect(await store.recordAuditAction({ action: 'x' })).toBe(false);
   });

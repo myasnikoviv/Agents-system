@@ -130,8 +130,35 @@ const providerModelCatalog: Record<'claude-cli' | 'codex-cli' | 'openhands-sdk',
 };
 
 type RuntimeProvider = keyof typeof providerModelCatalog;
+type ControlPlaneSource = 'postgres' | 'sqlite' | 'fallback';
 
 const isRuntimeProvider = (value: string): value is RuntimeProvider => value in providerModelCatalog;
+
+const CONTROL_PLANE_STATE_KEYS = [
+  'runtime_footer',
+  'runtime_selection',
+  'runtime_enforcement_by_project',
+] as const;
+type ControlPlaneStateKey = typeof CONTROL_PLANE_STATE_KEYS[number];
+
+const controlPlaneSourceState: {
+  settings: ControlPlaneSource;
+  runtimeState: Record<ControlPlaneStateKey, ControlPlaneSource>;
+  postgres: { enabled: boolean; ok: boolean; error?: string };
+  lastHydratedAt?: string;
+} = {
+  settings: 'fallback',
+  runtimeState: {
+    runtime_footer: 'fallback',
+    runtime_selection: 'fallback',
+    runtime_enforcement_by_project: 'fallback',
+  },
+  postgres: { enabled: false, ok: false },
+};
+
+const markRuntimeStateSource = (key: ControlPlaneStateKey, source: ControlPlaneSource) => {
+  controlPlaneSourceState.runtimeState[key] = source;
+};
 
 const getRuntimeSelectionFromExecutorSettings = (): { provider: RuntimeProvider; model: string } | null => {
   const raw = settingsStore.get('executor');
@@ -552,10 +579,22 @@ const loadRuntimeState = <T>(key: string, fallback: T): T => {
   const row = runtimeDb
     .prepare('SELECT value_json FROM cockpit_state WHERE key = ?')
     .get(key) as { value_json?: string } | undefined;
-  if (!row?.value_json) return fallback;
+  if (!row?.value_json) {
+    if ((CONTROL_PLANE_STATE_KEYS as readonly string[]).includes(key)) {
+      markRuntimeStateSource(key as ControlPlaneStateKey, 'fallback');
+    }
+    return fallback;
+  }
   try {
-    return JSON.parse(row.value_json) as T;
+    const value = JSON.parse(row.value_json) as T;
+    if ((CONTROL_PLANE_STATE_KEYS as readonly string[]).includes(key)) {
+      markRuntimeStateSource(key as ControlPlaneStateKey, 'sqlite');
+    }
+    return value;
   } catch {
+    if ((CONTROL_PLANE_STATE_KEYS as readonly string[]).includes(key)) {
+      markRuntimeStateSource(key as ControlPlaneStateKey, 'fallback');
+    }
     return fallback;
   }
 };
@@ -598,6 +637,7 @@ const restoreSettingsStore = () => {
           settingsStore.set(row.section, {});
         }
       }
+      controlPlaneSourceState.settings = 'sqlite';
       return;
     }
 
@@ -608,8 +648,69 @@ const restoreSettingsStore = () => {
     const parsed = JSON.parse(raw) as Record<string, unknown>;
     Object.entries(parsed).forEach(([key, value]) => settingsStore.set(key, value));
     persistSettingsStore();
+    controlPlaneSourceState.settings = 'fallback';
   } catch (error) {
     console.error('[agent-system-backend] failed to restore settings store:', error);
+  }
+};
+
+const hydrateControlPlaneFromPostgres = async () => {
+  const health = await postgresStore.health();
+  controlPlaneSourceState.postgres = {
+    enabled: health.enabled,
+    ok: health.ok,
+    ...(health.error ? { error: health.error } : {}),
+  };
+  if (!health.ok) return;
+
+  try {
+    const settingsRows = await postgresStore.listSettings();
+    if (settingsRows.length > 0) {
+      settingsStore.clear();
+      for (const row of settingsRows) {
+        if (!row.section) continue;
+        settingsStore.set(row.section, row.value);
+      }
+      controlPlaneSourceState.settings = 'postgres';
+      persistSettingsStore();
+    }
+
+    const footer = await postgresStore.getState('runtime_footer');
+    if (footer && footer.value && typeof footer.value === 'object') {
+      runtimeFooter = {
+        ...runtimeFooter,
+        ...(footer.value as Record<string, any>),
+      };
+      markRuntimeStateSource('runtime_footer', 'postgres');
+      saveRuntimeState('runtime_footer', runtimeFooter);
+    }
+
+    const selection = await postgresStore.getState('runtime_selection');
+    if (selection && selection.value && typeof selection.value === 'object') {
+      const candidate = selection.value as { provider?: string; model?: string };
+      const provider = String(candidate.provider || '').trim();
+      const model = String(candidate.model || '').trim();
+      if (isRuntimeProvider(provider) && model) {
+        runtimeSelection = { provider, model };
+        markRuntimeStateSource('runtime_selection', 'postgres');
+        saveRuntimeState('runtime_selection', runtimeSelection);
+      }
+    }
+
+    const enforcement = await postgresStore.getState('runtime_enforcement_by_project');
+    if (enforcement && enforcement.value && typeof enforcement.value === 'object') {
+      runtimeEnforcementByProject = enforcement.value as Record<string, RuntimeEnforcementProfile>;
+      markRuntimeStateSource('runtime_enforcement_by_project', 'postgres');
+      saveRuntimeState('runtime_enforcement_by_project', runtimeEnforcementByProject);
+    }
+
+    controlPlaneSourceState.lastHydratedAt = new Date().toISOString();
+  } catch (error: any) {
+    controlPlaneSourceState.postgres = {
+      ...controlPlaneSourceState.postgres,
+      ok: false,
+      error: String(error?.message || 'postgres_hydration_failed'),
+    };
   }
 };
 
@@ -1304,6 +1405,7 @@ void refreshCatalog();
 const runtimeFromSettingsAtBoot = getRuntimeSelectionFromExecutorSettings();
 if (runtimeFromSettingsAtBoot) {
   runtimeSelection = runtimeFromSettingsAtBoot;
+  markRuntimeStateSource('runtime_selection', controlPlaneSourceState.settings);
   saveRuntimeState('runtime_selection', runtimeSelection);
 }
 
@@ -1351,6 +1453,17 @@ app.get('/api/health', (_req, res) => {
     service: 'agent-system-backend',
     status: 'ok',
     timestamp: new Date().toISOString(),
+    controlPlane: {
+      sourceOfTruth: 'postgres',
+      settingsSource: controlPlaneSourceState.settings,
+      runtimeStateSources: controlPlaneSourceState.runtimeState,
+      fallback: {
+        enabled: true,
+        store: 'sqlite',
+      },
+      postgres: controlPlaneSourceState.postgres,
+      ...(controlPlaneSourceState.lastHydratedAt ? { lastHydratedAt: controlPlaneSourceState.lastHydratedAt } : {}),
+    },
   });
 });
 
@@ -2612,10 +2725,20 @@ registerProviderSettingsRoutes(app, {
 
 app.get('/api/cockpit/storage/postgres/health', async (_req, res) => {
   const health = await postgresStore.health();
+  controlPlaneSourceState.postgres = {
+    enabled: health.enabled,
+    ok: health.ok,
+    ...(health.error ? { error: health.error } : {}),
+  };
   res.json({
     success: health.ok,
     backend: 'postgres',
     enabled: health.enabled,
+    sourceOfTruth: 'postgres',
+    fallbackStore: 'sqlite',
+    settingsSource: controlPlaneSourceState.settings,
+    runtimeStateSources: controlPlaneSourceState.runtimeState,
+    ...(controlPlaneSourceState.lastHydratedAt ? { lastHydratedAt: controlPlaneSourceState.lastHydratedAt } : {}),
     ...(health.error ? { error: health.error } : {}),
   });
 });
@@ -3081,6 +3204,11 @@ app.use('/api', (_req, res) => {
   res.status(404).json({ success: false, error: 'endpoint_not_found' });
 });
 
-app.listen(PORT, HOST, () => {
-  console.log(`[agent-system-backend] listening on http://${HOST}:${PORT}`);
-});
+const startServer = async () => {
+  await hydrateControlPlaneFromPostgres();
+  app.listen(PORT, HOST, () => {
+    console.log(`[agent-system-backend] listening on http://${HOST}:${PORT}`);
+  });
+};
+
+void startServer();
