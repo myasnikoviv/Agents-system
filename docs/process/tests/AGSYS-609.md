@@ -17,3 +17,4 @@ Centralized-first telemetry/audit retrieval cutover.
 
 ## Notes
 - No dedicated telemetry route unit test suite exists currently; regression validated through runtime suites and compile-safe integration edits.
+- Post-cutover audit write behavior now defaults to centralized-primary with optional FS mirror for compatibility.

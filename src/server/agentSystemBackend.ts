@@ -322,29 +322,38 @@ const appendControlActionAudit = (input: {
   target?: Record<string, any>;
   result?: Record<string, any>;
 }) => {
+  const row = {
+    id: `audit-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+    timestamp: new Date().toISOString(),
+    action: input.action,
+    projectId: input.projectId || null,
+    actorId: input.actorId || 'cockpit-user',
+    reason: input.reason || '',
+    target: input.target || {},
+    result: input.result || {},
+  };
+  void postgresStore.recordAuditAction({
+    action: row.action,
+    projectId: input.projectId,
+    actorId: input.actorId,
+    reason: input.reason,
+    target: input.target,
+    result: input.result,
+  });
+
+  const fsMirrorMode = String(process.env.RUNTIME_AUDIT_FS_MIRROR || '').trim().toLowerCase();
+  const shouldMirrorToFs =
+    fsMirrorMode === 'always' ||
+    (fsMirrorMode !== 'never' && !postgresStore.isEnabled());
+
+  if (!shouldMirrorToFs) {
+    return;
+  }
   try {
     fs.mkdirSync(path.dirname(CONTROL_ACTION_AUDIT_FILE), { recursive: true });
-    const row = {
-      id: `audit-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
-      timestamp: new Date().toISOString(),
-      action: input.action,
-      projectId: input.projectId || null,
-      actorId: input.actorId || 'cockpit-user',
-      reason: input.reason || '',
-      target: input.target || {},
-      result: input.result || {},
-    };
     fs.appendFileSync(CONTROL_ACTION_AUDIT_FILE, `${JSON.stringify(row)}\n`, 'utf-8');
-    void postgresStore.recordAuditAction({
-      action: row.action,
-      projectId: input.projectId,
-      actorId: input.actorId,
-      reason: input.reason,
-      target: input.target,
-      result: input.result,
-    });
   } catch {
-    // non-blocking audit
+    // non-blocking audit mirror
   }
 };
 

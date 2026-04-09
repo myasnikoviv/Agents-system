@@ -22,3 +22,14 @@ Switch critical telemetry/audit read paths from filesystem-first to centralized-
 ## Impact
 - Critical telemetry/audit retrieval is no longer dependent on local file copy presence in normal operation.
 - Legacy files remain fallback-only for compatibility during migration.
+
+## Slice 2 (Centralized-Primary Audit Writes)
+1. Updated `appendControlActionAudit` in backend:
+   - Postgres audit persistence is now primary write path.
+   - FS JSONL write switched to optional mirror mode.
+2. Added mirror control via env `RUNTIME_AUDIT_FS_MIRROR`:
+   - `always` -> always mirror to FS
+   - `never` -> never mirror to FS
+   - default behavior -> mirror only when Postgres is not enabled
+
+This reduces local-file coupling not only on reads, but also on new audit writes.
