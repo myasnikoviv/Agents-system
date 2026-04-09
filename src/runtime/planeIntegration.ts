@@ -50,8 +50,8 @@ export async function getIssueFromPlane(issueId: string): Promise<PlaneIssue> {
             name = res.data.name || '';
             state_id = res.data.state || res.data.state_id || '';
         } catch (e: any) {
-            console.warn(`Issue UUID ${issueId} not found API. Returning mock shell.`);
-            name = 'Unknown Or Chat Task';
+            console.warn(`Issue UUID ${issueId} not found API. Returning fallback shell.`);
+            name = 'Unknown or Chat Task';
         }
     }
 
@@ -117,7 +117,7 @@ export async function triggerPipelineFromPlane(issueId: string) {
 // Run if executed directly
 if (require.main === module) {
   triggerPipelineFromPlane('TKT-9999').then(() => {
-    console.log('Plane Intake Mock test complete.');
+    console.log('Plane intake smoke run complete.');
     process.exit(0);
   });
 }
