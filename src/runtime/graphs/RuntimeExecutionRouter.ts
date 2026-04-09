@@ -44,10 +44,6 @@ export interface RuntimeExecutionResult {
   engine: 'pilot-multiple-agents-runtime';
 }
 
-function normalizeMode(modeRaw: unknown): RuntimeExecutionMode {
-  return 'multiple_agents';
-}
-
 function hasStrictTicketContext(ticketId: string): boolean {
   const value = String(ticketId || '').trim();
   if (!value || value === 'AGSYS-UNKNOWN' || value.toLowerCase() === 'none') return false;
@@ -58,7 +54,7 @@ function hasStrictTicketContext(ticketId: string): boolean {
  * Runtime execution dispatcher with Governance Gates integrated (Sprint 5.5).
  */
 export async function executeRuntimeRun(initialState: Partial<PilotState>): Promise<RuntimeExecutionResult> {
-  const modeRequested = normalizeMode(initialState.executionOptions?.mode);
+  const modeRequested: RuntimeExecutionMode = 'multiple_agents';
   const ticket = initialState.ticketId || 'AGSYS-UNKNOWN';
   const selectedPipeline = String(initialState.selected_pipeline || '').trim();
   const enforcedPipeline = String((initialState as any).enforcement?.pipeline || '').trim();
