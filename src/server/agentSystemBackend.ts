@@ -8,6 +8,7 @@ import crypto from 'crypto';
 import Database from 'better-sqlite3';
 import { v4 as uuidv4 } from 'uuid';
 import { PostgresControlPlaneStore } from './storage/PostgresControlPlaneStore';
+import { SqliteObjectStorageService } from './storage/ObjectStorageService';
 import { executeRuntimeRun, resumeRuntimeRun } from '../runtime/graphs/RuntimeExecutionRouter';
 import { detectLanguage } from '../runtime/LanguageDetection';
 import { fetchRecentEvents } from '../runtime/events/EventBus';
@@ -277,6 +278,8 @@ runtimeDb.exec(`
   );
   CREATE INDEX IF NOT EXISTS idx_auth_sessions_user ON auth_sessions(user_id);
 `);
+
+const objectStorage = new SqliteObjectStorageService(runtimeDb);
 const postgresStore = new PostgresControlPlaneStore();
 void postgresStore.init();
 try {
@@ -3338,8 +3341,112 @@ app.get('/api/events/stream', (req, res) => {
   });
 });
 
-app.post('/api/cockpit/attachments/upload', (_req, res) => {
-  res.json({ success: true, uploaded: [] });
+app.post('/api/cockpit/attachments/upload', (req, res) => {
+  const body = (req.body && typeof req.body === 'object' ? req.body : {}) as Record<string, any>;
+  const projectId = String(body.projectId || '').trim() || 'default';
+  const threadId = String(body.threadId || '').trim() || 'default';
+  const files = Array.isArray(body.files) ? body.files : [];
+  if (files.length === 0) {
+    return res.status(400).json({ success: false, error: 'files_required' });
+  }
+  const uploaded = files
+    .map((file, idx) => {
+      if (!file || typeof file !== 'object') return null;
+      const contentBase64 = String(file.contentBase64 || '');
+      if (!contentBase64) return null;
+      const originalName = String(file.originalName || `attachment-${idx + 1}`);
+      const stored = objectStorage.putObject({
+        bucket: 'attachments',
+        key: `${projectId}/${threadId}/${originalName}`,
+        projectId,
+        threadId,
+        mimeType: String(file.mimeType || 'application/octet-stream'),
+        contentBase64,
+        metadata: {
+          originalName,
+          source: 'cockpit-upload',
+          uploadedBy: String(body.actorId || 'cockpit-user'),
+        },
+      });
+      return {
+        id: stored.id,
+        bucket: stored.bucket,
+        key: stored.key,
+        mimeType: stored.mimeType,
+        size: stored.size,
+        checksumSha256: stored.checksumSha256,
+        createdAt: stored.createdAt,
+        originalName,
+      };
+    })
+    .filter((entry): entry is NonNullable<typeof entry> => Boolean(entry));
+
+  if (uploaded.length === 0) {
+    return res.status(400).json({ success: false, error: 'valid_files_required' });
+  }
+
+  appendControlActionAudit({
+    action: 'cockpit.attachments.upload',
+    projectId,
+    actorId: String(body.actorId || 'cockpit-user'),
+    target: { threadId, count: uploaded.length },
+    result: { objectIds: uploaded.map((u) => u.id) },
+  });
+
+  return res.json({
+    success: true,
+    uploaded,
+    storage: { provider: 'sqlite-object-storage', bucket: 'attachments' },
+  });
+});
+
+app.get('/api/cockpit/attachments', (req, res) => {
+  const projectId = typeof req.query.projectId === 'string' ? req.query.projectId.trim() : '';
+  const threadId = typeof req.query.threadId === 'string' ? req.query.threadId.trim() : '';
+  const limit = typeof req.query.limit === 'string' ? Number(req.query.limit) : undefined;
+  const items = objectStorage.listObjects({
+    bucket: 'attachments',
+    projectId: projectId || undefined,
+    threadId: threadId || undefined,
+    limit,
+  });
+  return res.json({ success: true, items });
+});
+
+app.get('/api/cockpit/attachments/:id', (req, res) => {
+  const item = objectStorage.getObject(String(req.params.id || '').trim());
+  if (!item || item.bucket !== 'attachments') {
+    return res.status(404).json({ success: false, error: 'attachment_not_found' });
+  }
+  return res.json({ success: true, item });
+});
+
+app.get('/api/cockpit/attachments/:id/content', (req, res) => {
+  const item = objectStorage.getObject(String(req.params.id || '').trim());
+  if (!item || item.bucket !== 'attachments') {
+    return res.status(404).json({ success: false, error: 'attachment_not_found' });
+  }
+  const bytes = Buffer.from(item.contentBase64, 'base64');
+  res.setHeader('content-type', item.mimeType || 'application/octet-stream');
+  res.setHeader('content-length', String(bytes.length));
+  return res.send(bytes);
+});
+
+app.get('/api/cockpit/storage/objects', (req, res) => {
+  const bucket = typeof req.query.bucket === 'string' ? req.query.bucket.trim() : undefined;
+  const projectId = typeof req.query.projectId === 'string' ? req.query.projectId.trim() : undefined;
+  const threadId = typeof req.query.threadId === 'string' ? req.query.threadId.trim() : undefined;
+  const limit = typeof req.query.limit === 'string' ? Number(req.query.limit) : undefined;
+  const items = objectStorage.listObjects({ bucket, projectId, threadId, limit });
+  return res.json({ success: true, items });
+});
+
+app.get('/api/cockpit/storage/objects/:id', (req, res) => {
+  const item = objectStorage.getObject(String(req.params.id || '').trim());
+  if (!item) {
+    return res.status(404).json({ success: false, error: 'object_not_found' });
+  }
+  return res.json({ success: true, item });
 });
 
 app.use((error: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
