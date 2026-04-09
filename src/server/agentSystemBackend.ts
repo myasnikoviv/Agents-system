@@ -2987,26 +2987,63 @@ registerSecretsRoutes(app, {
   appendControlActionAudit,
 });
 
-app.post('/api/auth/login', (req, res) => {
+app.post('/api/auth/register', (req, res) => {
   const email = String(req.body?.email || '').trim().toLowerCase();
   const password = String(req.body?.password || '');
   const tenantId = String(req.body?.tenantId || '').trim();
   const workspaceId = String(req.body?.workspaceId || '').trim();
+  const requestedRole = String(req.body?.role || '').trim().toLowerCase();
+
   if (!email || !password) {
     res.status(400).json({ success: false, error: 'email_and_password_required' });
     return;
   }
+  if (!tenantId || !workspaceId) {
+    res.status(400).json({ success: false, error: 'tenant_and_workspace_required' });
+    return;
+  }
+
+  const existingByEmail = runtimeDb
+    .prepare(`SELECT id FROM auth_users WHERE email = ?`)
+    .get(email) as { id: string } | undefined;
+  if (existingByEmail?.id) {
+    res.status(409).json({ success: false, error: 'user_already_exists' });
+    return;
+  }
 
   const existingCount = Number((runtimeDb.prepare('SELECT COUNT(*) as c FROM auth_users').get() as any)?.c || 0);
-  if (existingCount === 0) {
-    const bootstrapTenant = tenantId || process.env.DEFAULT_TENANT_ID || 'tenant:default';
-    const bootstrapWorkspace = workspaceId || process.env.DEFAULT_WORKSPACE_ID || 'workspace:default';
-    runtimeDb
-      .prepare(
-        `INSERT INTO auth_users (id, email, password_hash, tenant_id, workspace_id, role, is_active, created_at)
-         VALUES (?, ?, ?, ?, ?, 'owner', 1, ?)`,
-      )
-      .run(`user-${Date.now().toString(36)}`, email, hashPassword(password), bootstrapTenant, bootstrapWorkspace, new Date().toISOString());
+  const role = requestedRole === 'admin' || requestedRole === 'owner' || requestedRole === 'member'
+    ? requestedRole
+    : existingCount === 0
+      ? 'owner'
+      : 'member';
+
+  const userId = `user-${crypto.randomUUID()}`;
+  runtimeDb
+    .prepare(
+      `INSERT INTO auth_users (id, email, password_hash, tenant_id, workspace_id, role, is_active, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, 1, ?)`,
+    )
+    .run(userId, email, hashPassword(password), tenantId, workspaceId, role, new Date().toISOString());
+
+  res.status(201).json({
+    success: true,
+    user: {
+      id: userId,
+      email,
+      role,
+      tenantId,
+      workspaceId,
+    },
+  });
+});
+
+app.post('/api/auth/login', (req, res) => {
+  const email = String(req.body?.email || '').trim().toLowerCase();
+  const password = String(req.body?.password || '');
+  if (!email || !password) {
+    res.status(400).json({ success: false, error: 'email_and_password_required' });
+    return;
   }
 
   const user = runtimeDb
