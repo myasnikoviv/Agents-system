@@ -10,8 +10,13 @@ import { v4 as uuidv4 } from 'uuid';
 import { PostgresControlPlaneStore } from './storage/PostgresControlPlaneStore';
 import { PostgresObjectStorageService, SqliteObjectStorageService } from './storage/ObjectStorageService';
 import { PostgresSecretsStore, SqliteSecretsStore } from './storage/SecretsStore';
+import { SqliteEnvironmentStateStore, buildPersistedEnvironmentId } from './storage/EnvironmentStateStore';
+import { EnvironmentProvisioningService } from './storage/EnvironmentProvisioningService';
+import { EnvironmentWarmupService, type WarmupCheck } from './storage/EnvironmentWarmupService';
+import { EnvironmentSuspendResumeService } from './storage/EnvironmentSuspendResumeService';
 import { executeRuntimeRun, resumeRuntimeRun } from '../runtime/graphs/RuntimeExecutionRouter';
 import { detectLanguage } from '../runtime/LanguageDetection';
+import { resolveRuntimeInfrastructureProfile } from '../runtime/infrastructure/RuntimeInfrastructureProfile';
 import { fetchRecentEvents, fetchEventsByRunId } from '../runtime/events/EventBus';
 import { updateCockpitExecutorConfig, getCockpitExecutorConfig } from '../runtime/CockpitExecutorConfig';
 import { DynamicDiscoveryService, AgentRegistry, PipelineRegistry, SkillRegistry } from '../runtime/DynamicDiscoveryService';
@@ -461,6 +466,10 @@ const objectStorage = new SqliteObjectStorageService(runtimeDb);
 const postgresObjectStorage = new PostgresObjectStorageService();
 const postgresStore = new PostgresControlPlaneStore();
 void postgresStore.init();
+const environmentStateStore = new SqliteEnvironmentStateStore(runtimeDb);
+const environmentProvisioningService = new EnvironmentProvisioningService(environmentStateStore);
+const environmentWarmupService = new EnvironmentWarmupService(environmentStateStore);
+const environmentSuspendResumeService = new EnvironmentSuspendResumeService(environmentStateStore);
 try {
   runtimeDb.exec(`ALTER TABLE cockpit_projects ADD COLUMN agent_context_path TEXT`);
 } catch {
@@ -485,21 +494,21 @@ const normalizeProjectKey = (value: string): string =>
 
 const AUTH_SESSION_TTL_HOURS = Math.max(1, Number(process.env.AUTH_SESSION_TTL_HOURS || 24));
 const AUTH_SECRET = String(process.env.AUTH_SECRET || 'agent-system-dev-secret');
+const AUTH_MODE = String(process.env.AUTH_MODE || 'optional').trim().toLowerCase() === 'required' ? 'required' : 'optional';
 const secretsStore = new SqliteSecretsStore(runtimeDb, AUTH_SECRET);
 const postgresSecretsStore = new PostgresSecretsStore(AUTH_SECRET);
-const OBJECT_STORAGE_BACKEND = String(process.env.COCKPIT_OBJECT_STORAGE_BACKEND || '').trim().toLowerCase();
-const SECRETS_STORAGE_BACKEND = String(process.env.COCKPIT_SECRETS_BACKEND || '').trim().toLowerCase();
+const infrastructureProfile = resolveRuntimeInfrastructureProfile();
 
 const hashPassword = (raw: string): string =>
   crypto.createHash('sha256').update(`${AUTH_SECRET}:${String(raw || '')}`).digest('hex');
 
 const shouldUsePostgresSecrets = async (): Promise<boolean> => {
-  if (SECRETS_STORAGE_BACKEND !== 'postgres') return false;
+  if (infrastructureProfile.secretsBackend !== 'postgres') return false;
   return postgresSecretsStore.ready();
 };
 
 const shouldUsePostgresObjects = async (): Promise<boolean> => {
-  if (OBJECT_STORAGE_BACKEND !== 'postgres') return false;
+  if (infrastructureProfile.objectStorageBackend !== 'postgres') return false;
   return postgresObjectStorage.ready();
 };
 
@@ -574,6 +583,60 @@ const requireRole = (
     return null;
   }
   return auth;
+};
+
+const requireAuthForRuntimeIfEnabled = (
+  req: express.Request,
+  res: express.Response,
+): { userId: string; email: string; tenantId: string; workspaceId: string; role: string; token: string } | null => {
+  const auth = getAuthContext(req);
+  if (AUTH_MODE === 'required' && !auth) {
+    res.status(401).json({ success: false, error: 'unauthorized', message: 'Authentication required (AUTH_MODE=required)' });
+    return null;
+  }
+  return auth;
+};
+
+const resolveWorkspaceRuntimeContext = (input: {
+  projectId: string;
+  auth: { userId: string; email: string; tenantId: string; workspaceId: string; role: string; token: string } | null;
+  requestedTenantId?: string;
+  requestedWorkspaceId?: string;
+}): { tenantId: string; workspaceId: string; userId?: string } | { error: string; message: string; status: number } => {
+  const requestedTenantId = String(input.requestedTenantId || '').trim();
+  const requestedWorkspaceId = String(input.requestedWorkspaceId || '').trim();
+  const fallbackTenant = process.env.DEFAULT_TENANT_ID || `tenant:${input.projectId}`;
+  const fallbackWorkspace = process.env.DEFAULT_WORKSPACE_ID || `workspace:${input.projectId}`;
+
+  const tenantId = requestedTenantId || input.auth?.tenantId || fallbackTenant;
+  const workspaceId = requestedWorkspaceId || input.auth?.workspaceId || fallbackWorkspace;
+
+  if (!tenantId || !workspaceId) {
+    return {
+      error: 'workspace_context_required',
+      message: 'Cannot resolve tenant/workspace context for runtime request',
+      status: 400,
+    };
+  }
+  if (input.auth?.tenantId && tenantId !== input.auth.tenantId) {
+    return {
+      error: 'tenant_context_mismatch',
+      message: 'Requested tenant does not match authenticated tenant',
+      status: 403,
+    };
+  }
+  if (input.auth?.workspaceId && workspaceId !== input.auth.workspaceId) {
+    return {
+      error: 'workspace_context_mismatch',
+      message: 'Requested workspace does not match authenticated workspace',
+      status: 403,
+    };
+  }
+  return {
+    tenantId,
+    workspaceId,
+    ...(input.auth?.userId ? { userId: input.auth.userId } : {}),
+  };
 };
 
 const canUsePlane = (): boolean => Boolean(PLANE_API_KEY && PLANE_BASE_URL && PLANE_WORKSPACE);
@@ -1483,6 +1546,18 @@ app.get('/api/health', (_req, res) => {
       secretsBackend: SECRETS_STORAGE_BACKEND || 'sqlite',
       fallbackStore: 'sqlite',
     },
+    auth: {
+      mode: AUTH_MODE,
+      sessionTtlHours: AUTH_SESSION_TTL_HOURS,
+    },
+  });
+});
+
+app.get('/api/cockpit/runtime/infrastructure-profile', (_req, res) => {
+  res.json({
+    success: true,
+    profile: resolveRuntimeInfrastructureProfile(),
+    serverNow: new Date().toISOString(),
   });
 });
 
@@ -1536,29 +1611,36 @@ app.get('/api/cockpit/agents/registry', async (_req, res) => {
 app.get('/api/cockpit/swarm/workers', async (_req, res) => {
   try {
     const projectId = String(_req.query?.projectId || '').trim();
+    const environmentId = String(_req.query?.environmentId || '').trim();
     const heartbeatTimeoutMs = Number(
       _req.query?.heartbeatTimeoutMs || process.env.RUNTIME_WORKER_HEARTBEAT_TIMEOUT_MS || 45000,
     );
     const { DynamicWorkerSpawnManager } = await import('../runtime/workers/DynamicWorkerSpawnManager');
     const { ProjectDispatchQueue } = await import('../runtime/queue/ProjectDispatchQueue');
-    DynamicWorkerSpawnManager.pruneIdleWorkers({
+    const policyStats = DynamicWorkerSpawnManager.applyIdleDemotionPolicy({
       projectId: projectId || undefined,
-      idleTimeoutMs: Number(process.env.RUNTIME_WORKER_IDLE_TIMEOUT_MS || 120000),
+      ...(environmentId ? { environmentId } : {}),
+      demotionTimeoutMs: Number(process.env.RUNTIME_HOT_DEMOTION_IDLE_TIMEOUT_MS || 60000),
+      evictionTimeoutMs: Number(process.env.RUNTIME_WORKER_IDLE_TIMEOUT_MS || 120000),
     });
     const workers = DynamicWorkerSpawnManager.controllerContractSnapshot({
       projectId: projectId || undefined,
+      ...(environmentId ? { environmentId } : {}),
       heartbeatTimeoutMs,
     });
-    const queueDepthByKey = await ProjectDispatchQueue.snapshotAsync(projectId || undefined);
+    const queueDepthByKey = await ProjectDispatchQueue.snapshotAsync(projectId || undefined, environmentId ? { environmentId } : undefined);
     res.json({
       success: true,
       workers,
       queueDepthByKey,
       summary: {
         total: workers.length,
+        hotWorkers: workers.filter((w: any) => String((w as any).heatMode || '') === 'hot').length,
+        coldWorkers: workers.filter((w: any) => String((w as any).heatMode || '') === 'cold').length,
         healthy: workers.filter((w: any) => w.heartbeatFreshness === 'fresh').length,
         stale: workers.filter((w: any) => w.heartbeatFreshness === 'stale').length,
         dead: workers.filter((w: any) => w.heartbeatFreshness === 'dead').length,
+        policyStats,
       },
       heartbeatTimeoutMs,
       serverNow: new Date().toISOString(),
@@ -1572,10 +1654,25 @@ app.get('/api/cockpit/swarm/workers', async (_req, res) => {
   }
 });
 
+app.get('/api/cockpit/swarm/policy/hot-cold', async (_req, res) => {
+  try {
+    const { resolveWorkerHeatPolicy } = await import('../runtime/workers/EnvironmentWorkerHeatPolicy');
+    const policy = resolveWorkerHeatPolicy();
+    res.json({ success: true, policy, serverNow: new Date().toISOString() });
+  } catch (error: any) {
+    res.status(500).json({
+      success: false,
+      error: 'swarm_hot_cold_policy_fetch_failed',
+      message: error?.message || 'Failed to fetch hot/cold policy',
+    });
+  }
+});
+
 app.post('/api/cockpit/swarm/workers/control', async (req, res) => {
   if (!requireRole(req, res, 'admin')) return;
   try {
     const projectId = String(req.body?.projectId || '').trim();
+    const environmentId = String(req.body?.environmentId || '').trim();
     const agentSlug = String(req.body?.agentSlug || '').trim();
     const workerId = String(req.body?.workerId || '').trim();
     const action = String(req.body?.action || '').trim().toLowerCase();
@@ -1608,6 +1705,7 @@ app.post('/api/cockpit/swarm/workers/control', async (req, res) => {
     const { DynamicWorkerSpawnManager } = await import('../runtime/workers/DynamicWorkerSpawnManager');
     const control = await DynamicWorkerSpawnManager.controlWorker({
       projectId,
+      ...(environmentId ? { environmentId } : {}),
       ...(agentSlug ? { agentSlug } : {}),
       ...(workerId ? { workerId } : {}),
       action: action as 'pause' | 'resume' | 'restart' | 'kill',
@@ -1627,6 +1725,7 @@ app.post('/api/cockpit/swarm/workers/control', async (req, res) => {
 
     const workers = DynamicWorkerSpawnManager.controllerContractSnapshot({
       projectId,
+      ...(environmentId ? { environmentId } : {}),
       heartbeatTimeoutMs: Number(process.env.RUNTIME_WORKER_HEARTBEAT_TIMEOUT_MS || 45000),
     });
 
@@ -1660,6 +1759,7 @@ app.post('/api/cockpit/swarm/workers/bulk', async (req, res) => {
   if (!requireRole(req, res, 'admin')) return;
   try {
     const projectId = String(req.body?.projectId || '').trim();
+    const environmentId = String(req.body?.environmentId || '').trim();
     const action = String(req.body?.action || '').trim().toLowerCase();
     if (!projectId) {
       res.status(400).json({ success: false, error: 'project_id_required', message: 'projectId is required' });
@@ -1670,7 +1770,10 @@ app.post('/api/cockpit/swarm/workers/bulk', async (req, res) => {
       return;
     }
     const { DynamicWorkerSpawnManager } = await import('../runtime/workers/DynamicWorkerSpawnManager');
-    const workers = DynamicWorkerSpawnManager.controllerContractSnapshot({ projectId });
+    const workers = DynamicWorkerSpawnManager.controllerContractSnapshot({
+      projectId,
+      ...(environmentId ? { environmentId } : {}),
+    });
     const mappedAction =
       action === 'pause_all'
         ? 'pause'
@@ -1681,6 +1784,7 @@ app.post('/api/cockpit/swarm/workers/bulk', async (req, res) => {
     for (const worker of workers) {
       const controlled = await DynamicWorkerSpawnManager.controlWorker({
         projectId,
+        ...(environmentId ? { environmentId } : {}),
         agentSlug: worker.agentSlug,
         workerId: worker.workerId,
         action: mappedAction as 'pause' | 'kill' | 'restart',
@@ -1694,7 +1798,10 @@ app.post('/api/cockpit/swarm/workers/bulk', async (req, res) => {
         ...(!controlled.ok ? { reason: controlled.reason } : {}),
       });
     }
-    const after = DynamicWorkerSpawnManager.controllerContractSnapshot({ projectId });
+    const after = DynamicWorkerSpawnManager.controllerContractSnapshot({
+      projectId,
+      ...(environmentId ? { environmentId } : {}),
+    });
     res.json({
       success: true,
       projectId,
@@ -1726,19 +1833,29 @@ app.post('/api/cockpit/swarm/workers/bulk', async (req, res) => {
 app.get('/api/cockpit/swarm/summary', async (_req, res) => {
   try {
     const projectId = String(_req.query?.projectId || '').trim();
+    const environmentId = String(_req.query?.environmentId || '').trim();
     const heartbeatTimeoutMs = Number(
       _req.query?.heartbeatTimeoutMs || process.env.RUNTIME_WORKER_HEARTBEAT_TIMEOUT_MS || 45000,
     );
     const { DynamicWorkerSpawnManager } = await import('../runtime/workers/DynamicWorkerSpawnManager');
     const { ProjectDispatchQueue } = await import('../runtime/queue/ProjectDispatchQueue');
+    const policyStats = DynamicWorkerSpawnManager.applyIdleDemotionPolicy({
+      projectId: projectId || undefined,
+      ...(environmentId ? { environmentId } : {}),
+      demotionTimeoutMs: Number(process.env.RUNTIME_HOT_DEMOTION_IDLE_TIMEOUT_MS || 60000),
+      evictionTimeoutMs: Number(process.env.RUNTIME_WORKER_IDLE_TIMEOUT_MS || 120000),
+    });
     const workers = DynamicWorkerSpawnManager.controllerContractSnapshot({
       projectId: projectId || undefined,
+      ...(environmentId ? { environmentId } : {}),
       heartbeatTimeoutMs,
     });
-    const queueDepthByKey = await ProjectDispatchQueue.snapshotAsync(projectId || undefined);
+    const queueDepthByKey = await ProjectDispatchQueue.snapshotAsync(projectId || undefined, environmentId ? { environmentId } : undefined);
     const queuePressure = Object.values(queueDepthByKey).reduce((acc, n) => acc + Number(n || 0), 0);
     const activeWorkers = workers.filter((w: any) => String(w.executionState) === 'active').length;
     const standbyWorkers = workers.filter((w: any) => String(w.executionState) === 'standby').length;
+    const hotWorkers = workers.filter((w: any) => String((w as any).heatMode || '') === 'hot').length;
+    const coldWorkers = workers.filter((w: any) => String((w as any).heatMode || '') === 'cold').length;
     const unhealthyWorkers = workers.filter((w: any) => w.heartbeatFreshness === 'stale' || w.heartbeatFreshness === 'dead').length;
 
     res.json({
@@ -1748,8 +1865,11 @@ app.get('/api/cockpit/swarm/summary', async (_req, res) => {
         workersTotal: workers.length,
         activeWorkers,
         standbyWorkers,
+        hotWorkers,
+        coldWorkers,
         unhealthyWorkers,
         queuePressure,
+        policyStats,
       },
       queueDepthByKey,
       workers,
@@ -1768,9 +1888,11 @@ app.get('/api/cockpit/swarm/summary', async (_req, res) => {
 app.get('/api/cockpit/swarm/utilization', async (_req, res) => {
   try {
     const projectId = String(_req.query?.projectId || '').trim();
+    const environmentId = String(_req.query?.environmentId || '').trim();
     const { DynamicWorkerSpawnManager } = await import('../runtime/workers/DynamicWorkerSpawnManager');
     const rows = DynamicWorkerSpawnManager.utilizationSnapshot({
       projectId: projectId || undefined,
+      ...(environmentId ? { environmentId } : {}),
     });
     const totals = rows.reduce(
       (acc, row) => {
@@ -1810,6 +1932,7 @@ app.get('/api/cockpit/swarm/utilization', async (_req, res) => {
 app.get('/api/cockpit/swarm/performance', async (_req, res) => {
   try {
     const projectId = String(_req.query?.projectId || '').trim();
+    const environmentId = String(_req.query?.environmentId || '').trim();
     const costDir = path.resolve(process.cwd(), 'docs/process/runs/cost');
     const tokenUsageByAgent: Record<string, number> = {};
     if (fs.existsSync(costDir)) {
@@ -1836,6 +1959,7 @@ app.get('/api/cockpit/swarm/performance', async (_req, res) => {
     const { scoreAgentPerformance } = await import('../runtime/performance/AgentPerformanceScoring');
     const rows = DynamicWorkerSpawnManager.utilizationSnapshot({
       projectId: projectId || undefined,
+      ...(environmentId ? { environmentId } : {}),
     });
     const scores = rows
       .map((row: any) =>
@@ -1876,15 +2000,20 @@ app.get('/api/cockpit/swarm/performance', async (_req, res) => {
 app.get('/api/cockpit/swarm/telemetry/aggregate', async (_req, res) => {
   try {
     const projectId = String(_req.query?.projectId || '').trim();
+    const environmentId = String(_req.query?.environmentId || '').trim();
     const { DynamicWorkerSpawnManager } = await import('../runtime/workers/DynamicWorkerSpawnManager');
     const { ProjectDispatchQueue } = await import('../runtime/queue/ProjectDispatchQueue');
     const { scoreAgentPerformance } = await import('../runtime/performance/AgentPerformanceScoring');
 
     const utilizationRows = DynamicWorkerSpawnManager.utilizationSnapshot({
       projectId: projectId || undefined,
+      ...(environmentId ? { environmentId } : {}),
     });
     const queueTasks = await ProjectDispatchQueue.listTasksAsync(projectId || undefined);
-    const queueDepthByKey = await ProjectDispatchQueue.snapshotAsync(projectId || undefined);
+    const filteredQueueTasks = environmentId
+      ? queueTasks.filter((task: any) => String(task?.payload?.environmentId || '').trim() === environmentId)
+      : queueTasks;
+    const queueDepthByKey = await ProjectDispatchQueue.snapshotAsync(projectId || undefined, environmentId ? { environmentId } : undefined);
 
     const costDir = path.resolve(process.cwd(), 'docs/process/runs/cost');
     const tokenUsageByAgent: Record<string, number> = {};
@@ -1927,9 +2056,9 @@ app.get('/api/cockpit/swarm/telemetry/aggregate', async (_req, res) => {
         utilization: utilizationRows,
         performance: performanceRows,
         queue: {
-          totalTasks: queueTasks.length,
+          totalTasks: filteredQueueTasks.length,
           depthByKey: queueDepthByKey,
-          tasks: queueTasks,
+          tasks: filteredQueueTasks,
         },
         costAttribution: {
           recentCostRows,
@@ -1939,7 +2068,7 @@ app.get('/api/cockpit/swarm/telemetry/aggregate', async (_req, res) => {
       summary: {
         workers: utilizationRows.length,
         agentsScored: performanceRows.length,
-        queueTasks: queueTasks.length,
+        queueTasks: filteredQueueTasks.length,
       },
       serverNow: new Date().toISOString(),
     });
@@ -1955,11 +2084,16 @@ app.get('/api/cockpit/swarm/telemetry/aggregate', async (_req, res) => {
 app.get('/api/cockpit/swarm/queue/tasks', async (_req, res) => {
   try {
     const projectId = String(_req.query?.projectId || '').trim();
+    const environmentId = String(_req.query?.environmentId || '').trim();
     const { ProjectDispatchQueue } = await import('../runtime/queue/ProjectDispatchQueue');
-    const tasks = await ProjectDispatchQueue.listTasksAsync(projectId || undefined);
+    const allTasks = await ProjectDispatchQueue.listTasksAsync(projectId || undefined);
+    const tasks = environmentId
+      ? allTasks.filter((task: any) => String(task?.payload?.environmentId || '').trim() === environmentId)
+      : allTasks;
     res.json({
       success: true,
       projectId: projectId || null,
+      environmentId: environmentId || null,
       tasks,
       total: tasks.length,
       serverNow: new Date().toISOString(),
@@ -2256,6 +2390,14 @@ app.post('/api/cockpit/governance/loops/force', async (req, res) => {
         signalsPath: artifacts.signalsPath,
         ticketsPath: artifacts.ticketsPath,
       });
+      environmentStateStore.upsert({
+        environmentId,
+        tenantId: workspaceContext.tenantId,
+        workspaceId: workspaceContext.workspaceId,
+        projectId,
+        state: 'idle',
+      });
+
       res.json({
         success: true,
         loopType: effectiveLoopType,
@@ -2923,6 +3065,513 @@ app.get('/api/auth/me', (req, res) => {
   });
 });
 
+
+app.get('/api/cockpit/environments', (req, res) => {
+  const auth = requireRole(req, res, 'member');
+  if (!auth) return;
+  const projectId = String(req.query?.projectId || '').trim() || undefined;
+  const limit = Math.max(1, Math.min(Number(req.query?.limit || 200), 1000));
+  const items = environmentStateStore.listByScope({
+    tenantId: auth.tenantId,
+    workspaceId: auth.workspaceId,
+    ...(projectId ? { projectId } : {}),
+    limit,
+  });
+  res.json({ success: true, items, count: items.length });
+});
+
+function resolveEnvironmentByAuthScope(input: {
+  tenantId: string;
+  workspaceId: string;
+  projectId?: string;
+}) {
+  const environmentId = buildPersistedEnvironmentId({
+    tenantId: input.tenantId,
+    workspaceId: input.workspaceId,
+    projectId: input.projectId,
+  });
+  return environmentStateStore.get(environmentId);
+}
+
+function enforceRequestedScopeMatchesAuth(
+  req: express.Request,
+  auth: { tenantId: string; workspaceId: string },
+): { ok: true } | { ok: false; status: number; error: string; message: string } {
+  const requestedTenantId = String(req.body?.tenantId || req.query?.tenantId || '').trim();
+  const requestedWorkspaceId = String(req.body?.workspaceId || req.query?.workspaceId || '').trim();
+  if (requestedTenantId && requestedTenantId !== auth.tenantId) {
+    return {
+      ok: false,
+      status: 403,
+      error: 'forbidden_cross_tenant_access',
+      message: 'Requested tenant scope does not match authenticated tenant',
+    };
+  }
+  if (requestedWorkspaceId && requestedWorkspaceId !== auth.workspaceId) {
+    return {
+      ok: false,
+      status: 403,
+      error: 'forbidden_cross_workspace_access',
+      message: 'Requested workspace scope does not match authenticated workspace',
+    };
+  }
+  return { ok: true };
+}
+
+function resolveLastWarmupStatus(input: { environmentId: string }): { lastWarmupAt?: string; ok?: boolean; error?: string } {
+  try {
+    const file = path.resolve(process.cwd(), 'docs/runtime/governance/logs/control-actions.jsonl');
+    if (!fs.existsSync(file)) return {};
+    const lines = fs.readFileSync(file, 'utf-8').split('\n').filter(Boolean);
+    for (let i = lines.length - 1; i >= 0; i -= 1) {
+      const line = lines[i];
+      if (!line) continue;
+      try {
+        const row = JSON.parse(line);
+        if (String(row?.action || '') !== 'environment_warmup') continue;
+        const environmentId = String(row?.result?.environmentId || '').trim();
+        if (environmentId !== input.environmentId) continue;
+        return {
+          ...(row?.createdAt ? { lastWarmupAt: String(row.createdAt) } : {}),
+          ...(typeof row?.result?.ok === 'boolean' ? { ok: Boolean(row.result.ok) } : {}),
+          ...(row?.result?.error ? { error: String(row.result.error) } : {}),
+        };
+      } catch {
+        // ignore malformed line
+      }
+    }
+    return {};
+  } catch {
+    return {};
+  }
+}
+
+function readEnvironmentLifecycleTelemetry(input: { environmentId: string; limit?: number }): Array<{
+  action: string;
+  timestamp: string;
+  ok?: boolean;
+  durationMs?: number;
+  status?: string;
+  error?: string;
+}> {
+  try {
+    const file = path.resolve(process.cwd(), 'docs/runtime/governance/logs/control-actions.jsonl');
+    if (!fs.existsSync(file)) return [];
+    const lines = fs.readFileSync(file, 'utf-8').split('\n').filter(Boolean);
+    const out: Array<{
+      action: string;
+      timestamp: string;
+      ok?: boolean;
+      durationMs?: number;
+      status?: string;
+      error?: string;
+    }> = [];
+    const acceptedActions = new Set(['environment_provision', 'environment_warmup', 'environment_suspend', 'environment_resume', 'environment_terminate']);
+    for (const line of lines) {
+      try {
+        const row = JSON.parse(line);
+        const action = String(row?.action || '');
+        if (!acceptedActions.has(action)) continue;
+        const environmentId = String(row?.result?.environmentId || '').trim();
+        if (environmentId !== input.environmentId) continue;
+        out.push({
+          action,
+          timestamp: String(row?.createdAt || new Date().toISOString()),
+          ...(typeof row?.result?.ok === 'boolean' ? { ok: Boolean(row.result.ok) } : {}),
+          ...(Number.isFinite(Number(row?.result?.durationMs)) ? { durationMs: Number(row.result.durationMs) } : {}),
+          ...(row?.result?.status ? { status: String(row.result.status) } : {}),
+          ...(row?.result?.error ? { error: String(row.result.error) } : {}),
+        });
+      } catch {
+        // ignore malformed row
+      }
+    }
+    const sorted = out.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+    const limit = Math.max(1, Math.min(Number(input.limit || 100), 500));
+    return sorted.slice(-limit);
+  } catch {
+    return [];
+  }
+}
+
+
+app.post('/api/cockpit/environments/provision', (req, res) => {
+  const auth = requireRole(req, res, 'member');
+  if (!auth) return;
+  const scopeCheck = enforceRequestedScopeMatchesAuth(req, auth);
+  if (!scopeCheck.ok) {
+    res.status(scopeCheck.status).json({ success: false, error: scopeCheck.error, message: scopeCheck.message });
+    return;
+  }
+  const projectId = String(req.body?.projectId || '').trim() || undefined;
+  const force = Boolean(req.body?.force);
+  const result = environmentProvisioningService.provisionOnDemand({
+    tenantId: auth.tenantId,
+    workspaceId: auth.workspaceId,
+    ...(projectId ? { projectId } : {}),
+    actorId: auth.userId,
+    force,
+  });
+  appendControlActionAudit({
+    action: 'environment_provision',
+    projectId: projectId || null,
+    actorId: auth.userId,
+    result: { ok: result.ok, status: result.status, environmentId: result.environmentId, steps: result.steps },
+  });
+  if (!result.ok) {
+    res.status(500).json({ success: false, error: 'environment_provision_failed', ...result });
+    return;
+  }
+  res.json({ success: true, ...result });
+});
+
+app.post('/api/cockpit/environments/warmup', async (req, res) => {
+  const auth = requireRole(req, res, 'member');
+  if (!auth) return;
+  const scopeCheck = enforceRequestedScopeMatchesAuth(req, auth);
+  if (!scopeCheck.ok) {
+    res.status(scopeCheck.status).json({ success: false, error: scopeCheck.error, message: scopeCheck.message });
+    return;
+  }
+  const projectId = String(req.body?.projectId || '').trim() || undefined;
+  const provision = environmentProvisioningService.provisionOnDemand({
+    tenantId: auth.tenantId,
+    workspaceId: auth.workspaceId,
+    ...(projectId ? { projectId } : {}),
+    actorId: auth.userId,
+  });
+  if (!provision.ok) {
+    res.status(500).json({ success: false, error: 'environment_provision_failed', ...provision });
+    return;
+  }
+
+  const warmup = await environmentWarmupService.warmup({
+    environment: provision.environment,
+    runChecks: async () => {
+      const checks: WarmupCheck[] = [];
+      try {
+        const project = projectId ? projectStore.get(projectId) : undefined;
+        const discoveryRoot = project?.agentContextPath || project?.worktreePath || process.cwd();
+        const snapshot = await refreshCatalog(discoveryRoot, { activate: true });
+        checks.push({
+          id: 'catalog_refresh',
+          ok: true,
+          detail: `agents=${snapshot.agents.length};pipelines=${snapshot.pipelines.length};skills=${snapshot.skills.length}`,
+        });
+      } catch (error: any) {
+        checks.push({
+          id: 'catalog_refresh',
+          ok: false,
+          detail: String(error?.message || 'catalog_refresh_failed'),
+        });
+      }
+
+      try {
+        const cfg = getCockpitExecutorConfig();
+        checks.push({
+          id: 'executor_config',
+          ok: true,
+          detail: `backend=${cfg.backend || 'unknown'}`,
+        });
+      } catch (error: any) {
+        checks.push({
+          id: 'executor_config',
+          ok: false,
+          detail: String(error?.message || 'executor_config_unavailable'),
+        });
+      }
+
+      try {
+        const [pgSecrets, pgObjects] = await Promise.all([shouldUsePostgresSecrets(), shouldUsePostgresObjects()]);
+        checks.push({
+          id: 'storage_backends',
+          ok: true,
+          detail: `secrets=${pgSecrets ? 'postgres' : 'sqlite'};objects=${pgObjects ? 'postgres' : 'sqlite'}`,
+        });
+      } catch (error: any) {
+        checks.push({
+          id: 'storage_backends',
+          ok: false,
+          detail: String(error?.message || 'storage_backend_check_failed'),
+        });
+      }
+      return checks;
+    },
+  });
+
+  appendControlActionAudit({
+    action: 'environment_warmup',
+    projectId: projectId || null,
+    actorId: auth.userId,
+    result: {
+      ok: warmup.ok,
+      environmentId: warmup.environment.environmentId,
+      durationMs: warmup.durationMs,
+      checks: warmup.checks,
+      ...(warmup.error ? { error: warmup.error } : {}),
+    },
+  });
+
+  if (!warmup.ok) {
+    res.status(500).json({ success: false, error: 'environment_warmup_failed', ...warmup });
+    return;
+  }
+  res.json({ success: true, ...warmup });
+});
+
+app.post('/api/cockpit/environments/suspend', (req, res) => {
+  const auth = requireRole(req, res, 'member');
+  if (!auth) return;
+  const scopeCheck = enforceRequestedScopeMatchesAuth(req, auth);
+  if (!scopeCheck.ok) {
+    res.status(scopeCheck.status).json({ success: false, error: scopeCheck.error, message: scopeCheck.message });
+    return;
+  }
+  const projectId = String(req.body?.projectId || '').trim() || undefined;
+  const existing = resolveEnvironmentByAuthScope({
+    tenantId: auth.tenantId,
+    workspaceId: auth.workspaceId,
+    ...(projectId ? { projectId } : {}),
+  });
+  if (!existing) {
+    res.status(404).json({ success: false, error: 'environment_not_found' });
+    return;
+  }
+  const transition = environmentSuspendResumeService.suspend({
+    environment: existing,
+    actorId: auth.userId,
+  });
+  appendControlActionAudit({
+    action: 'environment_suspend',
+    projectId: projectId || null,
+    actorId: auth.userId,
+    result: {
+      ok: transition.ok,
+      from: transition.from,
+      to: transition.to,
+      environmentId: transition.environment.environmentId,
+      ...(transition.error ? { error: transition.error } : {}),
+    },
+  });
+  if (!transition.ok) {
+    res.status(409).json({ success: false, error: 'environment_suspend_invalid_transition', ...transition });
+    return;
+  }
+  res.json({
+    success: true,
+    ...transition,
+    consistency: {
+      queue: 'preserved',
+      memory: 'preserved',
+      artifacts: 'preserved',
+    },
+  });
+});
+
+app.post('/api/cockpit/environments/resume', (req, res) => {
+  const auth = requireRole(req, res, 'member');
+  if (!auth) return;
+  const scopeCheck = enforceRequestedScopeMatchesAuth(req, auth);
+  if (!scopeCheck.ok) {
+    res.status(scopeCheck.status).json({ success: false, error: scopeCheck.error, message: scopeCheck.message });
+    return;
+  }
+  const projectId = String(req.body?.projectId || '').trim() || undefined;
+  const existing = resolveEnvironmentByAuthScope({
+    tenantId: auth.tenantId,
+    workspaceId: auth.workspaceId,
+    ...(projectId ? { projectId } : {}),
+  });
+  if (!existing) {
+    res.status(404).json({ success: false, error: 'environment_not_found' });
+    return;
+  }
+  const transition = environmentSuspendResumeService.resume({
+    environment: existing,
+    actorId: auth.userId,
+  });
+  appendControlActionAudit({
+    action: 'environment_resume',
+    projectId: projectId || null,
+    actorId: auth.userId,
+    result: {
+      ok: transition.ok,
+      from: transition.from,
+      to: transition.to,
+      environmentId: transition.environment.environmentId,
+      ...(transition.error ? { error: transition.error } : {}),
+    },
+  });
+  if (!transition.ok) {
+    res.status(409).json({ success: false, error: 'environment_resume_invalid_transition', ...transition });
+    return;
+  }
+  res.json({
+    success: true,
+    ...transition,
+    consistency: {
+      queue: 'preserved',
+      memory: 'preserved',
+      artifacts: 'preserved',
+    },
+  });
+});
+
+app.post('/api/cockpit/environments/terminate', (req, res) => {
+  const auth = requireRole(req, res, 'member');
+  if (!auth) return;
+  const scopeCheck = enforceRequestedScopeMatchesAuth(req, auth);
+  if (!scopeCheck.ok) {
+    res.status(scopeCheck.status).json({ success: false, error: scopeCheck.error, message: scopeCheck.message });
+    return;
+  }
+  const projectId = String(req.body?.projectId || '').trim() || undefined;
+  const existing = resolveEnvironmentByAuthScope({
+    tenantId: auth.tenantId,
+    workspaceId: auth.workspaceId,
+    ...(projectId ? { projectId } : {}),
+  });
+  if (!existing) {
+    res.status(404).json({ success: false, error: 'environment_not_found' });
+    return;
+  }
+  const transition = environmentSuspendResumeService.terminate({
+    environment: existing,
+    actorId: auth.userId,
+  });
+  appendControlActionAudit({
+    action: 'environment_terminate',
+    projectId: projectId || null,
+    actorId: auth.userId,
+    result: {
+      ok: transition.ok,
+      from: transition.from,
+      to: transition.to,
+      environmentId: transition.environment.environmentId,
+      ...(transition.error ? { error: transition.error } : {}),
+    },
+  });
+  if (!transition.ok) {
+    res.status(409).json({ success: false, error: 'environment_terminate_invalid_transition', ...transition });
+    return;
+  }
+  res.json({ success: true, ...transition });
+});
+
+app.get('/api/cockpit/environments/status', async (req, res) => {
+  const auth = requireRole(req, res, 'member');
+  if (!auth) return;
+  const scopeCheck = enforceRequestedScopeMatchesAuth(req, auth);
+  if (!scopeCheck.ok) {
+    res.status(scopeCheck.status).json({ success: false, error: scopeCheck.error, message: scopeCheck.message });
+    return;
+  }
+  try {
+    const projectId = String(req.query?.projectId || '').trim() || undefined;
+    const environment = resolveEnvironmentByAuthScope({
+      tenantId: auth.tenantId,
+      workspaceId: auth.workspaceId,
+      ...(projectId ? { projectId } : {}),
+    });
+    if (!environment) {
+      res.status(404).json({ success: false, error: 'environment_not_found' });
+      return;
+    }
+    const { DynamicWorkerSpawnManager } = await import('../runtime/workers/DynamicWorkerSpawnManager');
+    const { ProjectDispatchQueue } = await import('../runtime/queue/ProjectDispatchQueue');
+    const workers = DynamicWorkerSpawnManager.controllerContractSnapshot({
+      projectId: projectId || undefined,
+      environmentId: environment.environmentId,
+      heartbeatTimeoutMs: Number(process.env.RUNTIME_WORKER_HEARTBEAT_TIMEOUT_MS || 45000),
+    });
+    const queueDepthByKey = await ProjectDispatchQueue.snapshotAsync(projectId || undefined, {
+      environmentId: environment.environmentId,
+    });
+    const queuePressure = Object.values(queueDepthByKey).reduce((acc, n) => acc + Number(n || 0), 0);
+    const warmupStatus = resolveLastWarmupStatus({ environmentId: environment.environmentId });
+    res.json({
+      success: true,
+      environment,
+      workerSummary: {
+        total: workers.length,
+        active: workers.filter((w: any) => String(w.executionState) === 'active').length,
+        standby: workers.filter((w: any) => String(w.executionState) === 'standby').length,
+      },
+      queueSummary: {
+        depthByKey: queueDepthByKey,
+        pressure: queuePressure,
+      },
+      activity: {
+        lastActivityAt: environment.lastActivityAt,
+        ...(warmupStatus.lastWarmupAt ? { lastWarmupAt: warmupStatus.lastWarmupAt } : {}),
+      },
+      warmupStatus: {
+        ...(typeof warmupStatus.ok === 'boolean' ? { ok: warmupStatus.ok } : {}),
+        ...(warmupStatus.error ? { error: warmupStatus.error } : {}),
+      },
+      serverNow: new Date().toISOString(),
+    });
+  } catch (error: any) {
+    res.status(500).json({
+      success: false,
+      error: 'environment_status_fetch_failed',
+      message: error?.message || 'Failed to fetch environment status',
+    });
+  }
+});
+
+app.get('/api/cockpit/environments/telemetry', async (req, res) => {
+  const auth = requireRole(req, res, 'member');
+  if (!auth) return;
+  const scopeCheck = enforceRequestedScopeMatchesAuth(req, auth);
+  if (!scopeCheck.ok) {
+    res.status(scopeCheck.status).json({ success: false, error: scopeCheck.error, message: scopeCheck.message });
+    return;
+  }
+  try {
+    const projectId = String(req.query?.projectId || '').trim() || undefined;
+    const limit = Math.max(1, Math.min(Number(req.query?.limit || 100), 500));
+    const environment = resolveEnvironmentByAuthScope({
+      tenantId: auth.tenantId,
+      workspaceId: auth.workspaceId,
+      ...(projectId ? { projectId } : {}),
+    });
+    if (!environment) {
+      res.status(404).json({ success: false, error: 'environment_not_found' });
+      return;
+    }
+    const events = readEnvironmentLifecycleTelemetry({ environmentId: environment.environmentId, limit });
+    const warmupDurations = events
+      .filter((ev) => ev.action === 'environment_warmup' && Number.isFinite(Number(ev.durationMs || 0)))
+      .map((ev) => Number(ev.durationMs || 0));
+    const coldStartLatencyMs =
+      warmupDurations.length > 0 ? Math.round(warmupDurations.reduce((acc, n) => acc + n, 0) / warmupDurations.length) : null;
+    const failures = events.filter((ev) => ev.ok === false || Boolean(ev.error)).map((ev) => ({
+      action: ev.action,
+      timestamp: ev.timestamp,
+      reason: ev.error || 'operation_failed',
+    }));
+    res.json({
+      success: true,
+      environmentId: environment.environmentId,
+      traces: events,
+      metrics: {
+        totalEvents: events.length,
+        coldStartLatencyMs,
+        failureCount: failures.length,
+      },
+      failures,
+      serverNow: new Date().toISOString(),
+    });
+  } catch (error: any) {
+    res.status(500).json({
+      success: false,
+      error: 'environment_telemetry_fetch_failed',
+      message: error?.message || 'Failed to fetch environment telemetry',
+    });
+  }
+});
+
 app.post('/api/chat', async (req, res) => {
   const rawMessage = String(req.body?.message || req.body?.prompt || '').trim();
   const threadId = String(req.body?.threadId || `thread_${Date.now()}`).trim();
@@ -2933,7 +3582,31 @@ app.post('/api/chat', async (req, res) => {
   const parsed = parseRuntimeDirectives(rawMessage);
   const message = parsed.cleanedMessage || rawMessage;
   const detectedLanguage = detectLanguage(message);
-  const auth = getAuthContext(req);
+  const auth = requireAuthForRuntimeIfEnabled(req, res);
+  if (AUTH_MODE === 'required' && !auth) return;
+  const workspaceContext = resolveWorkspaceRuntimeContext({
+    projectId,
+    auth,
+    requestedTenantId: req.body?.tenantId,
+    requestedWorkspaceId: req.body?.workspaceId,
+  });
+  if ('error' in workspaceContext) {
+    res.status(workspaceContext.status).json({ success: false, error: workspaceContext.error, message: workspaceContext.message });
+    return;
+  }
+
+  const environmentId = buildPersistedEnvironmentId({
+    tenantId: workspaceContext.tenantId,
+    workspaceId: workspaceContext.workspaceId,
+    projectId,
+  });
+  environmentStateStore.upsert({
+    environmentId,
+    tenantId: workspaceContext.tenantId,
+    workspaceId: workspaceContext.workspaceId,
+    projectId,
+    state: 'active',
+  });
 
   if (!message) {
     res.status(400).json({ success: false, error: 'message_required' });
@@ -2953,7 +3626,7 @@ app.post('/api/chat', async (req, res) => {
     RunManager.registerRun(threadId, runId);
 
     try {
-      const execution = await executeRuntimeRun({
+      const runtimeExecutionInput: any = {
         ticketId: String(req.body?.ticketId || '').trim(),
         runId,
         threadId,
@@ -2986,7 +3659,12 @@ app.post('/api/chat', async (req, res) => {
             ? { skills: runtimeEnforcementByProject[projectId]?.skills || [] }
             : {}),
         },
-      });
+        tenantId: workspaceContext.tenantId,
+        workspaceId: workspaceContext.workspaceId,
+        environmentId,
+        userId: workspaceContext.userId || null,
+      };
+      const execution = await executeRuntimeRun(runtimeExecutionInput);
       const finalState = execution.finalState;
       
       if (finalState.__interrupt__) {
@@ -3049,6 +3727,8 @@ app.post('/api/chat', async (req, res) => {
               role: auth.role,
             }
           : null,
+        workspaceContext,
+        environmentId,
         ticketId: finalState.ticketId || null,
         message: finalMessage || null,
         logs: artifactLogs,
@@ -3071,17 +3751,40 @@ app.post('/api/chat', async (req, res) => {
       });
     } catch (error: any) {
       if (error.message?.includes('was cancelled')) {
+        environmentStateStore.upsert({
+          environmentId,
+          tenantId: workspaceContext.tenantId,
+          workspaceId: workspaceContext.workspaceId,
+          projectId,
+          state: 'idle',
+        });
         console.log(`[agent-system-backend] Request for run ${runId} was cancelled:`, error.message);
         // Do not return error to user if they just sent a new message, 
         // but the XHR might have already closed or we might want to return 204 or similar.
         // For now, let's just return success: false with a clear error.
         res.status(409).json({ success: false, error: 'run_cancelled', message: 'Current run was cancelled by a newer request.' });
       } else {
+        environmentStateStore.upsert({
+          environmentId,
+          tenantId: workspaceContext.tenantId,
+          workspaceId: workspaceContext.workspaceId,
+          projectId,
+          state: 'failed',
+          lastError: String(error?.message || 'runtime_execution_failed'),
+        });
         console.error('[agent-system-backend] chat error:', error);
         res.status(500).json({ success: false, error: 'internal_error', message: error.message });
       }
     }
   } catch (error: any) {
+    environmentStateStore.upsert({
+      environmentId: buildPersistedEnvironmentId({ tenantId: workspaceContext.tenantId, workspaceId: workspaceContext.workspaceId, projectId }),
+      tenantId: workspaceContext.tenantId,
+      workspaceId: workspaceContext.workspaceId,
+      projectId,
+      state: 'failed',
+      lastError: String(error?.message || 'chat_execution_failed'),
+    });
     console.error('[agent-system-backend] /api/chat error:', error);
     res.status(500).json({
       success: false,
@@ -3094,6 +3797,7 @@ app.post('/api/chat', async (req, res) => {
 });
 
 app.post('/api/chat/approve', async (req, res) => {
+  if (AUTH_MODE === 'required' && !requireAuthForRuntimeIfEnabled(req, res)) return;
   const { threadId, decision } = req.body;
 
   if (!threadId) {
@@ -3138,6 +3842,7 @@ app.post('/api/chat/approve', async (req, res) => {
 });
 
 app.post('/api/chat/cancel', async (req, res) => {
+  if (AUTH_MODE === 'required' && !requireAuthForRuntimeIfEnabled(req, res)) return;
   const threadId = String(req.body?.threadId || '').trim();
   const runId = String(req.body?.runId || '').trim();
   const reason = String(req.body?.reason || 'Cancelled by user').trim();

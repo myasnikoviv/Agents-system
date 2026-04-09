@@ -35,6 +35,7 @@ export async function executeMultipleAgentsRun(initialState: Partial<PilotState>
   const selectedPipeline = asString(initialState.selected_pipeline, '');
   const pipelineId = enforcedPipeline || selectedPipeline || 'unified-task-intake';
   const workspacePath = asString(initialState.workspacePath, process.cwd());
+  const environmentId = asString((initialState as any).environmentId, '');
   const stageTimeoutMs = Math.max(1000, Number(process.env.RUNTIME_STAGE_TIMEOUT_MS || 60000));
   const stageParallelism = Math.max(1, Number(process.env.RUNTIME_MULTIPLE_AGENTS_PARALLELISM || 2));
   const enforcedSkills = Array.isArray((initialState as any)?.enforcement?.skills)
@@ -98,6 +99,7 @@ export async function executeMultipleAgentsRun(initialState: Partial<PilotState>
       payload: {
         source: 'multiple_agents_runtime',
         stageTitle: stage.title || stage.name || stage.id,
+        ...(environmentId ? { environmentId } : {}),
       },
     });
 
@@ -118,6 +120,7 @@ export async function executeMultipleAgentsRun(initialState: Partial<PilotState>
     const lease = await DynamicWorkerSpawnManager.ensureWorker({
       runId,
       projectId,
+      ...(environmentId ? { environmentId } : {}),
       chainId,
       agentSlug,
       taskId: queueTask.taskId,
@@ -126,9 +129,18 @@ export async function executeMultipleAgentsRun(initialState: Partial<PilotState>
       retryCount: Number((queueTask.payload as any)?.retryCount || 0),
     });
 
-    const pickedTask = await ProjectDispatchQueue.pickupForWorkerAsync(projectId, agentSlug, lease.worker.workerId);
+    const pickedTask = await ProjectDispatchQueue.pickupForWorkerAsync(
+      projectId,
+      agentSlug,
+      lease.worker.workerId,
+      environmentId ? { environmentId } : undefined,
+    );
     if (!pickedTask) {
       throw new Error(`multiple_agents_pickup_failed:${projectId}:${agentSlug}:${stage.id}`);
+    }
+    const taskEnvironmentId = String((pickedTask.payload as any)?.environmentId || '').trim();
+    if (environmentId && taskEnvironmentId && taskEnvironmentId !== environmentId) {
+      throw new Error(`multiple_agents_environment_mismatch:${environmentId}:${taskEnvironmentId}`);
     }
 
     await emitEvent({
@@ -199,6 +211,7 @@ export async function executeMultipleAgentsRun(initialState: Partial<PilotState>
       await DynamicWorkerSpawnManager.releaseToStandby({
         runId,
         projectId,
+        ...(environmentId ? { environmentId } : {}),
         chainId,
         agentSlug,
       }).catch(() => undefined);
@@ -208,7 +221,7 @@ export async function executeMultipleAgentsRun(initialState: Partial<PilotState>
       };
     } catch (error: any) {
       await DynamicWorkerSpawnManager.markFailed(
-        { runId, projectId, chainId, agentSlug },
+        { runId, projectId, ...(environmentId ? { environmentId } : {}), chainId, agentSlug },
         String(error?.message || 'execution_failed'),
       ).catch(() => undefined);
 

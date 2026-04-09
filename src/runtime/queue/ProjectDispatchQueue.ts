@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import Database from 'better-sqlite3';
 import { getRedisClient } from '../redisClient';
+import { resolveRuntimeInfrastructureProfile } from '../infrastructure/RuntimeInfrastructureProfile';
 
 export interface DispatchQueueTask {
   taskId: string;
@@ -71,16 +72,32 @@ function rowToTask(row: any): DispatchQueueTask {
   };
 }
 
-const SHARED_QUEUE_BACKEND = String(process.env.RUNTIME_SHARED_DISPATCH_QUEUE_BACKEND || '').trim().toLowerCase();
 const REDIS_TASK_HASH_KEY = 'runtime:dispatch:tasks';
 const REDIS_QUEUE_KEY_PREFIX = 'runtime:dispatch:queue';
 
 function useRedisSharedQueue(): boolean {
-  return SHARED_QUEUE_BACKEND === 'redis';
+  return resolveRuntimeInfrastructureProfile().dispatchQueueBackend === 'redis';
 }
 
-function redisQueueKey(projectId: string, agentSlug: string): string {
-  return `${REDIS_QUEUE_KEY_PREFIX}:${projectId}:${agentSlug}`;
+function queueEnvironmentIdFromPayload(payload?: Record<string, any>): string {
+  return String((payload as any)?.environmentId || '').trim();
+}
+
+function normalizedEnvironmentSegment(environmentId?: string): string {
+  const raw = String(environmentId || '').trim();
+  if (!raw) return 'env-global';
+  return raw.replace(/[^a-zA-Z0-9:_-]+/g, '_');
+}
+
+function redisQueueKeyForScope(projectId: string, agentSlug: string, environmentId?: string): string {
+  return `${REDIS_QUEUE_KEY_PREFIX}:${projectId}:${normalizedEnvironmentSegment(environmentId)}:${agentSlug}`;
+}
+
+function queueMetricKey(task: DispatchQueueTask): string {
+  const environmentId = queueEnvironmentIdFromPayload(task.payload);
+  return environmentId
+    ? `${task.projectId}:${environmentId}:${task.agentSlug}`
+    : `${task.projectId}:env-global:${task.agentSlug}`;
 }
 
 function redisPriorityScore(task: DispatchQueueTask): number {
@@ -113,9 +130,10 @@ export class ProjectDispatchQueue {
 
   static enqueue(task: Omit<DispatchQueueTask, 'taskId' | 'enqueuedAt'>): DispatchQueueTask {
     const nonce = Math.random().toString(36).slice(2, 8);
+    const envPart = normalizedEnvironmentSegment(queueEnvironmentIdFromPayload(task.payload));
     const full: DispatchQueueTask = {
       ...task,
-      taskId: `${task.projectId}:${task.agentSlug}:${Date.now().toString(36)}:${nonce}`,
+      taskId: `${task.projectId}:${envPart}:${task.agentSlug}:${Date.now().toString(36)}:${nonce}`,
       enqueuedAt: Date.now(),
     };
     const db = getDb();
@@ -137,7 +155,8 @@ export class ProjectDispatchQueue {
     return full;
   }
 
-  static pickup(projectId: string, agentSlug: string): DispatchQueueTask | null {
+  static pickup(projectId: string, agentSlug: string, options?: { environmentId?: string }): DispatchQueueTask | null {
+    const expectedEnvironmentId = String(options?.environmentId || '').trim();
     const db = getDb();
     const tx = db.transaction((pId: string, aSlug: string) => {
       const rows = db
@@ -147,14 +166,21 @@ export class ProjectDispatchQueue {
         )
         .all(pId, aSlug) as Array<any>;
       if (!rows.length) return null;
-      rows.sort((a, b) => {
+      const eligible = rows.filter((row) => {
+        if (!expectedEnvironmentId) return true;
+        const payload = safeJson(row.payload_json);
+        const environmentId = String((payload as any)?.environmentId || '').trim();
+        return !environmentId || environmentId === expectedEnvironmentId;
+      });
+      if (!eligible.length) return null;
+      eligible.sort((a, b) => {
         const pa = taskPriority({ payload: safeJson(a.payload_json) } as any);
         const pb = taskPriority({ payload: safeJson(b.payload_json) } as any);
         const byPriority = pb - pa;
         if (byPriority !== 0) return byPriority;
         return Number(a.enqueued_at) - Number(b.enqueued_at);
       });
-      const next = rows[0];
+      const next = eligible[0];
       if (!next) return null;
       db.prepare(`DELETE FROM dispatch_queue WHERE task_id = ?`).run(next.task_id);
       return rowToTask(next);
@@ -178,23 +204,50 @@ export class ProjectDispatchQueue {
     };
   }
 
-  static depth(projectId: string, agentSlug?: string): number {
+  static depth(projectId: string, agentSlug?: string, options?: { environmentId?: string }): number {
     const db = getDb();
-    if (agentSlug) {
-      const row = db.prepare(`SELECT COUNT(*) as c FROM dispatch_queue WHERE project_id = ? AND agent_slug = ?`).get(projectId, agentSlug) as any;
-      return Number(row?.c || 0);
-    }
-    const row = db.prepare(`SELECT COUNT(*) as c FROM dispatch_queue WHERE project_id = ?`).get(projectId) as any;
-    return Number(row?.c || 0);
+    const expectedEnvironmentId = String(options?.environmentId || '').trim();
+    const allRows = (agentSlug
+      ? db
+          .prepare(
+            `SELECT task_id, run_id, project_id, chain_id, pipeline_id, stage_id, agent_slug, payload_json, enqueued_at
+             FROM dispatch_queue WHERE project_id = ? AND agent_slug = ?`,
+          )
+          .all(projectId, agentSlug)
+      : db
+          .prepare(
+            `SELECT task_id, run_id, project_id, chain_id, pipeline_id, stage_id, agent_slug, payload_json, enqueued_at
+             FROM dispatch_queue WHERE project_id = ?`,
+          )
+          .all(projectId)) as Array<any>;
+    if (!expectedEnvironmentId) return allRows.length;
+    return allRows.filter((row) => {
+      const payload = safeJson(row.payload_json);
+      const environmentId = String((payload as any)?.environmentId || '').trim();
+      return environmentId === expectedEnvironmentId;
+    }).length;
   }
 
-  static snapshot(projectId?: string): Record<string, number> {
+  static snapshot(projectId?: string, options?: { environmentId?: string }): Record<string, number> {
     const db = getDb();
+    const expectedEnvironmentId = String(options?.environmentId || '').trim();
     const out: Record<string, number> = {};
     const rows = (projectId
-      ? db.prepare(`SELECT project_id, agent_slug, COUNT(*) as c FROM dispatch_queue WHERE project_id = ? GROUP BY project_id, agent_slug`).all(projectId)
-      : db.prepare(`SELECT project_id, agent_slug, COUNT(*) as c FROM dispatch_queue GROUP BY project_id, agent_slug`).all()) as Array<any>;
-    for (const row of rows) out[`${row.project_id}:${row.agent_slug}`] = Number(row.c || 0);
+      ? db.prepare(
+          `SELECT task_id, run_id, project_id, chain_id, pipeline_id, stage_id, agent_slug, payload_json, enqueued_at
+           FROM dispatch_queue WHERE project_id = ?`,
+        ).all(projectId)
+      : db.prepare(
+          `SELECT task_id, run_id, project_id, chain_id, pipeline_id, stage_id, agent_slug, payload_json, enqueued_at
+           FROM dispatch_queue`,
+        ).all()) as Array<any>;
+    for (const row of rows) {
+      const task = rowToTask(row);
+      const env = queueEnvironmentIdFromPayload(task.payload);
+      if (expectedEnvironmentId && env !== expectedEnvironmentId) continue;
+      const key = queueMetricKey(task);
+      out[key] = Number(out[key] || 0) + 1;
+    }
     return out;
   }
 
@@ -341,57 +394,61 @@ export class ProjectDispatchQueue {
       return this.enqueue(task);
     }
     const nonce = Math.random().toString(36).slice(2, 8);
+    const envPart = normalizedEnvironmentSegment(queueEnvironmentIdFromPayload(task.payload));
     const full: DispatchQueueTask = {
       ...task,
-      taskId: `${task.projectId}:${task.agentSlug}:${Date.now().toString(36)}:${nonce}`,
+      taskId: `${task.projectId}:${envPart}:${task.agentSlug}:${Date.now().toString(36)}:${nonce}`,
       enqueuedAt: Date.now(),
     };
     const redis = getRedisClient();
     const serialized = JSON.stringify(full);
-    const zkey = redisQueueKey(full.projectId, full.agentSlug);
+    const zkey = redisQueueKeyForScope(full.projectId, full.agentSlug, queueEnvironmentIdFromPayload(full.payload));
     const score = redisPriorityScore(full);
     await redis.multi().hset(REDIS_TASK_HASH_KEY, full.taskId, serialized).zadd(zkey, score, full.taskId).exec();
     return full;
   }
 
-  static async pickupAsync(projectId: string, agentSlug: string): Promise<DispatchQueueTask | null> {
+  static async pickupAsync(projectId: string, agentSlug: string, options?: { environmentId?: string }): Promise<DispatchQueueTask | null> {
+    const expectedEnvironmentId = String(options?.environmentId || '').trim();
     if (!useRedisSharedQueue()) {
-      return this.pickup(projectId, agentSlug);
+      return this.pickup(projectId, agentSlug, options);
     }
     const redis = getRedisClient();
-    const zkey = redisQueueKey(projectId, agentSlug);
-    const payload = (await redis.eval(
-      `
-      local zkey = KEYS[1]
-      local hkey = KEYS[2]
-      local ids = redis.call('ZRANGE', zkey, 0, 0)
-      if #ids == 0 then
-        return nil
-      end
-      local id = ids[1]
-      if redis.call('ZREM', zkey, id) == 1 then
-        local data = redis.call('HGET', hkey, id)
-        if data then
-          redis.call('HDEL', hkey, id)
-          return data
-        end
-      end
-      return nil
-      `,
-      2,
-      zkey,
-      REDIS_TASK_HASH_KEY,
-    )) as string | null;
-    if (!payload) return null;
-    const parsed = safeJson(payload);
-    if (!parsed || typeof parsed !== 'object') return null;
-    return parsed as DispatchQueueTask;
+    const zkey = redisQueueKeyForScope(projectId, agentSlug, expectedEnvironmentId);
+    const ids = (await redis.zrange(zkey, 0, 50)) || [];
+    for (const id of ids) {
+      const payload = await redis.hget(REDIS_TASK_HASH_KEY, id);
+      if (!payload) {
+        await redis.zrem(zkey, id);
+        continue;
+      }
+      const parsed = safeJson(payload);
+      if (!parsed || typeof parsed !== 'object') {
+        await redis.multi().zrem(zkey, id).hdel(REDIS_TASK_HASH_KEY, id).exec();
+        continue;
+      }
+      const task = parsed as DispatchQueueTask;
+      const taskEnvironmentId = String((task.payload as any)?.environmentId || '').trim();
+      if (expectedEnvironmentId && taskEnvironmentId && taskEnvironmentId !== expectedEnvironmentId) {
+        continue;
+      }
+      const removed = await redis.zrem(zkey, id);
+      if (Number(removed || 0) !== 1) continue;
+      await redis.hdel(REDIS_TASK_HASH_KEY, id);
+      return task;
+    }
+    return null;
   }
 
-  static async pickupForWorkerAsync(projectId: string, agentSlug: string, workerId: string): Promise<DispatchQueueTask | null> {
+  static async pickupForWorkerAsync(
+    projectId: string,
+    agentSlug: string,
+    workerId: string,
+    options?: { environmentId?: string },
+  ): Promise<DispatchQueueTask | null> {
     const worker = String(workerId || '').trim();
     if (!worker) return null;
-    const next = await this.pickupAsync(projectId, agentSlug);
+    const next = await this.pickupAsync(projectId, agentSlug, options);
     if (!next) return null;
     return {
       ...next,
@@ -404,17 +461,18 @@ export class ProjectDispatchQueue {
     };
   }
 
-  static async depthAsync(projectId: string, agentSlug?: string): Promise<number> {
+  static async depthAsync(projectId: string, agentSlug?: string, options?: { environmentId?: string }): Promise<number> {
+    const expectedEnvironmentId = String(options?.environmentId || '').trim();
     if (!useRedisSharedQueue()) {
-      return this.depth(projectId, agentSlug);
+      return this.depth(projectId, agentSlug, options);
     }
     const redis = getRedisClient();
     if (agentSlug) {
-      return Number(await redis.zcard(redisQueueKey(projectId, agentSlug)));
+      return Number(await redis.zcard(redisQueueKeyForScope(projectId, agentSlug, expectedEnvironmentId)));
     }
     let total = 0;
     let cursor = '0';
-    const match = `${REDIS_QUEUE_KEY_PREFIX}:${projectId}:*`;
+    const match = `${REDIS_QUEUE_KEY_PREFIX}:${projectId}:${expectedEnvironmentId ? normalizedEnvironmentSegment(expectedEnvironmentId) : '*'}:*`;
     do {
       const reply = await redis.scan(cursor, 'MATCH', match, 'COUNT', 200);
       cursor = String(reply[0] || '0');
@@ -449,14 +507,17 @@ export class ProjectDispatchQueue {
     return out.sort((a, b) => Number(a.enqueuedAt || 0) - Number(b.enqueuedAt || 0));
   }
 
-  static async snapshotAsync(projectId?: string): Promise<Record<string, number>> {
+  static async snapshotAsync(projectId?: string, options?: { environmentId?: string }): Promise<Record<string, number>> {
+    const expectedEnvironmentId = String(options?.environmentId || '').trim();
     if (!useRedisSharedQueue()) {
-      return this.snapshot(projectId);
+      return this.snapshot(projectId, options);
     }
     const tasks = await this.listTasksAsync(projectId);
     const out: Record<string, number> = {};
     for (const task of tasks) {
-      const key = `${task.projectId}:${task.agentSlug}`;
+      const env = queueEnvironmentIdFromPayload(task.payload);
+      if (expectedEnvironmentId && env !== expectedEnvironmentId) continue;
+      const key = queueMetricKey(task);
       out[key] = Number(out[key] || 0) + 1;
     }
     return out;
@@ -481,7 +542,7 @@ export class ProjectDispatchQueue {
     const redis = getRedisClient();
     await redis
       .multi()
-      .zrem(redisQueueKey(task.projectId, task.agentSlug), task.taskId)
+      .zrem(redisQueueKeyForScope(task.projectId, task.agentSlug, queueEnvironmentIdFromPayload(task.payload)), task.taskId)
       .hdel(REDIS_TASK_HASH_KEY, task.taskId)
       .exec();
 
@@ -539,7 +600,11 @@ export class ProjectDispatchQueue {
     const task = await this.getTaskByIdAsync(projectId, taskId);
     if (!task) return null;
     const redis = getRedisClient();
-    await redis.multi().zrem(redisQueueKey(task.projectId, task.agentSlug), task.taskId).hdel(REDIS_TASK_HASH_KEY, task.taskId).exec();
+    await redis
+      .multi()
+      .zrem(redisQueueKeyForScope(task.projectId, task.agentSlug, queueEnvironmentIdFromPayload(task.payload)), task.taskId)
+      .hdel(REDIS_TASK_HASH_KEY, task.taskId)
+      .exec();
     return {
       ...task,
       payload: {
@@ -577,7 +642,11 @@ export class ProjectDispatchQueue {
     await redis
       .multi()
       .hset(REDIS_TASK_HASH_KEY, task.taskId, JSON.stringify(updated))
-      .zadd(redisQueueKey(task.projectId, task.agentSlug), redisPriorityScore(updated), task.taskId)
+      .zadd(
+        redisQueueKeyForScope(task.projectId, task.agentSlug, queueEnvironmentIdFromPayload(task.payload)),
+        redisPriorityScore(updated),
+        task.taskId,
+      )
       .exec();
     return updated;
   }

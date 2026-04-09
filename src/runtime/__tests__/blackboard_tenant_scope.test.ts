@@ -61,4 +61,35 @@ describe('BlackboardService tenant/workspace scoping', () => {
     expect(ctxA.memory.sharedFacts.owner.value).toBe('A');
     expect(ctxB.memory.sharedFacts.owner.value).toBe('B');
   });
+
+  it('isolates facts by environment namespace within same tenant/workspace/project', async () => {
+    const envA = {
+      tenantId: 'tenant-A',
+      workspaceId: 'ws-1',
+      projectId: 'proj-1',
+      environmentId: 'env-A',
+      chainId: 'chain-1',
+      runId: 'run-1',
+    };
+    const envB = {
+      tenantId: 'tenant-A',
+      workspaceId: 'ws-1',
+      projectId: 'proj-1',
+      environmentId: 'env-B',
+      chainId: 'chain-1',
+      runId: 'run-1',
+    };
+
+    await BlackboardService.publishFact(envA, 'owner', { value: 'A' }, 'run');
+    await BlackboardService.publishFact(envB, 'owner', { value: 'B' }, 'run');
+
+    const ctxA: any = { ...envA, artifacts: { priorOutputs: [] }, memory: { sharedFacts: {}, runDecisions: {}, threadHistory: [] } };
+    const ctxB: any = { ...envB, artifacts: { priorOutputs: [] }, memory: { sharedFacts: {}, runDecisions: {}, threadHistory: [] } };
+
+    await BlackboardService.hydrate(ctxA);
+    await BlackboardService.hydrate(ctxB);
+
+    expect(ctxA.memory.sharedFacts.owner.value).toBe('A');
+    expect(ctxB.memory.sharedFacts.owner.value).toBe('B');
+  });
 });

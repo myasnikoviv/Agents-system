@@ -3,10 +3,13 @@ import path from 'path';
 import Database from 'better-sqlite3';
 import { buildAgentIdentity, assertWorkerProjectIsolation } from '../identity/AgentIdentity';
 import { WorkerLifecycleState, applyLifecycleTransition } from './WorkerLifecycleStateMachine';
+import { resolveWorkerHeatMode } from './EnvironmentWorkerHeatPolicy';
+import { resolveRuntimeInfrastructureProfile } from '../infrastructure/RuntimeInfrastructureProfile';
 import { getRedisClient } from '../redisClient';
 
 export interface RuntimeWorkerRecord {
   projectId: string;
+  environmentId?: string;
   agentSlug: string;
   workerId: string;
   identityKey: string;
@@ -24,6 +27,7 @@ export interface RuntimeWorkerRecord {
   successfulTaskCount: number;
   failedTaskCount: number;
   retryTaskCount: number;
+  heatMode?: 'hot' | 'cold';
   lastActivationAt?: number;
   lastStandbyAt?: number;
   assignedTask?: {
@@ -39,6 +43,7 @@ export interface RuntimeWorkerRecord {
 export interface EnsureWorkerInput {
   runId: string;
   projectId: string;
+  environmentId?: string;
   chainId: string;
   agentSlug: string;
   workerId?: string;
@@ -56,7 +61,6 @@ export interface EnsureWorkerResult {
 export type WorkerControlAction = 'pause' | 'resume' | 'restart' | 'kill';
 
 let db: Database.Database | null = null;
-const SHARED_WORKER_BACKEND = String(process.env.RUNTIME_SHARED_WORKER_STATE_BACKEND || '').trim().toLowerCase();
 const SHARED_WORKER_POOL_HASH = 'runtime:worker:pool';
 const SHARED_WORKER_LOCK_PREFIX = 'runtime:worker:lock';
 
@@ -92,11 +96,17 @@ function cfg() {
     maxWorkersPerProject: Math.max(1, Number(process.env.RUNTIME_MAX_WORKERS_PER_PROJECT || 6)),
     maxWorkersGlobal: Math.max(1, Number(process.env.RUNTIME_MAX_WORKERS_GLOBAL || 24)),
     idleTimeoutMs: Math.max(1000, Number(process.env.RUNTIME_WORKER_IDLE_TIMEOUT_MS || 120000)),
+    hotDemotionIdleTimeoutMs: Math.max(1000, Number(process.env.RUNTIME_HOT_DEMOTION_IDLE_TIMEOUT_MS || 60000)),
   };
 }
 
-function keyOf(projectId: string, agentSlug: string): string {
-  return `${projectId}:${agentSlug}`;
+function normalizeEnvironmentId(value?: string): string {
+  const normalized = String(value || '').trim();
+  return normalized || 'env:global';
+}
+
+function keyOf(projectId: string, agentSlug: string, environmentId?: string): string {
+  return `${projectId}:${normalizeEnvironmentId(environmentId)}:${agentSlug}`;
 }
 
 function safeJsonParse(raw: string): any {
@@ -169,7 +179,7 @@ function poolClear(): void {
 }
 
 function useSharedWorkerState(): boolean {
-  return SHARED_WORKER_BACKEND === 'redis';
+  return resolveRuntimeInfrastructureProfile().sharedWorkerStateBackend === 'redis';
 }
 
 async function sharedPoolGet(key: string): Promise<RuntimeWorkerRecord | null> {
@@ -272,9 +282,10 @@ export class DynamicWorkerSpawnManager {
     projectId: string,
     agentSlug?: string,
     workerId?: string,
+    environmentId?: string,
   ): { key: string; record: RuntimeWorkerRecord } | null {
     if (agentSlug) {
-      const directKey = keyOf(projectId, agentSlug);
+      const directKey = keyOf(projectId, agentSlug, environmentId);
       const direct = poolGet(directKey);
       if (!direct) return null;
       if (workerId && direct.workerId !== workerId) return null;
@@ -364,8 +375,8 @@ export class DynamicWorkerSpawnManager {
     }
     this.onTransition(record, from, transition.to, Date.now());
     record.state = transition.to;
-    poolSet(keyOf(record.projectId, record.agentSlug), record);
-    await sharedPoolSet(keyOf(record.projectId, record.agentSlug), record);
+    poolSet(keyOf(record.projectId, record.agentSlug, record.environmentId), record);
+    await sharedPoolSet(keyOf(record.projectId, record.agentSlug, record.environmentId), record);
     if (emitEvents) {
       await emitRuntimeEvent({
         type: 'worker.state_changed',
@@ -389,7 +400,7 @@ export class DynamicWorkerSpawnManager {
       throw new Error(`project_paused:${projectId}`);
     }
     const agentSlug = String(input.agentSlug || 'system-core').trim() || 'system-core';
-    const key = keyOf(projectId, agentSlug);
+    const key = keyOf(projectId, agentSlug, input.environmentId);
     const lock = await acquireWorkerLock(key);
     if (!lock.acquired) {
       throw new Error(`worker_lock_busy:${key}`);
@@ -402,6 +413,9 @@ export class DynamicWorkerSpawnManager {
       const existing = sharedExisting || poolGet(key);
 
       if (existing) {
+        if (normalizeEnvironmentId(existing.environmentId) !== normalizeEnvironmentId(input.environmentId)) {
+          throw new Error(`worker_environment_mismatch:${existing.workerId}`);
+        }
         if (existing.manuallyPaused) {
           throw new Error(`worker_paused:${existing.workerId}`);
         }
@@ -487,6 +501,7 @@ export class DynamicWorkerSpawnManager {
 
       const record: RuntimeWorkerRecord = {
       projectId,
+      ...(input.environmentId ? { environmentId: String(input.environmentId) } : {}),
       agentSlug,
       workerId: identity.workerId,
       identityKey: identity.identityKey,
@@ -504,6 +519,7 @@ export class DynamicWorkerSpawnManager {
       successfulTaskCount: 0,
       failedTaskCount: 0,
       retryTaskCount: Number(input.retryCount || 0),
+      heatMode: resolveWorkerHeatMode(agentSlug),
       assignedTask: {
         taskId: String(input.taskId || `${input.projectId}:${input.agentSlug}:${input.runId}`),
         stageId: input.stageId,
@@ -549,7 +565,7 @@ export class DynamicWorkerSpawnManager {
     const emitEvents = options?.emitEvents !== false;
     const projectId = String(input.projectId || 'default').trim() || 'default';
     const agentSlug = String(input.agentSlug || 'system-core').trim() || 'system-core';
-    const key = keyOf(projectId, agentSlug);
+    const key = keyOf(projectId, agentSlug, input.environmentId);
     const record = poolGet(key);
     if (!record) return;
     await this.transitionState(record, 'idle', input, emitEvents);
@@ -564,7 +580,7 @@ export class DynamicWorkerSpawnManager {
     const emitEvents = options?.emitEvents !== false;
     const projectId = String(input.projectId || 'default').trim() || 'default';
     const agentSlug = String(input.agentSlug || 'system-core').trim() || 'system-core';
-    const key = keyOf(projectId, agentSlug);
+    const key = keyOf(projectId, agentSlug, input.environmentId);
     const record = poolGet(key);
     if (!record) return;
     record.lastHeartbeatAt = Date.now();
@@ -591,7 +607,7 @@ export class DynamicWorkerSpawnManager {
     const emitEvents = options?.emitEvents !== false;
     const projectId = String(input.projectId || 'default').trim() || 'default';
     const agentSlug = String(input.agentSlug || 'system-core').trim() || 'system-core';
-    const key = keyOf(projectId, agentSlug);
+    const key = keyOf(projectId, agentSlug, input.environmentId);
     const record = poolGet(key);
     if (!record) return;
     await this.transitionState(record, 'failed', input, emitEvents);
@@ -618,15 +634,18 @@ export class DynamicWorkerSpawnManager {
 
   static pruneIdleWorkers(input?: {
     projectId?: string;
+    environmentId?: string;
     now?: number;
     idleTimeoutMs?: number;
   }): { removed: number; keys: string[] } {
     const projectId = String(input?.projectId || '').trim();
+    const environmentId = String(input?.environmentId || '').trim();
     const now = Number(input?.now || Date.now());
     const idleTimeoutMs = Math.max(1000, Number(input?.idleTimeoutMs || cfg().idleTimeoutMs));
     const removed: string[] = [];
     for (const [key, worker] of poolEntries()) {
       if (projectId && worker.projectId !== projectId) continue;
+      if (environmentId && String(worker.environmentId || '').trim() !== environmentId) continue;
       if (worker.state === 'active' || worker.state === 'starting') continue;
       const idleForMs = now - Number(worker.lastUsedAt || worker.createdAt || now);
       if (idleForMs >= idleTimeoutMs) {
@@ -637,18 +656,90 @@ export class DynamicWorkerSpawnManager {
     return { removed: removed.length, keys: removed };
   }
 
+  static applyIdleDemotionPolicy(input?: {
+    projectId?: string;
+    environmentId?: string;
+    now?: number;
+    demotionTimeoutMs?: number;
+    evictionTimeoutMs?: number;
+  }): {
+    checked: number;
+    demoted: number;
+    evicted: number;
+    beforeCount: number;
+    afterCount: number;
+    reducedBy: number;
+  } {
+    const projectId = String(input?.projectId || '').trim();
+    const environmentId = String(input?.environmentId || '').trim();
+    const now = Number(input?.now || Date.now());
+    const demotionTimeoutMs = Math.max(1000, Number(input?.demotionTimeoutMs || cfg().hotDemotionIdleTimeoutMs));
+    const evictionTimeoutMs = Math.max(1000, Number(input?.evictionTimeoutMs || cfg().idleTimeoutMs));
+    const all = poolEntries()
+      .filter(([, worker]) => (!projectId || worker.projectId === projectId) && (!environmentId || String(worker.environmentId || '').trim() === environmentId))
+      .sort((a, b) => a[0].localeCompare(b[0]));
+    const beforeCount = all.length;
+    let checked = 0;
+    let demoted = 0;
+    let evicted = 0;
+
+    for (const [key, worker] of all) {
+      checked += 1;
+      if (worker.state === 'active' || worker.state === 'starting' || worker.state === 'failed') continue;
+      const idleForMs = now - Number(worker.lastUsedAt || worker.createdAt || now);
+
+      if (worker.state === 'idle' && String(worker.heatMode || 'cold') === 'hot' && idleForMs >= demotionTimeoutMs) {
+        const toStopping = applyLifecycleTransition(worker.state, 'stopping');
+        if (toStopping.ok) {
+          worker.state = 'stopping';
+          const toCold = applyLifecycleTransition(worker.state, 'cold');
+          if (toCold.ok) {
+            worker.state = 'cold';
+            demoted += 1;
+            poolSet(key, worker);
+          }
+        }
+      }
+
+      const reloaded = poolGet(key);
+      if (!reloaded) continue;
+      const idleAgainMs = now - Number(reloaded.lastUsedAt || reloaded.createdAt || now);
+      const evictable =
+        reloaded.state === 'cold' ||
+        (reloaded.state === 'idle' && String(reloaded.heatMode || 'cold') === 'cold');
+      if (evictable && idleAgainMs >= evictionTimeoutMs) {
+        poolDelete(key);
+        evicted += 1;
+      }
+    }
+
+    const afterCount = this.snapshot()
+      .filter((worker) => (!projectId || worker.projectId === projectId) && (!environmentId || String(worker.environmentId || '').trim() === environmentId))
+      .length;
+    return {
+      checked,
+      demoted,
+      evicted,
+      beforeCount,
+      afterCount,
+      reducedBy: Math.max(0, beforeCount - afterCount),
+    };
+  }
+
   static healthSnapshot(input?: {
     projectId?: string;
+    environmentId?: string;
     now?: number;
     heartbeatTimeoutMs?: number;
   }): Array<RuntimeWorkerRecord & { health: 'healthy' | 'stale' | 'dead'; heartbeatAgeMs: number }> {
     const projectId = String(input?.projectId || '').trim();
+    const environmentId = String(input?.environmentId || '').trim();
     const now = Number(input?.now || Date.now());
     const heartbeatTimeoutMs = Number(input?.heartbeatTimeoutMs || Number(process.env.RUNTIME_WORKER_HEARTBEAT_TIMEOUT_MS || 45000));
     const staleThresholdMs = Math.max(1000, Math.floor(heartbeatTimeoutMs / 2));
 
     return this.snapshot()
-      .filter((row) => !projectId || row.projectId === projectId)
+      .filter((row) => (!projectId || row.projectId === projectId) && (!environmentId || String(row.environmentId || '').trim() === environmentId))
       .map((row) => {
         const baseTs = Number(row.lastHeartbeatAt || row.lastUsedAt || row.createdAt || now);
         const heartbeatAgeMs = Math.max(0, now - baseTs);
@@ -660,8 +751,10 @@ export class DynamicWorkerSpawnManager {
 
   static utilizationSnapshot(input?: {
     projectId?: string;
+    environmentId?: string;
   }): Array<{
     projectId: string;
+    environmentId?: string;
     agentSlug: string;
     workerId: string;
     invocationCount: number;
@@ -677,10 +770,12 @@ export class DynamicWorkerSpawnManager {
     state: WorkerLifecycleState;
   }> {
     const projectId = String(input?.projectId || '').trim();
+    const environmentId = String(input?.environmentId || '').trim();
     return this.snapshot()
-      .filter((row) => !projectId || row.projectId === projectId)
+      .filter((row) => (!projectId || row.projectId === projectId) && (!environmentId || String(row.environmentId || '').trim() === environmentId))
       .map((row) => ({
         projectId: row.projectId,
+        ...(row.environmentId ? { environmentId: row.environmentId } : {}),
         agentSlug: row.agentSlug,
         workerId: row.workerId,
         invocationCount: Number(row.invocationCount || 0),
@@ -706,10 +801,12 @@ export class DynamicWorkerSpawnManager {
 
   static controllerContractSnapshot(input?: {
     projectId?: string;
+    environmentId?: string;
     now?: number;
     heartbeatTimeoutMs?: number;
   }): Array<{
     projectId: string;
+    environmentId?: string;
     agentSlug: string;
     workerId: string;
     enabled: boolean;
@@ -721,10 +818,12 @@ export class DynamicWorkerSpawnManager {
     assignedTask: RuntimeWorkerRecord['assignedTask'] | null;
     memoryNamespace: string;
     isPaused: boolean;
+    heatMode?: 'hot' | 'cold';
   }> {
     const rows = this.healthSnapshot(input);
     return rows.map((row) => ({
       projectId: row.projectId,
+      ...(row.environmentId ? { environmentId: row.environmentId } : {}),
       agentSlug: row.agentSlug,
       workerId: row.workerId,
       enabled: row.state !== 'failed',
@@ -736,6 +835,7 @@ export class DynamicWorkerSpawnManager {
       assignedTask: row.assignedTask || null,
       memoryNamespace: row.memoryNamespace,
       isPaused: Boolean(row.manuallyPaused),
+      heatMode: row.heatMode,
     }));
   }
 
@@ -783,7 +883,7 @@ export class DynamicWorkerSpawnManager {
   }): Promise<{ ok: true; worker?: RuntimeWorkerRecord; removed?: boolean } | { ok: false; reason: string }> {
     const projectId = String(input.projectId || 'default').trim() || 'default';
     const action = String(input.action || '').trim() as WorkerControlAction;
-    const found = this.findWorker(projectId, input.agentSlug, input.workerId);
+    const found = this.findWorker(projectId, input.agentSlug, input.workerId, input.environmentId);
     if (!found) return { ok: false, reason: 'worker_not_found' };
     const { key, record } = found;
 

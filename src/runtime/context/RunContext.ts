@@ -39,6 +39,7 @@ export interface RunContext {
   projectId: string;
   tenantId?: string;
   workspaceId?: string;
+  environmentId?: string;
   workspacePath: string;
 
   executionTarget: 'codex-cli' | 'claude-cli' | 'openhands' | 'langchain';
@@ -244,6 +245,7 @@ export class RunContextAssembler {
       tenantId: memory.tenantId,
       workspaceId: memory.workspaceId,
       projectId: ctx.projectId,
+      environmentId: memory.environmentId,
       runId: ctx.runId,
       agentSlug: ctx.agent.slug,
     });
@@ -254,6 +256,7 @@ export class RunContextAssembler {
     }
     ctx.tenantId = tenancy.tenantId;
     ctx.workspaceId = tenancy.workspaceId;
+    ctx.environmentId = tenancy.environmentId;
 
     await BlackboardService.hydrate(ctx);
     return ctx;

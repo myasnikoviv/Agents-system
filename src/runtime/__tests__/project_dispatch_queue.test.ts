@@ -188,13 +188,39 @@ describe('ProjectDispatchQueue', () => {
       agentSlug: 'developer',
       payload: { source: 'async-test' },
     });
-    expect(queued.taskId).toContain('proj-a:developer:');
+    expect(queued.taskId).toContain('proj-a:env-global:developer:');
     expect(await ProjectDispatchQueue.depthAsync('proj-a', 'developer')).toBe(1);
 
     const pulled = await ProjectDispatchQueue.pickupForWorkerAsync('proj-a', 'developer', 'worker-1');
     expect(pulled?.taskId).toBe(queued.taskId);
     expect((pulled?.payload as any)?.pulledByWorkerId).toBe('worker-1');
     expect(await ProjectDispatchQueue.depthAsync('proj-a', 'developer')).toBe(0);
+  });
+
+  it('filters worker pickup by environmentId', async () => {
+    await ProjectDispatchQueue.enqueueAsync({
+      runId: 'r11-env-a',
+      projectId: 'proj-a',
+      chainId: 'c11-env-a',
+      pipelineId: 'feature-change',
+      stageId: 'dev',
+      agentSlug: 'developer',
+      payload: { environmentId: 'env-a' },
+    });
+    await ProjectDispatchQueue.enqueueAsync({
+      runId: 'r11-env-b',
+      projectId: 'proj-a',
+      chainId: 'c11-env-b',
+      pipelineId: 'feature-change',
+      stageId: 'dev',
+      agentSlug: 'developer',
+      payload: { environmentId: 'env-b' },
+    });
+    const pulled = await ProjectDispatchQueue.pickupForWorkerAsync('proj-a', 'developer', 'worker-env-a', {
+      environmentId: 'env-a',
+    });
+    expect((pulled?.payload as any)?.environmentId).toBe('env-a');
+    expect(await ProjectDispatchQueue.depthAsync('proj-a', 'developer')).toBe(1);
   });
 
   it('supports async control APIs with sqlite fallback', async () => {
@@ -234,7 +260,7 @@ describe('ProjectDispatchQueue', () => {
     const listed = await ProjectDispatchQueue.listTasksAsync('proj-a');
     expect(listed.length).toBeGreaterThanOrEqual(2);
     const snap = await ProjectDispatchQueue.snapshotAsync('proj-a');
-    expect(Number(snap['proj-a:developer'] || 0)).toBeGreaterThanOrEqual(2);
+    expect(Number(snap['proj-a:env-global:developer'] || 0)).toBeGreaterThanOrEqual(2);
 
     const cancelled = await ProjectDispatchQueue.cancelTaskAsync({
       projectId: 'proj-a',
