@@ -9,6 +9,7 @@ import Database from 'better-sqlite3';
 import { v4 as uuidv4 } from 'uuid';
 import { PostgresControlPlaneStore } from './storage/PostgresControlPlaneStore';
 import { SqliteObjectStorageService } from './storage/ObjectStorageService';
+import { SqliteSecretsStore } from './storage/SecretsStore';
 import { executeRuntimeRun, resumeRuntimeRun } from '../runtime/graphs/RuntimeExecutionRouter';
 import { detectLanguage } from '../runtime/LanguageDetection';
 import { fetchRecentEvents } from '../runtime/events/EventBus';
@@ -306,6 +307,7 @@ const normalizeProjectKey = (value: string): string =>
 
 const AUTH_SESSION_TTL_HOURS = Math.max(1, Number(process.env.AUTH_SESSION_TTL_HOURS || 24));
 const AUTH_SECRET = String(process.env.AUTH_SECRET || 'agent-system-dev-secret');
+const secretsStore = new SqliteSecretsStore(runtimeDb, AUTH_SECRET);
 
 const hashPassword = (raw: string): string =>
   crypto.createHash('sha256').update(`${AUTH_SECRET}:${String(raw || '')}`).digest('hex');
@@ -593,10 +595,27 @@ const restoreRuntimeStore = () => {
   }
 };
 
-const syncExecutorSettingsToRuntimeConfig = (executorSettings: Record<string, any>) => {
+const syncExecutorSettingsToRuntimeConfig = (
+  executorSettings: Record<string, any>,
+  auth?: { tenantId: string; workspaceId: string },
+) => {
   try {
     const current = getCockpitExecutorConfig();
     const backend = String(executorSettings.backend || current.backend) as 'claude-cli' | 'codex-cli' | 'openhands-sdk';
+    const scopedOpenhandsApiKeys: Record<string, string> = {};
+    if (auth?.tenantId && auth?.workspaceId) {
+      for (const row of secretsStore.listMeta({ tenantId: auth.tenantId, workspaceId: auth.workspaceId })) {
+        if (!row.key.startsWith('openhands.apiKeys.')) continue;
+        const provider = row.key.replace('openhands.apiKeys.', '').trim();
+        if (!provider) continue;
+        const value = secretsStore.getValue({
+          tenantId: auth.tenantId,
+          workspaceId: auth.workspaceId,
+          key: row.key,
+        });
+        if (value) scopedOpenhandsApiKeys[provider] = value;
+      }
+    }
     updateCockpitExecutorConfig({
       backend,
       claude: {
@@ -612,7 +631,7 @@ const syncExecutorSettingsToRuntimeConfig = (executorSettings: Record<string, an
         ...(executorSettings.openhands || {}),
         apiKeys: {
           ...current.openhands.apiKeys,
-          ...(executorSettings.openhands?.apiKeys || {}),
+          ...scopedOpenhandsApiKeys,
         },
       },
     });
@@ -2908,7 +2927,8 @@ app.post('/api/cockpit/providers/test-message', async (req, res) => {
 });
 
 app.post('/api/cockpit/providers/select', (req, res) => {
-  if (!requireRole(req, res, 'admin')) return;
+  const auth = requireRole(req, res, 'admin');
+  if (!auth) return;
   const requestedProvider = String(req.body?.provider || runtimeSelection.provider);
   const model = String(req.body?.model || runtimeSelection.model);
   const provider: RuntimeProvider = isRuntimeProvider(requestedProvider) ? requestedProvider : 'codex-cli';
@@ -2923,23 +2943,56 @@ app.post('/api/cockpit/providers/select', (req, res) => {
   if (provider === 'openhands-sdk') executor.openhands = { ...(executor.openhands || {}), model };
   settingsStore.set('executor', executor);
   persistSettingsStore();
-  syncExecutorSettingsToRuntimeConfig(executor);
+  syncExecutorSettingsToRuntimeConfig(executor, auth);
 
   res.json({ success: true, runtimeSelection });
 });
 
 app.get('/api/cockpit/settings/:section', (req, res) => {
-  const section = req.params.section;
+  const auth = getAuthContext(req);
+  if (!auth) return res.status(401).json({ success: false, error: 'unauthorized' });
+  const section = String(req.params.section || '').trim().toLowerCase();
+  const current = settingsStore.get(section) || {};
+  if (section === 'executor' && current && typeof current === 'object') {
+    const cloned = JSON.parse(JSON.stringify(current));
+    if (cloned?.openhands?.apiKeys && typeof cloned.openhands.apiKeys === 'object') {
+      const masked: Record<string, string> = {};
+      for (const provider of Object.keys(cloned.openhands.apiKeys)) masked[provider] = '***';
+      cloned.openhands.apiKeys = masked;
+    }
+    return res.json({ success: true, settings: cloned });
+  }
   res.json({
     success: true,
-    settings: settingsStore.get(section) || {},
+    settings: current,
   });
 });
 
 app.post('/api/cockpit/settings/:section', (req, res) => {
-  if (!requireRole(req, res, 'admin')) return;
-  const section = req.params.section;
-  const settings = req.body || {};
+  const auth = requireRole(req, res, 'admin');
+  if (!auth) return;
+  const section = String(req.params.section || '').trim().toLowerCase();
+  const settings = (req.body && typeof req.body === 'object') ? req.body : {};
+  if (section === 'executor' && settings.openhands && typeof settings.openhands === 'object') {
+    const providedApiKeys = settings.openhands.apiKeys && typeof settings.openhands.apiKeys === 'object'
+      ? settings.openhands.apiKeys
+      : {};
+    for (const [provider, rawKey] of Object.entries(providedApiKeys)) {
+      const value = String(rawKey || '').trim();
+      if (!value) continue;
+      secretsStore.upsert({
+        tenantId: auth.tenantId,
+        workspaceId: auth.workspaceId,
+        key: `openhands.apiKeys.${provider}`,
+        value,
+        createdBy: auth.userId,
+      });
+    }
+    settings.openhands = {
+      ...settings.openhands,
+      apiKeys: Object.fromEntries(Object.keys(providedApiKeys).map((provider) => [provider, '***'])),
+    };
+  }
   settingsStore.set(section, settings);
   persistSettingsStore();
 
@@ -2950,11 +3003,63 @@ app.post('/api/cockpit/settings/:section', (req, res) => {
       saveRuntimeState('runtime_selection', runtimeSelection);
     }
     if (settings && typeof settings === 'object') {
-      syncExecutorSettingsToRuntimeConfig(settings as Record<string, any>);
+      syncExecutorSettingsToRuntimeConfig(settings as Record<string, any>, auth);
     }
   }
 
   res.json({ success: true, settings });
+});
+
+app.get('/api/cockpit/secrets', (req, res) => {
+  const auth = requireRole(req, res, 'admin');
+  if (!auth) return;
+  const items = secretsStore.listMeta({ tenantId: auth.tenantId, workspaceId: auth.workspaceId });
+  res.json({ success: true, items });
+});
+
+app.post('/api/cockpit/secrets', (req, res) => {
+  const auth = requireRole(req, res, 'admin');
+  if (!auth) return;
+  const key = String(req.body?.key || '').trim();
+  const value = String(req.body?.value || '').trim();
+  if (!key || !value) {
+    return res.status(400).json({ success: false, error: 'key_and_value_required' });
+  }
+  const saved = secretsStore.upsert({
+    tenantId: auth.tenantId,
+    workspaceId: auth.workspaceId,
+    key,
+    value,
+    createdBy: auth.userId,
+  });
+  appendControlActionAudit({
+    action: 'cockpit.secrets.upsert',
+    actorId: auth.userId,
+    target: { key },
+    result: { tenantId: auth.tenantId, workspaceId: auth.workspaceId },
+  });
+  res.json({ success: true, secret: saved });
+});
+
+app.delete('/api/cockpit/secrets/:key', (req, res) => {
+  const auth = requireRole(req, res, 'admin');
+  if (!auth) return;
+  const key = String(req.params.key || '').trim();
+  if (!key) {
+    return res.status(400).json({ success: false, error: 'key_required' });
+  }
+  const deleted = secretsStore.delete({
+    tenantId: auth.tenantId,
+    workspaceId: auth.workspaceId,
+    key,
+  });
+  appendControlActionAudit({
+    action: 'cockpit.secrets.delete',
+    actorId: auth.userId,
+    target: { key },
+    result: { deleted },
+  });
+  res.json({ success: true, deleted });
 });
 
 app.post('/api/auth/login', (req, res) => {
