@@ -53,5 +53,14 @@ Extract telemetry and audit HTTP handlers from `src/server/agentSystemBackend.ts
 3. Added DI registration in backend composition root via `registerChainProjectRoutes(app, deps)`.
 
 ## Next Slice
-- Extract secrets/attachments/storage-related endpoints into dedicated module.
+## Slice 4 (Secrets Management)
+1. Added route module: `src/server/routes/secretsRoutes.ts`.
+2. Moved handlers to module:
+   - `GET /api/cockpit/secrets`
+   - `POST /api/cockpit/secrets`
+   - `DELETE /api/cockpit/secrets/:key`
+3. Added DI registration in backend composition root via `registerSecretsRoutes(app, deps)`.
+
+## Next Slice
+- Extract attachments/storage-related endpoints into dedicated module.
 - Continue reducing `agentSystemBackend.ts` to composition root + domain wiring.
