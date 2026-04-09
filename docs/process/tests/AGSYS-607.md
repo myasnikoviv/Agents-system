@@ -10,6 +10,7 @@ Backend decomposition slices for:
 2. providers/settings/runtime-config routes extraction.
 3. chains/projects/plane-binding routes extraction.
 4. secrets management routes extraction.
+5. attachments/object-storage routes extraction.
 
 ## Commands
 1. `npm run test:scenarios`
