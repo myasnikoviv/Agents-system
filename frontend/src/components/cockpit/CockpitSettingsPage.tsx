@@ -585,7 +585,7 @@ export function CockpitSettingsPage() {
     if (currentSection !== 'governance') return;
     const loadPolicy = async () => {
       try {
-        const res = await fetch(apiUrl(`/api/projects/${encodeURIComponent(governanceProjectId)}/policy`));
+        const res = await fetch(apiUrl(`/api/governance/projects/${encodeURIComponent(governanceProjectId)}/policy`));
         const data = await res.json();
         if (!data?.success || !data.policy) throw new Error(data?.message || 'failed_to_load_policy');
         setProjectPolicy(data.policy as ProjectPolicyState);
@@ -1264,7 +1264,7 @@ export function CockpitSettingsPage() {
           ...(thresholds && typeof thresholds === 'object' ? { thresholds } : {}),
         },
       };
-      const res = await fetch(apiUrl(`/api/projects/${encodeURIComponent(governanceProjectId)}/policy`), {
+      const res = await fetch(apiUrl(`/api/governance/projects/${encodeURIComponent(governanceProjectId)}/policy`), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ruleOverrides: nextOverrides }),
@@ -1404,7 +1404,7 @@ export function CockpitSettingsPage() {
 
   const forceLoopRun = async (loopId: string) => {
     try {
-      const res = await fetch(apiUrl('/api/cockpit/governance/loops/force'), {
+      const res = await fetch(apiUrl('/api/governance/loops/force'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ loopId, projectId: governanceProjectId }),

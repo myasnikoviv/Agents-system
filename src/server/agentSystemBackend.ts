@@ -2386,7 +2386,7 @@ app.post('/api/cockpit/swarm/projects/control', async (req, res) => {
   }
 });
 
-app.get('/api/cockpit/governance/overrides', async (req, res) => {
+app.get('/api/governance/overrides', async (req, res) => {
   try {
     const projectId = String(req.query?.projectId || '').trim();
     const { listManualOverrides } = await import('../runtime/governance/ManualOverrideRegistry');
@@ -2397,7 +2397,7 @@ app.get('/api/cockpit/governance/overrides', async (req, res) => {
   }
 });
 
-app.post('/api/cockpit/governance/overrides', async (req, res) => {
+app.post('/api/governance/overrides', async (req, res) => {
   if (!requireRole(req, res, 'admin')) return;
   try {
     const projectId = String(req.body?.projectId || '').trim();
@@ -2444,7 +2444,7 @@ app.post('/api/cockpit/governance/overrides', async (req, res) => {
   }
 });
 
-app.post('/api/cockpit/governance/loops/force', async (req, res) => {
+app.post('/api/governance/loops/force', async (req, res) => {
   if (!requireRole(req, res, 'admin')) return;
   try {
     const loopType = String(req.body?.loopType || '').trim() as 'improvement' | 'validation';
@@ -2896,7 +2896,7 @@ app.post('/api/governance/evaluators/register', async (req, res) => {
   }
 });
 
-app.get('/api/projects/:projectId/policy', async (req, res) => {
+app.get('/api/governance/projects/:projectId/policy', async (req, res) => {
   try {
     const projectId = String(req.params?.projectId || '').trim();
     const { getProjectPolicy } = await import('../runtime/governance/ProjectPolicyBinding');
@@ -2918,7 +2918,7 @@ app.get('/api/governance/rules/:ruleId/history', async (req, res) => {
   }
 });
 
-app.post('/api/projects/:projectId/policy', async (req, res) => {
+app.post('/api/governance/projects/:projectId/policy', async (req, res) => {
   if (!requireRole(req, res, 'admin')) return;
   try {
     const projectId = String(req.params?.projectId || '').trim();
