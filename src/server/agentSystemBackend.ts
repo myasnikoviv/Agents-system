@@ -3729,7 +3729,6 @@ app.post('/api/chat', async (req, res) => {
   const threadId = String(req.body?.threadId || `thread_${Date.now()}`).trim();
   const projectId = String(req.body?.projectId || 'default').trim() || 'default';
   const runId = uuidv4();
-  const mode = 'multiple_agents' as const;
   const parsed = parseRuntimeDirectives(rawMessage);
   const message = parsed.cleanedMessage || rawMessage;
   const auth = requireAuthForRuntimeIfEnabled(req, res);
@@ -3781,7 +3780,6 @@ app.post('/api/chat', async (req, res) => {
         runId,
         threadId,
         status: 'initialized',
-        executionOptions: { mode },
         messages: [{ role: 'user', content: message }],
         artifactLogs: [message],
         projectId,
