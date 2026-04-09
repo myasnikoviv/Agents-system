@@ -196,4 +196,54 @@ describe('ProjectDispatchQueue', () => {
     expect((pulled?.payload as any)?.pulledByWorkerId).toBe('worker-1');
     expect(await ProjectDispatchQueue.depthAsync('proj-a', 'developer')).toBe(0);
   });
+
+  it('supports async control APIs with sqlite fallback', async () => {
+    const queued = await ProjectDispatchQueue.enqueueAsync({
+      runId: 'r12',
+      projectId: 'proj-a',
+      chainId: 'c12',
+      pipelineId: 'feature-change',
+      stageId: 'qa',
+      agentSlug: 'tdd-qa',
+      payload: { priority: 0 },
+    });
+
+    const reassigned = await ProjectDispatchQueue.reassignTaskAsync({
+      projectId: 'proj-a',
+      taskId: queued.taskId,
+      toAgentSlug: 'developer',
+      actorId: 'tester',
+    });
+    expect(reassigned?.agentSlug).toBe('developer');
+
+    const prioritized = await ProjectDispatchQueue.setTaskPriorityAsync({
+      projectId: 'proj-a',
+      taskId: String(reassigned?.taskId || ''),
+      priority: 42,
+      actorId: 'tester',
+    });
+    expect((prioritized?.payload as any)?.priority).toBe(42);
+
+    const retry = await ProjectDispatchQueue.retryTaskAsync({
+      projectId: 'proj-a',
+      taskId: String(reassigned?.taskId || ''),
+      actorId: 'tester',
+    });
+    expect(retry?.taskId).toBeTruthy();
+
+    const listed = await ProjectDispatchQueue.listTasksAsync('proj-a');
+    expect(listed.length).toBeGreaterThanOrEqual(2);
+    const snap = await ProjectDispatchQueue.snapshotAsync('proj-a');
+    expect(Number(snap['proj-a:developer'] || 0)).toBeGreaterThanOrEqual(2);
+
+    const cancelled = await ProjectDispatchQueue.cancelTaskAsync({
+      projectId: 'proj-a',
+      taskId: String(reassigned?.taskId || ''),
+      actorId: 'tester',
+    });
+    expect((cancelled?.payload as any)?.status).toBe('cancelled');
+
+    const cleared = await ProjectDispatchQueue.clearProjectAsync('proj-a');
+    expect(cleared).toBeGreaterThanOrEqual(1);
+  });
 });

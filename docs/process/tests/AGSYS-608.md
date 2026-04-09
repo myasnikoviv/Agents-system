@@ -15,6 +15,7 @@ Shared queue async path introduction and multiple-agents runtime wiring.
 - Queue/runtime targeted tests: PASS (2 suites, 14 tests).
 - Scenarios regression pack: PASS (3 suites, 10 tests).
 - Worker/runtime targeted tests after shared-state slice: PASS (`dynamic_worker_spawn_manager` + `multiple_agents_runtime`, 18 tests total).
+- Queue async control regression after cockpit alignment: PASS (`project_dispatch_queue` + `multiple_agents_runtime`, 15 tests total).
 
 ## Notes
 - Async queue test added for sqlite fallback compatibility path.

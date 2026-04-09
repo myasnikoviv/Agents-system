@@ -36,3 +36,11 @@ This creates a migration-safe bridge to multi-host dispatch semantics while pres
 3. Ensure path now reads shared worker record first (when enabled) and hydrates local pool from shared source before decision.
 
 This lowers duplicate-spawn risk across multi-host runtime nodes while preserving existing sqlite local pool behavior as compatibility fallback.
+
+## Slice 3 (Cockpit Queue API Alignment)
+1. Added full async control surface in `ProjectDispatchQueue`:
+   - `listTasksAsync`, `snapshotAsync`
+   - `reassignTaskAsync`, `retryTaskAsync`, `cancelTaskAsync`
+   - `setTaskPriorityAsync`, `clearProjectAsync`, `clearAsync`
+2. Updated cockpit queue endpoints to use async queue operations, including control actions and telemetry reads.
+3. Kept legacy sync APIs for compatibility with still-migrating call sites.
