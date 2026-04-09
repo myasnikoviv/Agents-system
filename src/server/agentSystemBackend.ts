@@ -18,6 +18,7 @@ import { DynamicDiscoveryService, AgentRegistry, PipelineRegistry, SkillRegistry
 import { runExternalExecutor } from '../runtime/ExternalExecutionAdapter';
 import { registerTelemetryRoutes } from './routes/telemetryRoutes';
 import { registerProviderSettingsRoutes } from './routes/providerSettingsRoutes';
+import { registerChainProjectRoutes } from './routes/chainProjectRoutes';
 
 dotenv.config();
 
@@ -2584,262 +2585,27 @@ app.get('/api/cockpit/storage/postgres/health', async (_req, res) => {
   });
 });
 
-app.get('/api/cockpit/chains', (_req, res) => {
-  const projects = Array.from(projectStore.values());
-  for (const project of projects) {
-    if (!planeBindingStore.has(project.id)) {
-      void syncPlaneBindingForProject(project);
-    }
-  }
-  const threadsByProject = Array.from(threadStore.entries()).reduce<Record<string, Array<{ id: string; label: string; updatedAt: string }>>>(
-    (acc, [key, value]) => {
-      acc[key] = value;
-      return acc;
-    },
-    {},
-  );
-  const planeBindings = Array.from(planeBindingStore.entries()).reduce<Record<string, any>>((acc, [key, value]) => {
-    acc[key] = value;
-    return acc;
-  }, {});
-  res.json({ success: true, projects, threadsByProject, planeBindings });
-});
-
-const buildChainsPayload = () => {
-  const projects = Array.from(projectStore.values());
-  const threadsByProject = Array.from(threadStore.entries()).reduce<Record<string, Array<{ id: string; label: string; updatedAt: string }>>>(
-    (acc, [key, value]) => {
-      acc[key] = value;
-      return acc;
-    },
-    {},
-  );
-  const planeBindings = Array.from(planeBindingStore.entries()).reduce<Record<string, any>>((acc, [key, value]) => {
-    acc[key] = value;
-    return acc;
-  }, {});
-  return { success: true, projects, threadsByProject, planeBindings };
-};
-
-app.post('/api/cockpit/chains', (req, res) => {
-  if (!requireRole(req, res, 'member')) return;
-  const projectId = String(req.body?.projectId || '').trim();
-  const projectLabel = String(req.body?.projectLabel || '').trim();
-  const worktreePath = String(req.body?.worktreePath || '').trim();
-  const agentContextPath = String(req.body?.agentContextPath || '').trim();
-  const selectedPlaneProjectId = String(req.body?.planeProjectId || '').trim();
-  const createPlaneProject = Boolean(req.body?.createPlaneProject);
-  const label = String(req.body?.label || '').trim() || `New chat ${new Date().toLocaleTimeString()}`;
-  if (!projectId) {
-    res.status(400).json({ success: false, error: 'project_id_required' });
-    return;
-  }
-
-  const creatingProject = !projectStore.has(projectId);
-  if (creatingProject) {
-    if (projectId !== '__unbound__') {
-      const validation = validateProjectWorktree(worktreePath || undefined);
-      if ('error' in validation) {
-        res.status(400).json({ success: false, error: validation.error, message: validation.message });
-        return;
-      }
-      const agentPathValidation = validateAgentContextPath(agentContextPath || undefined);
-      if ('error' in agentPathValidation) {
-        res.status(400).json({ success: false, error: agentPathValidation.error, message: agentPathValidation.message });
-        return;
-      }
-
-      if (!selectedPlaneProjectId && !createPlaneProject) {
-        res.status(400).json({
-          success: false,
-          error: 'plane_project_required',
-          message: 'Select an existing Plane project or explicitly enable new project creation.',
-        });
-        return;
-      }
-    }
-    const derivedLabel = projectId === '__unbound__' ? 'Unbound' : (projectLabel || projectId);
-    ensureProject(projectId, derivedLabel, worktreePath || undefined, agentContextPath || undefined);
-  } else if (projectLabel || worktreePath || agentContextPath) {
-    if (worktreePath) {
-      const validation = validateProjectWorktree(worktreePath);
-      if ('error' in validation) {
-        res.status(400).json({ success: false, error: validation.error, message: validation.message });
-        return;
-      }
-    }
-    if (agentContextPath) {
-      const agentPathValidation = validateAgentContextPath(agentContextPath);
-      if ('error' in agentPathValidation) {
-        res.status(400).json({ success: false, error: agentPathValidation.error, message: agentPathValidation.message });
-        return;
-      }
-    }
-    const existing = projectStore.get(projectId)!;
-    ensureProject(
-      projectId,
-      projectLabel || existing.label,
-      worktreePath || existing.worktreePath,
-      agentContextPath || existing.agentContextPath,
-    );
-  }
-  const project = projectStore.get(projectId);
-  if (project) {
-    if (creatingProject) {
-      void syncPlaneBindingForProject(project, {
-        preferredPlaneProjectId: selectedPlaneProjectId || undefined,
-        createIfMissing: createPlaneProject,
-      });
-    } else {
-      void syncPlaneBindingForProject(project);
-    }
-  }
-
-  const nextThread = {
-    id: `thread_${Date.now()}`,
-    label,
-    updatedAt: new Date().toISOString(),
-  };
-  const current = threadStore.get(projectId) || [];
-  threadStore.set(projectId, [nextThread, ...current]);
-  if (!threadMessageStore.has(nextThread.id)) {
-    threadMessageStore.set(nextThread.id, []);
-  }
-  persistRuntimeStore();
-
-  res.json({ ...buildChainsPayload(), thread: nextThread });
-});
-
-app.get('/api/cockpit/plane/projects', async (_req, res) => {
-  if (!canUsePlane()) {
-    res.json({
-      success: true,
-      configured: false,
-      projects: [],
-      message: 'Plane is not configured (PLANE_API_TOKEN / PLANE_BASE_URL / PLANE_WORKSPACE).',
-    });
-    return;
-  }
-  const projects = await fetchPlaneProjects();
-  res.json({
-    success: true,
-    configured: true,
-    projects,
-  });
-});
-
-app.delete('/api/cockpit/chains/:threadId', (req, res) => {
-  if (!requireRole(req, res, 'member')) return;
-  const threadId = String(req.params.threadId || '').trim();
-  if (!threadId) {
-    res.status(400).json({ success: false, error: 'thread_id_required' });
-    return;
-  }
-
-  let removed = false;
-  for (const [projectId, threads] of threadStore.entries()) {
-    const nextThreads = threads.filter((t) => t.id !== threadId);
-    if (nextThreads.length !== threads.length) {
-      removed = true;
-      threadStore.set(projectId, nextThreads);
-    }
-  }
-  if (removed) {
-    threadMessageStore.delete(threadId);
-    persistRuntimeStore();
-  }
-
-  res.json({ ...buildChainsPayload(), removedThreadId: threadId, removed });
-});
-
-app.delete('/api/cockpit/projects/:projectId', (req, res) => {
-  if (!requireRole(req, res, 'admin')) return;
-  const projectId = String(req.params.projectId || '').trim();
-  if (!projectId) {
-    res.status(400).json({ success: false, error: 'project_id_required' });
-    return;
-  }
-  if (!projectStore.has(projectId)) {
-    res.status(404).json({ success: false, error: 'project_not_found' });
-    return;
-  }
-  const threads = threadStore.get(projectId) || [];
-  for (const thread of threads) {
-    threadMessageStore.delete(thread.id);
-  }
-  threadStore.delete(projectId);
-  projectStore.delete(projectId);
-  planeBindingStore.delete(projectId);
-
-  persistRuntimeStore();
-  res.json({ ...buildChainsPayload(), removedProjectId: projectId, removed: true });
-});
-
-app.get('/api/cockpit/chains/:threadId/messages', (req, res) => {
-  const threadId = String(req.params.threadId || '').trim();
-  if (!threadId) {
-    res.status(400).json({ success: false, error: 'thread_id_required' });
-    return;
-  }
-  res.json({
-    success: true,
-    threadId,
-    messages: threadMessageStore.get(threadId) || [],
-  });
-});
-
-app.post('/api/cockpit/projects/select', async (req, res) => {
-  if (!requireRole(req, res, 'member')) return;
-  const projectId = String(req.body?.projectId || '').trim();
-  if (!projectId) {
-    res.status(400).json({ success: false, error: 'project_id_required' });
-    return;
-  }
-  const project = projectStore.get(projectId);
-  if (!project) {
-    res.status(404).json({ success: false, error: 'project_not_found' });
-    return;
-  }
-
-  if (project.worktreePath && project.worktreePath.trim()) {
-    const normalizedWorktree = normalizeWorktreePath(project.worktreePath) || project.worktreePath.trim();
-    const nextBranch = resolveGitBranch(normalizedWorktree);
-    runtimeFooter = {
-      ...runtimeFooter,
-      worktreePath: normalizedWorktree,
-      activeBranch: nextBranch,
-    };
-    project.worktreePath = normalizedWorktree;
-    projectStore.set(project.id, project);
-    persistRuntimeStore();
-    saveRuntimeState('runtime_footer', runtimeFooter);
-  }
-
-  const discoveryRoot = project.agentContextPath || project.worktreePath || process.cwd();
-  await refreshCatalog(discoveryRoot, { activate: true });
-  const { applyProjectSwitchRuntimePolicy } = await import('../runtime/policy/ProjectSwitchRuntimePolicy');
-  const switchPolicy = await applyProjectSwitchRuntimePolicy({
-    activeProjectId: projectId,
-    knownProjectIds: Array.from(projectStore.keys()),
-  });
-
-  res.json({ success: true, project, runtimeFooter, switchPolicy });
-});
-
-app.post('/api/cockpit/plane/sync', async (req, res) => {
-  if (!requireRole(req, res, 'admin')) return;
-  const projectId = String(req.body?.projectId || '').trim();
-  if (!projectId || !projectStore.has(projectId)) {
-    res.status(400).json({ success: false, error: 'project_not_found' });
-    return;
-  }
-  await syncPlaneBindingForProject(projectStore.get(projectId)!);
-  res.json({ success: true, binding: planeBindingStore.get(projectId) || null });
-});
-
-app.get('/api/cockpit/plane/bindings', (_req, res) => {
-  const bindings = Array.from(planeBindingStore.values());
-  res.json({ success: true, bindings });
+registerChainProjectRoutes(app, {
+  requireRole,
+  canUsePlane,
+  fetchPlaneProjects,
+  projectStore,
+  threadStore,
+  threadMessageStore,
+  planeBindingStore,
+  syncPlaneBindingForProject,
+  validateProjectWorktree,
+  validateAgentContextPath,
+  ensureProject,
+  persistRuntimeStore,
+  normalizeWorktreePath,
+  resolveGitBranch,
+  getRuntimeFooter: () => runtimeFooter,
+  setRuntimeFooter: (next) => {
+    runtimeFooter = next;
+  },
+  saveRuntimeState,
+  refreshCatalog,
 });
 
 app.get('/api/cockpit/work-scope', (_req, res) => {
