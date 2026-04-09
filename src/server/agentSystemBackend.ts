@@ -1384,7 +1384,7 @@ app.get('/api/cockpit/swarm/workers', async (_req, res) => {
       projectId: projectId || undefined,
       heartbeatTimeoutMs,
     });
-    const queueDepthByKey = ProjectDispatchQueue.snapshot(projectId || undefined);
+    const queueDepthByKey = await ProjectDispatchQueue.snapshotAsync(projectId || undefined);
     res.json({
       success: true,
       workers,
@@ -1570,7 +1570,7 @@ app.get('/api/cockpit/swarm/summary', async (_req, res) => {
       projectId: projectId || undefined,
       heartbeatTimeoutMs,
     });
-    const queueDepthByKey = ProjectDispatchQueue.snapshot(projectId || undefined);
+    const queueDepthByKey = await ProjectDispatchQueue.snapshotAsync(projectId || undefined);
     const queuePressure = Object.values(queueDepthByKey).reduce((acc, n) => acc + Number(n || 0), 0);
     const activeWorkers = workers.filter((w: any) => String(w.executionState) === 'active').length;
     const standbyWorkers = workers.filter((w: any) => String(w.executionState) === 'standby').length;
@@ -1718,8 +1718,8 @@ app.get('/api/cockpit/swarm/telemetry/aggregate', async (_req, res) => {
     const utilizationRows = DynamicWorkerSpawnManager.utilizationSnapshot({
       projectId: projectId || undefined,
     });
-    const queueTasks = ProjectDispatchQueue.listTasks(projectId || undefined);
-    const queueDepthByKey = ProjectDispatchQueue.snapshot(projectId || undefined);
+    const queueTasks = await ProjectDispatchQueue.listTasksAsync(projectId || undefined);
+    const queueDepthByKey = await ProjectDispatchQueue.snapshotAsync(projectId || undefined);
 
     const costDir = path.resolve(process.cwd(), 'docs/process/runs/cost');
     const tokenUsageByAgent: Record<string, number> = {};
@@ -1791,7 +1791,7 @@ app.get('/api/cockpit/swarm/queue/tasks', async (_req, res) => {
   try {
     const projectId = String(_req.query?.projectId || '').trim();
     const { ProjectDispatchQueue } = await import('../runtime/queue/ProjectDispatchQueue');
-    const tasks = ProjectDispatchQueue.listTasks(projectId || undefined);
+    const tasks = await ProjectDispatchQueue.listTasksAsync(projectId || undefined);
     res.json({
       success: true,
       projectId: projectId || null,
@@ -1819,12 +1819,12 @@ app.post('/api/cockpit/swarm/queue/reassign', async (req, res) => {
       return;
     }
     const { ProjectDispatchQueue } = await import('../runtime/queue/ProjectDispatchQueue');
-    const task = ProjectDispatchQueue.reassignTask({ projectId, taskId, toAgentSlug, actorId: 'cockpit-user' });
+    const task = await ProjectDispatchQueue.reassignTaskAsync({ projectId, taskId, toAgentSlug, actorId: 'cockpit-user' });
     if (!task) {
       res.status(404).json({ success: false, error: 'task_not_found', message: 'Queued task not found for reassignment' });
       return;
     }
-    res.json({ success: true, task, queueDepthByKey: ProjectDispatchQueue.snapshot(projectId), serverNow: new Date().toISOString() });
+    res.json({ success: true, task, queueDepthByKey: await ProjectDispatchQueue.snapshotAsync(projectId), serverNow: new Date().toISOString() });
     appendControlActionAudit({
       action: 'queue_reassign',
       projectId,
@@ -1847,12 +1847,12 @@ app.post('/api/cockpit/swarm/queue/retry', async (req, res) => {
       return;
     }
     const { ProjectDispatchQueue } = await import('../runtime/queue/ProjectDispatchQueue');
-    const task = ProjectDispatchQueue.retryTask({ projectId, taskId, actorId: 'cockpit-user' });
+    const task = await ProjectDispatchQueue.retryTaskAsync({ projectId, taskId, actorId: 'cockpit-user' });
     if (!task) {
       res.status(404).json({ success: false, error: 'task_not_found', message: 'Task not found for retry' });
       return;
     }
-    res.json({ success: true, task, queueDepthByKey: ProjectDispatchQueue.snapshot(projectId), serverNow: new Date().toISOString() });
+    res.json({ success: true, task, queueDepthByKey: await ProjectDispatchQueue.snapshotAsync(projectId), serverNow: new Date().toISOString() });
     appendControlActionAudit({
       action: 'queue_retry',
       projectId,
@@ -1875,12 +1875,12 @@ app.post('/api/cockpit/swarm/queue/cancel', async (req, res) => {
       return;
     }
     const { ProjectDispatchQueue } = await import('../runtime/queue/ProjectDispatchQueue');
-    const task = ProjectDispatchQueue.cancelTask({ projectId, taskId, actorId: 'cockpit-user' });
+    const task = await ProjectDispatchQueue.cancelTaskAsync({ projectId, taskId, actorId: 'cockpit-user' });
     if (!task) {
       res.status(404).json({ success: false, error: 'task_not_found', message: 'Task not found for cancel' });
       return;
     }
-    res.json({ success: true, task, queueDepthByKey: ProjectDispatchQueue.snapshot(projectId), serverNow: new Date().toISOString() });
+    res.json({ success: true, task, queueDepthByKey: await ProjectDispatchQueue.snapshotAsync(projectId), serverNow: new Date().toISOString() });
     appendControlActionAudit({
       action: 'queue_cancel',
       projectId,
@@ -1904,12 +1904,12 @@ app.post('/api/cockpit/swarm/queue/priority', async (req, res) => {
       return;
     }
     const { ProjectDispatchQueue } = await import('../runtime/queue/ProjectDispatchQueue');
-    const task = ProjectDispatchQueue.setTaskPriority({ projectId, taskId, priority, actorId: 'cockpit-user' });
+    const task = await ProjectDispatchQueue.setTaskPriorityAsync({ projectId, taskId, priority, actorId: 'cockpit-user' });
     if (!task) {
       res.status(404).json({ success: false, error: 'task_not_found', message: 'Task not found for priority override' });
       return;
     }
-    res.json({ success: true, task, queueDepthByKey: ProjectDispatchQueue.snapshot(projectId), serverNow: new Date().toISOString() });
+    res.json({ success: true, task, queueDepthByKey: await ProjectDispatchQueue.snapshotAsync(projectId), serverNow: new Date().toISOString() });
     appendControlActionAudit({
       action: 'queue_priority',
       projectId,
@@ -1954,7 +1954,7 @@ app.post('/api/cockpit/swarm/projects/control', async (req, res) => {
     } else if (action === 'resume_project') {
       DynamicWorkerSpawnManager.setProjectPaused(projectId, false);
     } else if (action === 'clear_queue') {
-      cleared = ProjectDispatchQueue.clearProject(projectId);
+      cleared = await ProjectDispatchQueue.clearProjectAsync(projectId);
     }
 
     const workers = DynamicWorkerSpawnManager.controllerContractSnapshot({ projectId });
@@ -1964,7 +1964,7 @@ app.post('/api/cockpit/swarm/projects/control', async (req, res) => {
       action,
       projectPaused: DynamicWorkerSpawnManager.isProjectPaused(projectId),
       workers,
-      queueDepthByKey: ProjectDispatchQueue.snapshot(projectId),
+      queueDepthByKey: await ProjectDispatchQueue.snapshotAsync(projectId),
       ...(action === 'clear_queue' ? { cleared } : {}),
       serverNow: new Date().toISOString(),
     });

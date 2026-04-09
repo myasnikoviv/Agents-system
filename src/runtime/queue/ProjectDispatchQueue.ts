@@ -90,6 +90,27 @@ function redisPriorityScore(task: DispatchQueueTask): number {
 }
 
 export class ProjectDispatchQueue {
+  private static async getTaskByIdAsync(projectId: string, taskId: string): Promise<DispatchQueueTask | null> {
+    if (!useRedisSharedQueue()) {
+      const db = getDb();
+      const found = db
+        .prepare(
+          `SELECT task_id, run_id, project_id, chain_id, pipeline_id, stage_id, agent_slug, payload_json, enqueued_at
+           FROM dispatch_queue WHERE project_id = ? AND task_id = ?`,
+        )
+        .get(projectId, taskId) as any;
+      return found ? rowToTask(found) : null;
+    }
+    const redis = getRedisClient();
+    const raw = await redis.hget(REDIS_TASK_HASH_KEY, taskId);
+    if (!raw) return null;
+    const parsed = safeJson(raw) as any;
+    if (!parsed || typeof parsed !== 'object') return null;
+    const task = parsed as DispatchQueueTask;
+    if (String(task.projectId || '') !== projectId) return null;
+    return task;
+  }
+
   static enqueue(task: Omit<DispatchQueueTask, 'taskId' | 'enqueuedAt'>): DispatchQueueTask {
     const nonce = Math.random().toString(36).slice(2, 8);
     const full: DispatchQueueTask = {
@@ -409,5 +430,197 @@ export class ProjectDispatchQueue {
       }
     } while (cursor !== '0');
     return total;
+  }
+
+  static async listTasksAsync(projectId?: string): Promise<DispatchQueueTask[]> {
+    if (!useRedisSharedQueue()) {
+      return this.listTasks(projectId);
+    }
+    const redis = getRedisClient();
+    const raw = await redis.hgetall(REDIS_TASK_HASH_KEY);
+    const out: DispatchQueueTask[] = [];
+    for (const value of Object.values(raw || {})) {
+      const parsed = safeJson(String(value || '')) as any;
+      if (!parsed || typeof parsed !== 'object') continue;
+      const task = parsed as DispatchQueueTask;
+      if (projectId && String(task.projectId || '') !== projectId) continue;
+      out.push(task);
+    }
+    return out.sort((a, b) => Number(a.enqueuedAt || 0) - Number(b.enqueuedAt || 0));
+  }
+
+  static async snapshotAsync(projectId?: string): Promise<Record<string, number>> {
+    if (!useRedisSharedQueue()) {
+      return this.snapshot(projectId);
+    }
+    const tasks = await this.listTasksAsync(projectId);
+    const out: Record<string, number> = {};
+    for (const task of tasks) {
+      const key = `${task.projectId}:${task.agentSlug}`;
+      out[key] = Number(out[key] || 0) + 1;
+    }
+    return out;
+  }
+
+  static async reassignTaskAsync(input: {
+    projectId: string;
+    taskId: string;
+    toAgentSlug: string;
+    actorId?: string;
+  }): Promise<DispatchQueueTask | null> {
+    if (!useRedisSharedQueue()) {
+      return this.reassignTask(input);
+    }
+    const projectId = String(input.projectId || '').trim();
+    const taskId = String(input.taskId || '').trim();
+    const toAgentSlug = String(input.toAgentSlug || '').trim();
+    if (!projectId || !taskId || !toAgentSlug) return null;
+    const task = await this.getTaskByIdAsync(projectId, taskId);
+    if (!task) return null;
+
+    const redis = getRedisClient();
+    await redis
+      .multi()
+      .zrem(redisQueueKey(task.projectId, task.agentSlug), task.taskId)
+      .hdel(REDIS_TASK_HASH_KEY, task.taskId)
+      .exec();
+
+    return this.enqueueAsync({
+      runId: task.runId,
+      projectId: task.projectId,
+      chainId: task.chainId,
+      pipelineId: task.pipelineId,
+      stageId: task.stageId,
+      agentSlug: toAgentSlug,
+      payload: {
+        ...(task.payload || {}),
+        reassignedFromAgent: task.agentSlug,
+        reassignedAt: new Date().toISOString(),
+        reassignedBy: input.actorId || 'cockpit-user',
+        reassignedFromTaskId: task.taskId,
+      },
+    });
+  }
+
+  static async retryTaskAsync(input: { projectId: string; taskId: string; actorId?: string }): Promise<DispatchQueueTask | null> {
+    if (!useRedisSharedQueue()) {
+      return this.retryTask(input);
+    }
+    const projectId = String(input.projectId || '').trim();
+    const taskId = String(input.taskId || '').trim();
+    if (!projectId || !taskId) return null;
+    const task = await this.getTaskByIdAsync(projectId, taskId);
+    if (!task) return null;
+    const retryCount = Number((task.payload as any)?.retryCount || 0) + 1;
+    return this.enqueueAsync({
+      runId: task.runId,
+      projectId: task.projectId,
+      chainId: task.chainId,
+      pipelineId: task.pipelineId,
+      stageId: task.stageId,
+      agentSlug: task.agentSlug,
+      payload: {
+        ...(task.payload || {}),
+        retryCount,
+        retryOfTaskId: task.taskId,
+        retriedAt: new Date().toISOString(),
+        retriedBy: input.actorId || 'cockpit-user',
+      },
+    });
+  }
+
+  static async cancelTaskAsync(input: { projectId: string; taskId: string; actorId?: string }): Promise<DispatchQueueTask | null> {
+    if (!useRedisSharedQueue()) {
+      return this.cancelTask(input);
+    }
+    const projectId = String(input.projectId || '').trim();
+    const taskId = String(input.taskId || '').trim();
+    if (!projectId || !taskId) return null;
+    const task = await this.getTaskByIdAsync(projectId, taskId);
+    if (!task) return null;
+    const redis = getRedisClient();
+    await redis.multi().zrem(redisQueueKey(task.projectId, task.agentSlug), task.taskId).hdel(REDIS_TASK_HASH_KEY, task.taskId).exec();
+    return {
+      ...task,
+      payload: {
+        ...(task.payload || {}),
+        status: 'cancelled',
+        cancelledAt: new Date().toISOString(),
+        cancelledBy: input.actorId || 'cockpit-user',
+      },
+    };
+  }
+
+  static async setTaskPriorityAsync(input: {
+    projectId: string;
+    taskId: string;
+    priority: number;
+    actorId?: string;
+  }): Promise<DispatchQueueTask | null> {
+    if (!useRedisSharedQueue()) {
+      return this.setTaskPriority(input);
+    }
+    const projectId = String(input.projectId || '').trim();
+    const taskId = String(input.taskId || '').trim();
+    const priority = Number(input.priority);
+    if (!projectId || !taskId || !Number.isFinite(priority)) return null;
+    const task = await this.getTaskByIdAsync(projectId, taskId);
+    if (!task) return null;
+    const nextPayload = {
+      ...(task.payload || {}),
+      priority: Math.max(-100, Math.min(100, priority)),
+      priorityOverriddenAt: new Date().toISOString(),
+      priorityOverriddenBy: input.actorId || 'cockpit-user',
+    };
+    const updated: DispatchQueueTask = { ...task, payload: nextPayload };
+    const redis = getRedisClient();
+    await redis
+      .multi()
+      .hset(REDIS_TASK_HASH_KEY, task.taskId, JSON.stringify(updated))
+      .zadd(redisQueueKey(task.projectId, task.agentSlug), redisPriorityScore(updated), task.taskId)
+      .exec();
+    return updated;
+  }
+
+  static async clearProjectAsync(projectId: string): Promise<number> {
+    if (!useRedisSharedQueue()) {
+      return this.clearProject(projectId);
+    }
+    const redis = getRedisClient();
+    const match = `${REDIS_QUEUE_KEY_PREFIX}:${projectId}:*`;
+    let cursor = '0';
+    let removed = 0;
+    do {
+      const reply = await redis.scan(cursor, 'MATCH', match, 'COUNT', 200);
+      cursor = String(reply[0] || '0');
+      const keys = Array.isArray(reply[1]) ? (reply[1] as string[]) : [];
+      for (const key of keys) {
+        const ids = await redis.zrange(key, 0, -1);
+        removed += ids.length;
+        const tx = redis.multi();
+        if (ids.length > 0) tx.hdel(REDIS_TASK_HASH_KEY, ...ids);
+        tx.del(key);
+        await tx.exec();
+      }
+    } while (cursor !== '0');
+    return removed;
+  }
+
+  static async clearAsync(): Promise<void> {
+    if (!useRedisSharedQueue()) {
+      this.clear();
+      return;
+    }
+    const redis = getRedisClient();
+    let cursor = '0';
+    do {
+      const reply = await redis.scan(cursor, 'MATCH', `${REDIS_QUEUE_KEY_PREFIX}:*`, 'COUNT', 500);
+      cursor = String(reply[0] || '0');
+      const keys = Array.isArray(reply[1]) ? (reply[1] as string[]) : [];
+      if (keys.length > 0) {
+        await redis.del(...keys);
+      }
+    } while (cursor !== '0');
+    await redis.del(REDIS_TASK_HASH_KEY);
   }
 }
