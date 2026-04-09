@@ -236,7 +236,18 @@ export async function enqueueImprovementJob(input: {
   workspacePath: string;
   signalsPath: string;
   ticketsPath: string;
+  proposalPath?: string;
 }): Promise<string | null> {
+  const proposalPath = String(input.proposalPath || '').trim();
+  if (proposalPath) {
+    const proposal = readJson<any>(proposalPath, {});
+    const verificationStatus = String(proposal?.verification?.status || proposal?.status || '').toLowerCase();
+    const verificationPassed = Boolean(proposal?.verification?.passed);
+    const isVerified = verificationPassed || verificationStatus === 'verified' || verificationStatus === 'approved';
+    if (!isVerified) {
+      return null;
+    }
+  }
   const redis = getRedisClient();
   const queue = queueIsolationKeys(input.projectId).improvementQueue;
   const payload = {
@@ -323,6 +334,10 @@ export function writeTemplateUpdateProposal(input: {
       {
         runId: input.runId,
         status: 'proposed',
+        verification: {
+          status: 'pending',
+          passed: false,
+        },
         workflow: ['artifact-generated', 'proposal-created', 'awaiting-pr-review', 'awaiting-merge-approval'],
         targetRelativePath: input.targetRelativePath,
         summary: input.summary,

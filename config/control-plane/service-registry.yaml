@@ -1,0 +1,36 @@
+schemaVersion: service-registry.v1
+services:
+  backend:
+    type: api
+    runtime: node
+    desired:
+      state: running
+      restartPolicy:
+        mode: on-failure
+        maxRetries: 5
+        backoffMs: 1000
+    health:
+      protocol: http
+      endpoint: /api/health
+      intervalMs: 2000
+      timeoutMs: 1000
+      expectedStatus: 200
+
+  runtime-dispatcher:
+    type: worker
+    runtime: node
+    desired:
+      state: running
+    health:
+      protocol: process
+      intervalMs: 3000
+
+  redis:
+    type: infra
+    runtime: docker
+    desired:
+      state: running
+    health:
+      protocol: none
+    metadata:
+      image: redis:7-alpine
