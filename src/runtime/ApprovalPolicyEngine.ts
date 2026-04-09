@@ -115,9 +115,8 @@ export class ApprovalPolicyEngine {
 }
 
 /**
- * Backward compatibility export for PilotQuasiLinearGraph.ts
+ * Backward compatibility export for the unified swarm graph.
  */
 export function resolveInterruptBeforeNodes(): string[] {
   return ApprovalPolicyEngine.getInstance().getStaticInterruptBeforeNodes();
 }
-

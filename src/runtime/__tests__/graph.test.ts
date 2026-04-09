@@ -1,10 +1,10 @@
 import { describe, it, expect, beforeAll, afterAll } from '@jest/globals';
-import { executeQuasiLinearRun } from '../graphs/PilotQuasiLinearGraph';
+import { executeUnifiedSwarmRun } from '../graphs/UnifiedSwarmGraph';
 import { fetchRecentEvents } from '../events/EventBus';
 import { closeRedisClient } from '../redisClient';
 import { v4 as uuidv4 } from 'uuid';
 
-describe('PilotQuasiLinearGraph Test', () => {
+describe('UnifiedSwarmGraph Test', () => {
     let threadId: string;
     let runId: string;
     let issueId: string;
@@ -19,14 +19,14 @@ describe('PilotQuasiLinearGraph Test', () => {
         await closeRedisClient();
     });
 
-    it('should complete the quasi-linear execution flow', async () => {
-        const finalState = await executeQuasiLinearRun({
+    it('should complete the unified swarm execution flow', async () => {
+        const finalState = await executeUnifiedSwarmRun({
             ticketId: issueId,
             runId: runId,
             threadId: threadId,
             status: 'initialized',
             artifactLogs: [],
-            executionOptions: { mode: 'linear' } // Use linear to test synchronous flow
+            executionOptions: { mode: 'multiple_agents' }
         });
 
         expect(finalState).toBeDefined();

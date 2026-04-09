@@ -1,4 +1,4 @@
-import { executeQuasiLinearRun } from '../graphs/PilotQuasiLinearGraph';
+import { executeUnifiedSwarmRun } from '../graphs/UnifiedSwarmGraph';
 
 async function testRealReasoning() {
     console.log("--- E2E: Real Agent Reasoning Test ---");
@@ -11,9 +11,15 @@ async function testRealReasoning() {
     const issueId = "TKT-REAL-TEST-001";
 
     try {
-        const finalState = await executeQuasiLinearRun(issueId, { 
-            mode: 'linear' 
-        }, threadId);
+        const finalState = await executeUnifiedSwarmRun({
+            ticketId: issueId,
+            runId: `run-${Date.now()}`,
+            threadId,
+            status: 'initialized',
+            artifactLogs: [],
+            executionOptions: { mode: 'multiple_agents' },
+            messages: [{ role: 'user', content: 'hello' }],
+        });
 
         console.log("\n--- Final Artifact Logs ---");
         finalState.artifactLogs.forEach((log, i) => {

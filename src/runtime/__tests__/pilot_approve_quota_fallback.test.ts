@@ -35,7 +35,7 @@ describe('PilotGraph approve continuation with quota errors', () => {
   });
 
   it('does not throw on QA step and emits fallback marker before git approval', async () => {
-    const { executeQuasiLinearRun, pilotGraph } = await import('../graphs/PilotQuasiLinearGraph');
+    const { executeUnifiedSwarmRun, unifiedSwarmGraph } = await import('../graphs/UnifiedSwarmGraph');
 
     const threadId = `thread-${Date.now()}`;
     const initialState = {
@@ -44,10 +44,10 @@ describe('PilotGraph approve continuation with quota errors', () => {
       threadId: threadId,
       status: 'initialized',
       artifactLogs: [],
-      executionOptions: { mode: 'linear' as const },
+      executionOptions: { mode: 'multiple_agents' as const },
     };
 
-    const firstPass = await executeQuasiLinearRun(initialState);
+    const firstPass = await executeUnifiedSwarmRun(initialState);
     expect(Array.isArray(firstPass.artifactLogs)).toBe(true);
     expect(
       (firstPass.artifactLogs as string[]).some(
@@ -58,7 +58,7 @@ describe('PilotGraph approve continuation with quota errors', () => {
     const threadConfig = { configurable: { threadId: threadId } };
 
     // Continue from interrupt-before-git to completion.
-    const resumed = await pilotGraph.invoke(null, threadConfig);
+    const resumed = await unifiedSwarmGraph.invoke(null, threadConfig);
 
     expect(resumed).toBeDefined();
     expect(Array.isArray(resumed.artifactLogs)).toBe(true);
