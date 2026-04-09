@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { ChevronLeft, ShieldCheck, SlidersHorizontal, Loader2 } from 'lucide-react';
-import { apiUrl, fetchJsonStrict } from '../../lib/http';
+import { ChevronLeft, ShieldCheck, SlidersHorizontal } from 'lucide-react';
+import { apiUrl } from '../../lib/http';
 import { Button } from '../ui/Button';
 
 const SECTIONS = ['general', 'appearance', 'configuration', 'usage'] as const;
@@ -28,46 +28,12 @@ interface UsageSettings {
 }
 
 interface ExecutorSettings {
-  backend: 'claude-cli' | 'codex-cli' | 'openhands-sdk';
-  claude: { bin: string; model: string };
-  codex: { bin: string; model: string; sandbox: 'read-only' | 'workspace-write' | 'danger-full-access' };
-  openhands: {
-    serverUrl: string;
-    model: string;
-    apiKeys: {
-      openai?: string;
-      anthropic?: string;
-      google?: string;
-    };
-  };
-}
-
-interface CliStatus {
-  codex?: { loggedIn: boolean };
-  claude?: { loggedIn: boolean; needsLogin?: boolean };
-}
-
-interface CliStatusResponse {
-  success: boolean;
-  status: CliStatus;
-  error?: string;
-}
-
-interface CliTestResponse {
-  success: boolean;
-  error?: string;
-  result?: {
-    stdout?: string;
-    stderr?: string;
-  };
-}
-
-interface CliLoginResponse {
-  success: boolean;
-  error?: string;
-  message?: string;
-  result?: {
-    stderr?: string;
+  provider: 'claude-cli' | 'codex-cli' | 'openhands-sdk';
+  model: string;
+  apiKeys: {
+    openai?: string;
+    anthropic?: string;
+    google?: string;
   };
 }
 
@@ -134,24 +100,10 @@ export function CockpitSettingsPage() {
     showTokenStats: true,
   });
   const [executorSettings, setExecutorSettings] = useState<ExecutorSettings>({
-    backend: 'claude-cli',
-    claude: { bin: 'claude', model: 'auto' },
-    codex: { bin: 'codex', model: 'auto', sandbox: 'workspace-write' },
-    openhands: { serverUrl: 'http://localhost:8000', model: 'anthropic/claude-sonnet-4-6', apiKeys: { anthropic: '', openai: '', google: '' } },
+    provider: 'codex-cli',
+    model: 'auto',
+    apiKeys: { anthropic: '', openai: '', google: '' },
   });
-
-  const [cliHealthMessage, setCliHealthMessage] = useState('CLI provider status not checked.');
-  const [codexApiKeyForLogin, setCodexApiKeyForLogin] = useState('');
-  const [llmTestResult, setLlmTestResult] = useState<{
-    success: boolean;
-    status: string;
-    message: string;
-    model?: string;
-    provider?: string;
-    response?: string;
-    latencyMs?: number;
-  } | null>(null);
-  const [isTestingLlm, setIsTestingLlm] = useState(false);
 
   useEffect(() => {
     if (!section) navigate('/cockpit/settings/general', { replace: true });
@@ -222,18 +174,7 @@ export function CockpitSettingsPage() {
         const res = await fetch(apiUrl('/api/workspace/settings/configuration'));
         const data = await res.json();
         if (!data.success || !data.settings) return;
-        setExecutorSettings((prev) => ({
-          ...prev,
-          ...data.settings,
-          openhands: {
-            ...prev.openhands,
-            ...(data.settings.openhands || {}),
-            apiKeys: {
-              ...(prev.openhands.apiKeys || {}),
-              ...((data.settings.openhands || {}).apiKeys || {}),
-            },
-          },
-        }));
+        setExecutorSettings((prev) => ({ ...prev, ...data.settings, apiKeys: { ...prev.apiKeys, ...(data.settings.apiKeys || {}) } }));
         setExecutorSavedAt('Saved');
       } catch {}
     };
@@ -263,99 +204,12 @@ export function CockpitSettingsPage() {
         setUsageSettings((prev) => ({ ...prev, ...(next as Partial<UsageSettings>) }));
         localStorage.setItem(SETTINGS_KEYS.usage, JSON.stringify(next));
       } else {
-        setExecutorSettings((prev) => ({ ...prev, ...(next as Partial<ExecutorSettings>) }));
+        setExecutorSettings((prev) => ({ ...prev, ...(next as Partial<ExecutorSettings>), apiKeys: { ...prev.apiKeys, ...((next as Partial<ExecutorSettings>).apiKeys || {}) } }));
         localStorage.setItem(SETTINGS_KEYS.executor, JSON.stringify(next));
       }
       onSaved(`Saved at ${new Date().toLocaleTimeString()}`);
     } catch {
       onSaved(`Saved locally at ${new Date().toLocaleTimeString()}`);
-    }
-  };
-
-  const checkOpenHandsHealth = async () => {
-    try {
-      setCliHealthMessage('Checking OpenHands server status...');
-      const res = await fetch(apiUrl('/api/cockpit/providers/openhands/health'));
-      const data = await res.json();
-      if (data.alive) setCliHealthMessage(`OpenHands server is ALIVE at ${executorSettings.openhands.serverUrl}`);
-      else setCliHealthMessage(`OpenHands server is UNREACHABLE: ${data.error || 'unknown'}`);
-    } catch (e) {
-      setCliHealthMessage(`OpenHands health error: ${(e as Error)?.message || 'unknown'}`);
-    }
-  };
-
-  const refreshCliStatus = async () => {
-    try {
-      setCliHealthMessage('Checking CLI providers...');
-      const data = await fetchJsonStrict<CliStatusResponse>('/api/cockpit/providers/cli/status');
-      if (!data.success || !data.status) {
-        setCliHealthMessage(`CLI status failed: ${data.error || 'unknown'}`);
-        return;
-      }
-      const codex = data.status.codex;
-      const claude = data.status.claude;
-      setCliHealthMessage(`codex loggedIn=${Boolean(codex?.loggedIn)} | claude loggedIn=${Boolean(claude?.loggedIn)}${claude?.needsLogin ? ' (needs login)' : ''}`);
-    } catch (e) {
-      setCliHealthMessage(`CLI status error: ${(e as Error)?.message || 'unknown'}`);
-    }
-  };
-
-  const testLlmConfig = async () => {
-    setIsTestingLlm(true);
-    setLlmTestResult(null);
-    try {
-      const res = await fetch(apiUrl('/api/cockpit/providers/test-message'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          model: executorSettings.openhands.model,
-          apiKeys: executorSettings.openhands.apiKeys,
-        }),
-      });
-      const data = await res.json();
-      setLlmTestResult(data);
-    } catch (e) {
-      setLlmTestResult({
-        success: false,
-        status: 'fetch_error',
-        message: (e as Error)?.message || 'Network or internal server error',
-      });
-    } finally {
-      setIsTestingLlm(false);
-    }
-  };
-
-  const testCliProvider = async (provider: 'codex-cli' | 'claude-cli') => {
-    try {
-      setCliHealthMessage(`Testing ${provider}...`);
-      const model = provider === 'codex-cli' ? executorSettings.codex.model : executorSettings.claude.model;
-      const data = await fetchJsonStrict<CliTestResponse>('/api/cockpit/providers/cli/test', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ provider, model }),
-      });
-      setCliHealthMessage(data.success ? `${provider}: PASS` : `${provider}: FAIL - ${data?.error || data?.result?.stderr || 'unknown'}`);
-    } catch (e) {
-      setCliHealthMessage(`${provider} test error: ${(e as Error)?.message || 'unknown'}`);
-    }
-  };
-
-  const loginCodexWithApiKey = async () => {
-    try {
-      if (!codexApiKeyForLogin.trim()) {
-        setCliHealthMessage('Codex login requires API key.');
-        return;
-      }
-      setCliHealthMessage('Running codex login --with-api-key ...');
-      const data = await fetchJsonStrict<CliLoginResponse>('/api/cockpit/providers/cli/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ provider: 'codex-cli', method: 'api-key', apiKey: codexApiKeyForLogin }),
-      });
-      setCliHealthMessage(data.success ? 'Codex login: PASS' : `Codex login: FAIL (${data?.result?.stderr || data?.error || data?.message || 'unknown'})`);
-      setCodexApiKeyForLogin('');
-    } catch (e) {
-      setCliHealthMessage(`Codex login error: ${(e as Error)?.message || 'unknown'}`);
     }
   };
 
@@ -442,49 +296,21 @@ export function CockpitSettingsPage() {
         {currentSection === 'configuration' && (
           <section className={settingsCardClass}>
             <h2><ShieldCheck size={16} />Provider & Executor Configuration</h2>
-            <p className={settingsNoteClass}>Primary configuration for runtime provider and model setup.</p>
+            <p className={settingsNoteClass}>Client-level provider and model preferences.</p>
 
             <div className={settingsGridClass}>
-              <label>Execution Target<select value={executorSettings.backend} onChange={(e) => setExecutorSettings((prev) => ({ ...prev, backend: e.target.value as ExecutorSettings['backend'] }))}><option value="claude-cli">Claude Code CLI</option><option value="codex-cli">Codex CLI</option><option value="openhands-sdk">OpenHands SDK</option></select></label>
-              <label>Claude Model<input value={executorSettings.claude.model} onChange={(e) => setExecutorSettings((prev) => ({ ...prev, claude: { ...prev.claude, model: e.target.value } }))} /></label>
-              <label>Codex Model<input value={executorSettings.codex.model} onChange={(e) => setExecutorSettings((prev) => ({ ...prev, codex: { ...prev.codex, model: e.target.value } }))} /></label>
-              <label>OpenHands Server URL<input value={executorSettings.openhands.serverUrl} onChange={(e) => setExecutorSettings((prev) => ({ ...prev, openhands: { ...prev.openhands, serverUrl: e.target.value } }))} /></label>
-              <label>OpenHands Model<input value={executorSettings.openhands.model} onChange={(e) => setExecutorSettings((prev) => ({ ...prev, openhands: { ...prev.openhands, model: e.target.value } }))} /></label>
+              <label>Provider<select value={executorSettings.provider} onChange={(e) => setExecutorSettings((prev) => ({ ...prev, provider: e.target.value as ExecutorSettings['provider'] }))}><option value="claude-cli">Claude Code CLI</option><option value="codex-cli">Codex CLI</option><option value="openhands-sdk">OpenHands SDK</option></select></label>
+              <label>Model<input value={executorSettings.model} onChange={(e) => setExecutorSettings((prev) => ({ ...prev, model: e.target.value }))} /></label>
             </div>
 
             <div className="mt-3 grid grid-cols-1 gap-2 md:grid-cols-3">
-              <ApiKeyInput label="Anthropic API Key" value={executorSettings.openhands.apiKeys.anthropic || ''} onChange={(val) => setExecutorSettings((prev) => ({ ...prev, openhands: { ...prev.openhands, apiKeys: { ...prev.openhands.apiKeys, anthropic: val } } }))} />
-              <ApiKeyInput label="OpenAI API Key" value={executorSettings.openhands.apiKeys.openai || ''} onChange={(val) => setExecutorSettings((prev) => ({ ...prev, openhands: { ...prev.openhands, apiKeys: { ...prev.openhands.apiKeys, openai: val } } }))} />
-              <ApiKeyInput label="Google API Key" value={executorSettings.openhands.apiKeys.google || ''} onChange={(val) => setExecutorSettings((prev) => ({ ...prev, openhands: { ...prev.openhands, apiKeys: { ...prev.openhands.apiKeys, google: val } } }))} />
+              <ApiKeyInput label="Anthropic API Key" value={executorSettings.apiKeys.anthropic || ''} onChange={(val) => setExecutorSettings((prev) => ({ ...prev, apiKeys: { ...prev.apiKeys, anthropic: val } }))} />
+              <ApiKeyInput label="OpenAI API Key" value={executorSettings.apiKeys.openai || ''} onChange={(val) => setExecutorSettings((prev) => ({ ...prev, apiKeys: { ...prev.apiKeys, openai: val } }))} />
+              <ApiKeyInput label="Google API Key" value={executorSettings.apiKeys.google || ''} onChange={(val) => setExecutorSettings((prev) => ({ ...prev, apiKeys: { ...prev.apiKeys, google: val } }))} />
             </div>
 
             <div className="mt-3 flex flex-wrap gap-2">
               <Button variant="secondary" onClick={() => saveSection('configuration', executorSettings, setExecutorSavedAt)}>Save Configuration</Button>
-              <Button variant="secondary" onClick={checkOpenHandsHealth}>Check Server Health</Button>
-              <Button variant="secondary" onClick={refreshCliStatus}>Refresh CLI Status</Button>
-              <Button variant="secondary" onClick={() => testCliProvider('codex-cli')}>Test Codex CLI</Button>
-              <Button variant="secondary" onClick={() => testCliProvider('claude-cli')}>Test Claude CLI</Button>
-              <Button variant="secondary" onClick={testLlmConfig}>
-                {isTestingLlm ? <span className="inline-flex items-center gap-1"><Loader2 size={14} className="animate-spin" />Testing...</span> : 'Test End-to-End LLM'}
-              </Button>
-            </div>
-
-            <div className="mt-3 rounded-lg border border-slate-700 bg-slate-950 p-3 text-xs text-slate-300">
-              <div><strong>CLI / Provider Status:</strong> {cliHealthMessage}</div>
-              <div className="mt-2 flex gap-2">
-                <input
-                  value={codexApiKeyForLogin}
-                  onChange={(e) => setCodexApiKeyForLogin(e.target.value)}
-                  placeholder="Codex API key"
-                  className="flex-1 rounded-md border border-slate-600 bg-slate-800 px-2.5 py-1.5 text-sm text-slate-100"
-                />
-                <Button variant="secondary" onClick={loginCodexWithApiKey}>Login Codex</Button>
-              </div>
-              {llmTestResult && (
-                <div className="mt-2">
-                  <strong>LLM test:</strong> {llmTestResult.success ? 'PASS' : 'FAIL'} · {llmTestResult.message}
-                </div>
-              )}
             </div>
 
             <div className={settingsMetaClass}>{executorSavedAt}</div>
