@@ -17,3 +17,4 @@
 ## Notes
 - Ticket moved to In Progress in Plane.
 - Starting shared queue/state abstraction extraction.
+- Slice 1 complete: async shared queue path added (Redis feature-flag) and wired into multiple-agents runtime.

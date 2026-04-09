@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import Database from 'better-sqlite3';
+import { getRedisClient } from '../redisClient';
 
 export interface DispatchQueueTask {
   taskId: string;
@@ -68,6 +69,24 @@ function rowToTask(row: any): DispatchQueueTask {
     payload: safeJson(row.payload_json),
     enqueuedAt: Number(row.enqueued_at || Date.now()),
   };
+}
+
+const SHARED_QUEUE_BACKEND = String(process.env.RUNTIME_SHARED_DISPATCH_QUEUE_BACKEND || '').trim().toLowerCase();
+const REDIS_TASK_HASH_KEY = 'runtime:dispatch:tasks';
+const REDIS_QUEUE_KEY_PREFIX = 'runtime:dispatch:queue';
+
+function useRedisSharedQueue(): boolean {
+  return SHARED_QUEUE_BACKEND === 'redis';
+}
+
+function redisQueueKey(projectId: string, agentSlug: string): string {
+  return `${REDIS_QUEUE_KEY_PREFIX}:${projectId}:${agentSlug}`;
+}
+
+function redisPriorityScore(task: DispatchQueueTask): number {
+  const priority = taskPriority(task);
+  const normalized = 100 - priority;
+  return normalized * 1_000_000_000_000 + task.enqueuedAt;
 }
 
 export class ProjectDispatchQueue {
@@ -294,5 +313,101 @@ export class ProjectDispatchQueue {
   static clear(): void {
     const db = getDb();
     db.prepare(`DELETE FROM dispatch_queue`).run();
+  }
+
+  static async enqueueAsync(task: Omit<DispatchQueueTask, 'taskId' | 'enqueuedAt'>): Promise<DispatchQueueTask> {
+    if (!useRedisSharedQueue()) {
+      return this.enqueue(task);
+    }
+    const nonce = Math.random().toString(36).slice(2, 8);
+    const full: DispatchQueueTask = {
+      ...task,
+      taskId: `${task.projectId}:${task.agentSlug}:${Date.now().toString(36)}:${nonce}`,
+      enqueuedAt: Date.now(),
+    };
+    const redis = getRedisClient();
+    const serialized = JSON.stringify(full);
+    const zkey = redisQueueKey(full.projectId, full.agentSlug);
+    const score = redisPriorityScore(full);
+    await redis.multi().hset(REDIS_TASK_HASH_KEY, full.taskId, serialized).zadd(zkey, score, full.taskId).exec();
+    return full;
+  }
+
+  static async pickupAsync(projectId: string, agentSlug: string): Promise<DispatchQueueTask | null> {
+    if (!useRedisSharedQueue()) {
+      return this.pickup(projectId, agentSlug);
+    }
+    const redis = getRedisClient();
+    const zkey = redisQueueKey(projectId, agentSlug);
+    const payload = (await redis.eval(
+      `
+      local zkey = KEYS[1]
+      local hkey = KEYS[2]
+      local ids = redis.call('ZRANGE', zkey, 0, 0)
+      if #ids == 0 then
+        return nil
+      end
+      local id = ids[1]
+      if redis.call('ZREM', zkey, id) == 1 then
+        local data = redis.call('HGET', hkey, id)
+        if data then
+          redis.call('HDEL', hkey, id)
+          return data
+        end
+      end
+      return nil
+      `,
+      2,
+      zkey,
+      REDIS_TASK_HASH_KEY,
+    )) as string | null;
+    if (!payload) return null;
+    const parsed = safeJson(payload);
+    if (!parsed || typeof parsed !== 'object') return null;
+    return parsed as DispatchQueueTask;
+  }
+
+  static async pickupForWorkerAsync(projectId: string, agentSlug: string, workerId: string): Promise<DispatchQueueTask | null> {
+    const worker = String(workerId || '').trim();
+    if (!worker) return null;
+    const next = await this.pickupAsync(projectId, agentSlug);
+    if (!next) return null;
+    return {
+      ...next,
+      payload: {
+        ...(next.payload || {}),
+        dispatchMode: 'worker_pull',
+        pulledByWorkerId: worker,
+        pulledAt: new Date().toISOString(),
+      },
+    };
+  }
+
+  static async depthAsync(projectId: string, agentSlug?: string): Promise<number> {
+    if (!useRedisSharedQueue()) {
+      return this.depth(projectId, agentSlug);
+    }
+    const redis = getRedisClient();
+    if (agentSlug) {
+      return Number(await redis.zcard(redisQueueKey(projectId, agentSlug)));
+    }
+    let total = 0;
+    let cursor = '0';
+    const match = `${REDIS_QUEUE_KEY_PREFIX}:${projectId}:*`;
+    do {
+      const reply = await redis.scan(cursor, 'MATCH', match, 'COUNT', 200);
+      cursor = String(reply[0] || '0');
+      const keys = Array.isArray(reply[1]) ? (reply[1] as string[]) : [];
+      if (keys.length > 0) {
+        const pipeline = redis.pipeline();
+        for (const key of keys) pipeline.zcard(key);
+        const rows = await pipeline.exec();
+        for (const row of rows || []) {
+          if (!row || row[0]) continue;
+          total += Number(row[1] || 0);
+        }
+      }
+    } while (cursor !== '0');
+    return total;
   }
 }

@@ -88,7 +88,7 @@ export async function executeMultipleAgentsRun(initialState: Partial<PilotState>
       throw new Error(`multiple_agents_agent_missing:${agentSlug}`);
     }
 
-    const queueTask = ProjectDispatchQueue.enqueue({
+    const queueTask = await ProjectDispatchQueue.enqueueAsync({
       runId,
       projectId,
       chainId,
@@ -111,7 +111,7 @@ export async function executeMultipleAgentsRun(initialState: Partial<PilotState>
         taskId: queueTask.taskId,
         stageId: queueTask.stageId,
         agentSlug: queueTask.agentSlug,
-        queueDepth: ProjectDispatchQueue.depth(projectId, queueTask.agentSlug),
+        queueDepth: await ProjectDispatchQueue.depthAsync(projectId, queueTask.agentSlug),
       },
     }).catch(() => undefined);
 
@@ -126,7 +126,7 @@ export async function executeMultipleAgentsRun(initialState: Partial<PilotState>
       retryCount: Number((queueTask.payload as any)?.retryCount || 0),
     });
 
-    const pickedTask = ProjectDispatchQueue.pickupForWorker(projectId, agentSlug, lease.worker.workerId);
+    const pickedTask = await ProjectDispatchQueue.pickupForWorkerAsync(projectId, agentSlug, lease.worker.workerId);
     if (!pickedTask) {
       throw new Error(`multiple_agents_pickup_failed:${projectId}:${agentSlug}:${stage.id}`);
     }

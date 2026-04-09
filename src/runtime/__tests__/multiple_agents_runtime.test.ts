@@ -111,8 +111,8 @@ describe('MultipleAgentsRuntime', () => {
     const { executeUnifiedSwarmRun } = require('../graphs/UnifiedSwarmGraph');
     const { executeRunContextInSubprocess } = require('../workers/WorkerProcessExecutor');
     const { RunContextAssembler } = require('../context/RunContext');
-    const enqueueSpy = jest.spyOn(ProjectDispatchQueue, 'enqueue');
-    const pickupSpy = jest.spyOn(ProjectDispatchQueue, 'pickupForWorker');
+    const enqueueSpy = jest.spyOn(ProjectDispatchQueue, 'enqueueAsync');
+    const pickupSpy = jest.spyOn(ProjectDispatchQueue, 'pickupForWorkerAsync');
 
     process.env.RUNTIME_MULTIPLE_AGENTS_PARALLELISM = '2';
     const result = await executeMultipleAgentsRun({
