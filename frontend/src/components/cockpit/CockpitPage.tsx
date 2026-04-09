@@ -6,7 +6,6 @@ import { apiUrl, fetchJsonSafe } from '../../lib/http';
 import { StreamRenderer, type RuntimeEvent } from './StreamRenderer';
 import { ObservabilityPanels } from './ObservabilityPanels';
 import './CockpitPage.css';
-const RUNTIME_MODE_KEY = 'cockpit.runtime.mode.v1';
 const CHAT_EVENT_RENDER_MODE_KEY = 'cockpit.chat.event.render.mode.v1';
 
 export interface ChatMessage {
@@ -234,11 +233,7 @@ const toRenderableMarkdown = (raw: string): string =>
 
 export function CockpitPage() {
     const navigate = useNavigate();
-    const [mode, setMode] = useState<'mock' | 'linear' | 'multiple_agents'>(() => {
-        const stored = localStorage.getItem(RUNTIME_MODE_KEY);
-        if (stored === 'mock' || stored === 'linear' || stored === 'multiple_agents') return stored;
-        return 'multiple_agents';
-    });
+    const mode = 'multiple_agents' as const;
     const [messagesByThread, setMessagesByThread] = useState<Record<string, ChatMessage[]>>({});
     const [chatEventRenderMode, setChatEventRenderMode] = useState<ChatEventRenderMode>(() => {
         const stored = localStorage.getItem(CHAT_EVENT_RENDER_MODE_KEY);
@@ -1608,26 +1603,6 @@ export function CockpitPage() {
     }, [workScope.selected.cycleId, workScope.selected.storyId]);
 
     useEffect(() => {
-        localStorage.setItem(RUNTIME_MODE_KEY, mode);
-    }, [mode]);
-
-    useEffect(() => {
-        const syncMode = () => {
-            const stored = localStorage.getItem(RUNTIME_MODE_KEY);
-            if (stored === 'mock' || stored === 'linear' || stored === 'multiple_agents') setMode(stored);
-        };
-        const onStorage = (event: StorageEvent) => {
-            if (event.key === RUNTIME_MODE_KEY) syncMode();
-        };
-        window.addEventListener('focus', syncMode);
-        window.addEventListener('storage', onStorage);
-        return () => {
-            window.removeEventListener('focus', syncMode);
-            window.removeEventListener('storage', onStorage);
-        };
-    }, []);
-
-    useEffect(() => {
         const closePicker = () => setRuntimePickerOpen(null);
         window.addEventListener('click', closePicker);
         return () => window.removeEventListener('click', closePicker);
@@ -1695,12 +1670,12 @@ export function CockpitPage() {
                 if (data.gitContext) setGitContext(data.gitContext);
 
                 // 1. If we have a direct message (conversational response), show it first
-                if (data.message && mode !== 'multiple_agents') {
+                if (data.message) {
                     appendAgentMessageIfChanged(responseThreadId || threadIdToUse, data.message, new Date());
                     setIsAwaitingAgentReply(false);
                 }
-                // 2. For legacy direct/linear modes, display logs
-                else if (Array.isArray(data.logs) && data.logs.length > 0 && mode !== 'multiple_agents') {
+                // 2. If backend returns aggregated logs, display them as assistant output.
+                else if (Array.isArray(data.logs) && data.logs.length > 0) {
                     appendMessagesToThread(responseThreadId || threadIdToUse, data.logs.map((log: string, i: number) => ({
                         id: `${Date.now()}-${i}`,
                         role: 'agent',
@@ -1733,9 +1708,7 @@ export function CockpitPage() {
                 timestamp: new Date()
             });
         } finally {
-            if (mode !== 'multiple_agents') {
-                setIsProcessing(false);
-            }
+            setIsProcessing(false);
         }
     };
 
@@ -2225,7 +2198,7 @@ export function CockpitPage() {
         return 'status-badge neutral';
     };
 
-    const runtimeModeLabel = mode === 'mock' ? 'Mock' : mode === 'linear' ? 'Quasi-linear' : 'Multiple agents';
+    const runtimeModeLabel = 'Multiple agents';
 
     const applyRuntimeSelection = async (provider?: RuntimeProvider, model?: string) => {
         const nextProvider = provider || selectedProvider;

@@ -15,7 +15,6 @@ import { EnvironmentProvisioningService } from './storage/EnvironmentProvisionin
 import { EnvironmentWarmupService, type WarmupCheck } from './storage/EnvironmentWarmupService';
 import { EnvironmentSuspendResumeService } from './storage/EnvironmentSuspendResumeService';
 import { executeRuntimeRun, resumeRuntimeRun } from '../runtime/graphs/RuntimeExecutionRouter';
-import { detectLanguage } from '../runtime/LanguageDetection';
 import { resolveRuntimeInfrastructureProfile } from '../runtime/infrastructure/RuntimeInfrastructureProfile';
 import { fetchRecentEvents, fetchEventsByRunId } from '../runtime/events/EventBus';
 import { updateCockpitExecutorConfig, getCockpitExecutorConfig } from '../runtime/CockpitExecutorConfig';
@@ -3635,11 +3634,9 @@ app.post('/api/chat', async (req, res) => {
   const threadId = String(req.body?.threadId || `thread_${Date.now()}`).trim();
   const projectId = String(req.body?.projectId || 'default').trim() || 'default';
   const runId = uuidv4();
-  const executionMode = String(req.body?.executionMode || 'multiple_agents').trim();
-  const mode = executionMode === 'linear' || executionMode === 'mock' ? executionMode : 'multiple_agents';
+  const mode = 'multiple_agents' as const;
   const parsed = parseRuntimeDirectives(rawMessage);
   const message = parsed.cleanedMessage || rawMessage;
-  const detectedLanguage = detectLanguage(message);
   const auth = requireAuthForRuntimeIfEnabled(req, res);
   if (AUTH_MODE === 'required' && !auth) return;
   const workspaceContext = resolveWorkspaceRuntimeContext({
@@ -3743,30 +3740,8 @@ app.post('/api/chat', async (req, res) => {
         .reverse()
         .find((m: { role: string; content: string }) => m.role === 'assistant')?.content;
       const artifactLogs = Array.isArray(finalState.artifactLogs) ? finalState.artifactLogs : [];
-      const parseArtifactMessage = (log?: string): string | null => {
-        if (!log) return null;
-        const match = String(log).match(/message=(.*)$/);
-        return (match?.[1] || '').trim() || null;
-      };
-      const lastNonFinalizeArtifact = [...artifactLogs]
-        .reverse()
-        .find((entry) => !String(entry).includes('[stage:finalize]'));
-      const localizedRunCompleted =
-        detectedLanguage === 'uk'
-          ? 'Виконання завершено.'
-          : detectedLanguage === 'ru'
-            ? 'Выполнение завершено.'
-            : detectedLanguage === 'be'
-              ? 'Выкананне завершана.'
-              : 'Run completed.';
       const explicitAssistantMessage = (assistantMessage && assistantMessage.trim()) || '';
-      const finalMessage =
-        explicitAssistantMessage ||
-        (mode === 'multiple_agents'
-          ? ''
-          : parseArtifactMessage(lastNonFinalizeArtifact) ||
-            parseArtifactMessage(artifactLogs[artifactLogs.length - 1]) ||
-            localizedRunCompleted);
+      const finalMessage = explicitAssistantMessage || '';
       ensureThreadInProject(projectId, threadId);
       if (finalMessage) {
         appendThreadMessage(threadId, 'agent', finalMessage);

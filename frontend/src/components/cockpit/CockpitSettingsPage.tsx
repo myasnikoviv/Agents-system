@@ -41,7 +41,6 @@ interface GeneralSettings {
   language: 'auto' | 'uk' | 'en';
   commandDetail: 'steps' | 'verbose' | 'minimal';
   executionSpeed: 'standard' | 'fast' | 'deep';
-  runtimeMode: 'mock' | 'linear' | 'multiple_agents';
 }
 
 interface AppearanceSettings {
@@ -283,7 +282,6 @@ const SETTINGS_KEYS = {
   archivedThreads: 'cockpit.settings.archived-threads.v1',
   executor: 'cockpit.settings.executor.v1',
 } as const;
-const RUNTIME_MODE_KEY = 'cockpit.runtime.mode.v1';
 
 export function CockpitSettingsPage() {
   const navigate = useNavigate();
@@ -384,7 +382,6 @@ export function CockpitSettingsPage() {
     language: 'auto',
     commandDetail: 'steps',
     executionSpeed: 'standard',
-    runtimeMode: 'multiple_agents',
   });
   const [appearanceSettings, setAppearanceSettings] = useState<AppearanceSettings>({
     theme: 'dark',
@@ -1008,11 +1005,9 @@ export function CockpitSettingsPage() {
       const next = data.settings || generalSettings;
       setGeneralSettings((prev) => ({ ...prev, ...next }));
       localStorage.setItem(SETTINGS_KEYS.general, JSON.stringify(next));
-      localStorage.setItem(RUNTIME_MODE_KEY, next.runtimeMode || generalSettings.runtimeMode);
       setGeneralSavedAt(`Saved at ${new Date().toLocaleTimeString()}`);
     } catch {
       localStorage.setItem(SETTINGS_KEYS.general, JSON.stringify(generalSettings));
-      localStorage.setItem(RUNTIME_MODE_KEY, generalSettings.runtimeMode);
       setGeneralSavedAt(`Saved locally at ${new Date().toLocaleTimeString()}`);
     }
   };
@@ -1477,7 +1472,6 @@ export function CockpitSettingsPage() {
               <label>Language<select value={generalSettings.language} onChange={(e) => setGeneralSettings((prev) => ({ ...prev, language: e.target.value as GeneralSettings['language'] }))}><option value="auto">Auto Detect</option><option value="uk">Ukrainian</option><option value="en">English</option></select></label>
               <label>Command Detail<select value={generalSettings.commandDetail} onChange={(e) => setGeneralSettings((prev) => ({ ...prev, commandDetail: e.target.value as GeneralSettings['commandDetail'] }))}><option value="steps">Code Steps</option><option value="verbose">Verbose Logs</option><option value="minimal">Minimal</option></select></label>
               <label>Execution Speed<select value={generalSettings.executionSpeed} onChange={(e) => setGeneralSettings((prev) => ({ ...prev, executionSpeed: e.target.value as GeneralSettings['executionSpeed'] }))}><option value="standard">Standard</option><option value="fast">Fast</option><option value="deep">Deep Reasoning</option></select></label>
-              <label>Execution Runtime Mode<select value={generalSettings.runtimeMode} onChange={(e) => setGeneralSettings((prev) => ({ ...prev, runtimeMode: e.target.value as GeneralSettings['runtimeMode'] }))}><option value="mock">Mock</option><option value="linear">Quasi-Linear</option><option value="multiple_agents">Multiple Agents</option></select></label>
             </div>
             <div className="mt-3 flex flex-wrap gap-2"><Button variant="secondary" onClick={saveGeneralSettings}>Save General Settings</Button></div>
             <div className={settingsMetaClass}>{generalSavedAt}</div>

@@ -40,9 +40,9 @@ export const PilotStateAnnotation = Annotation.Root({
     reducer: (x: string[], y: string[]) => x.concat(y),
     default: () => [],
   }),
-  executionOptions: Annotation<{ mode: 'linear' | 'multiple_agents' | 'mock' }>({
-    reducer: (x: { mode: 'linear' | 'multiple_agents' | 'mock' }, y: { mode: 'linear' | 'multiple_agents' | 'mock' }) => y ?? x,
-    default: () => ({ mode: 'mock' })
+  executionOptions: Annotation<{ mode: 'multiple_agents' }>({
+    reducer: (x: { mode: 'multiple_agents' }, y: { mode: 'multiple_agents' }) => y ?? x,
+    default: () => ({ mode: 'multiple_agents' })
   }),
   selected_pipeline: Annotation<string>({
     reducer: (x: string, y: string) => y ?? x,
@@ -785,30 +785,23 @@ async function swarmNode(state: PilotState): Promise<Partial<PilotState>> {
   await DynamicWorkerSpawnManager.heartbeat(heartbeatInput).catch(() => undefined);
 
   const runInConfiguredMode = async () => {
-    if (state.executionOptions?.mode === 'multiple_agents') {
-      await emitEvent({
-        type: 'system.thought',
-        runId: state.runId,
-        projectId: state.projectId,
-        chainId: state.threadId,
-        actor: { type: 'system', id: 'runtime-router' },
-        payload: {
-          stageId: nextStage.id,
-          agentSlug: runContext.agent.slug,
-          workerId: runContext.memory?.workerId || workerLease.worker.workerId,
-          executionTransport: 'subprocess',
-        },
-      });
-      return runWithStageTimeout(
-        executeRunContextInSubprocess({ runContext, timeoutMs: stageTimeoutMs }),
-        stageTimeoutMs,
-        `${nextStage.id}:${runContext.agent.slug}:subprocess`,
-      );
-    }
+    await emitEvent({
+      type: 'system.thought',
+      runId: state.runId,
+      projectId: state.projectId,
+      chainId: state.threadId,
+      actor: { type: 'system', id: 'runtime-router' },
+      payload: {
+        stageId: nextStage.id,
+        agentSlug: runContext.agent.slug,
+        workerId: runContext.memory?.workerId || workerLease.worker.workerId,
+        executionTransport: 'subprocess',
+      },
+    });
     return runWithStageTimeout(
-      executor.run(runContext),
+      executeRunContextInSubprocess({ runContext, timeoutMs: stageTimeoutMs }),
       stageTimeoutMs,
-      `${nextStage.id}:${runContext.agent.slug}:primary`,
+      `${nextStage.id}:${runContext.agent.slug}:subprocess`,
     );
   };
 
