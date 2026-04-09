@@ -2557,6 +2557,48 @@ app.get('/api/governance/loops', async (_req, res) => {
   }
 });
 
+app.get('/api/governance/profiles', async (req, res) => {
+  try {
+    const raw = String(req.query?.projectId || req.query?.projectIds || '').trim();
+    const projectIds = raw
+      ? raw.split(',').map((value) => value.trim()).filter(Boolean)
+      : ['default'];
+    const { buildGovernanceDataModelSnapshot } = await import('../runtime/governance/GovernanceDataModel');
+    const snapshot = buildGovernanceDataModelSnapshot({ workspacePath: process.cwd(), projectIds });
+    res.json({
+      success: true,
+      total: snapshot.profiles.length,
+      profiles: snapshot.profiles,
+      serverNow: new Date().toISOString(),
+    });
+  } catch (error: any) {
+    res.status(500).json({
+      success: false,
+      error: 'governance_profiles_list_failed',
+      message: error?.message || 'Failed to list governance profiles',
+    });
+  }
+});
+
+app.get('/api/governance/artifacts', async (_req, res) => {
+  try {
+    const { buildGovernanceDataModelSnapshot } = await import('../runtime/governance/GovernanceDataModel');
+    const snapshot = buildGovernanceDataModelSnapshot({ workspacePath: process.cwd() });
+    res.json({
+      success: true,
+      total: snapshot.artifacts.length,
+      artifacts: snapshot.artifacts,
+      serverNow: new Date().toISOString(),
+    });
+  } catch (error: any) {
+    res.status(500).json({
+      success: false,
+      error: 'governance_artifacts_list_failed',
+      message: error?.message || 'Failed to list governance artifacts',
+    });
+  }
+});
+
 app.get('/api/governance/loops/:loopId', async (req, res) => {
   try {
     const loopId = String(req.params?.loopId || '').trim();
@@ -2628,6 +2670,30 @@ app.post('/api/governance/loops/:loopId', async (req, res) => {
       eventKind: 'governance_loop_update',
       entityId: loopId,
       payload: { patch },
+    });
+    res.json({ success: true, loop, serverNow: new Date().toISOString() });
+  } catch (error: any) {
+    res.status(400).json({ success: false, error: 'governance_loop_update_failed', message: error?.message || 'Failed to update loop' });
+  }
+});
+
+app.patch('/api/governance/loops/:loopId', async (req, res) => {
+  if (!requireRole(req, res, 'admin')) return;
+  try {
+    const loopId = String(req.params?.loopId || '').trim();
+    const patch = req.body || {};
+    const { updateGovernanceLoop } = await import('../runtime/governance/LoopRegistry');
+    const loop = updateGovernanceLoop(loopId, patch, process.cwd());
+    appendControlActionAudit({
+      action: 'governance_loop_update',
+      actorId: 'cockpit-user',
+      target: { loopId },
+      result: { ok: true, method: 'patch' },
+    });
+    appendPolicyMetadata({
+      eventKind: 'governance_loop_update',
+      entityId: loopId,
+      payload: { patch, method: 'patch' },
     });
     res.json({ success: true, loop, serverNow: new Date().toISOString() });
   } catch (error: any) {
@@ -2770,6 +2836,30 @@ app.post('/api/governance/rules/:ruleId', async (req, res) => {
       eventKind: 'governance_rule_update',
       entityId: ruleId,
       payload: { patch },
+    });
+    res.json({ success: true, rule: updated, serverNow: new Date().toISOString() });
+  } catch (error: any) {
+    res.status(400).json({ success: false, error: 'governance_rule_update_failed', message: error?.message || 'Failed to update rule' });
+  }
+});
+
+app.patch('/api/governance/rules/:ruleId', async (req, res) => {
+  if (!requireRole(req, res, 'admin')) return;
+  try {
+    const ruleId = String(req.params?.ruleId || '').trim();
+    const patch = req.body || {};
+    const { updateGovernanceRule } = await import('../runtime/governance/RuleRegistry');
+    const updated = updateGovernanceRule(ruleId, patch, process.cwd());
+    appendControlActionAudit({
+      action: 'governance_rule_update',
+      actorId: 'cockpit-user',
+      target: { ruleId },
+      result: { ok: true, method: 'patch' },
+    });
+    appendPolicyMetadata({
+      eventKind: 'governance_rule_update',
+      entityId: ruleId,
+      payload: { patch, method: 'patch' },
     });
     res.json({ success: true, rule: updated, serverNow: new Date().toISOString() });
   } catch (error: any) {
