@@ -39,5 +39,19 @@ Extract telemetry and audit HTTP handlers from `src/server/agentSystemBackend.ts
 3. Added dependency-injection wiring in backend composition root via `registerProviderSettingsRoutes(app, deps)`.
 
 ## Next Slice
-- Extract chains/project/plane binding endpoints into dedicated module.
+## Slice 3 (Chains/Projects/Plane Binding)
+1. Added route module: `src/server/routes/chainProjectRoutes.ts`.
+2. Moved handlers to module:
+   - `GET/POST /api/cockpit/chains`
+   - `DELETE /api/cockpit/chains/:threadId`
+   - `GET /api/cockpit/chains/:threadId/messages`
+   - `DELETE /api/cockpit/projects/:projectId`
+   - `POST /api/cockpit/projects/select`
+   - `GET /api/cockpit/plane/projects`
+   - `POST /api/cockpit/plane/sync`
+   - `GET /api/cockpit/plane/bindings`
+3. Added DI registration in backend composition root via `registerChainProjectRoutes(app, deps)`.
+
+## Next Slice
+- Extract secrets/attachments/storage-related endpoints into dedicated module.
 - Continue reducing `agentSystemBackend.ts` to composition root + domain wiring.
