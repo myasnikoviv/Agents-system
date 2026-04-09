@@ -19,6 +19,7 @@ import { runExternalExecutor } from '../runtime/ExternalExecutionAdapter';
 import { registerTelemetryRoutes } from './routes/telemetryRoutes';
 import { registerProviderSettingsRoutes } from './routes/providerSettingsRoutes';
 import { registerChainProjectRoutes } from './routes/chainProjectRoutes';
+import { registerSecretsRoutes } from './routes/secretsRoutes';
 
 dotenv.config();
 
@@ -2634,56 +2635,12 @@ app.get('/api/cockpit/analytics/skills', (_req, res) => {
 });
 
 
-app.get('/api/cockpit/secrets', (req, res) => {
-  const auth = requireRole(req, res, 'admin');
-  if (!auth) return;
-  const items = secretsStore.listMeta({ tenantId: auth.tenantId, workspaceId: auth.workspaceId });
-  res.json({ success: true, items });
-});
-
-app.post('/api/cockpit/secrets', (req, res) => {
-  const auth = requireRole(req, res, 'admin');
-  if (!auth) return;
-  const key = String(req.body?.key || '').trim();
-  const value = String(req.body?.value || '').trim();
-  if (!key || !value) {
-    return res.status(400).json({ success: false, error: 'key_and_value_required' });
-  }
-  const saved = secretsStore.upsert({
-    tenantId: auth.tenantId,
-    workspaceId: auth.workspaceId,
-    key,
-    value,
-    createdBy: auth.userId,
-  });
-  appendControlActionAudit({
-    action: 'cockpit.secrets.upsert',
-    actorId: auth.userId,
-    target: { key },
-    result: { tenantId: auth.tenantId, workspaceId: auth.workspaceId },
-  });
-  res.json({ success: true, secret: saved });
-});
-
-app.delete('/api/cockpit/secrets/:key', (req, res) => {
-  const auth = requireRole(req, res, 'admin');
-  if (!auth) return;
-  const key = String(req.params.key || '').trim();
-  if (!key) {
-    return res.status(400).json({ success: false, error: 'key_required' });
-  }
-  const deleted = secretsStore.delete({
-    tenantId: auth.tenantId,
-    workspaceId: auth.workspaceId,
-    key,
-  });
-  appendControlActionAudit({
-    action: 'cockpit.secrets.delete',
-    actorId: auth.userId,
-    target: { key },
-    result: { deleted },
-  });
-  res.json({ success: true, deleted });
+registerSecretsRoutes(app, {
+  requireRole,
+  secretsListMeta: (input) => secretsStore.listMeta(input),
+  secretsUpsert: (input) => secretsStore.upsert(input),
+  secretsDelete: (input) => secretsStore.delete(input),
+  appendControlActionAudit,
 });
 
 app.post('/api/auth/login', (req, res) => {
