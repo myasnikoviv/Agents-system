@@ -2082,6 +2082,9 @@ export function CockpitPage() {
                     {providerMessage && <span className="provider-feedback">{providerMessage}</span>}
                 </div>
                 <div className="header-actions">
+                    <button type="button" className="header-icon-btn" onClick={() => navigate('/cockpit/governance')} title="Governance Center" aria-label="Governance Center">
+                        <ShieldCheck size={15} />
+                    </button>
                     <button type="button" className="header-icon-btn" onClick={() => navigate('/cockpit/settings/general')} title="Settings" aria-label="Settings">
                         <Settings size={15} />
                     </button>
