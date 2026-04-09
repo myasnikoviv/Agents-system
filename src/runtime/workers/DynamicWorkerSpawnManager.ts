@@ -3,6 +3,7 @@ import path from 'path';
 import Database from 'better-sqlite3';
 import { buildAgentIdentity, assertWorkerProjectIsolation } from '../identity/AgentIdentity';
 import { WorkerLifecycleState, applyLifecycleTransition } from './WorkerLifecycleStateMachine';
+import { getRedisClient } from '../redisClient';
 
 export interface RuntimeWorkerRecord {
   projectId: string;
@@ -55,6 +56,8 @@ export interface EnsureWorkerResult {
 export type WorkerControlAction = 'pause' | 'resume' | 'restart' | 'kill';
 
 let db: Database.Database | null = null;
+const SHARED_WORKER_BACKEND = String(process.env.RUNTIME_SHARED_WORKER_STATE_BACKEND || '').trim().toLowerCase();
+const SHARED_WORKER_POOL_HASH = 'runtime:worker:pool';
 
 function getDb(): Database.Database {
   if (db) return db;
@@ -162,6 +165,26 @@ function poolSize(): number {
 
 function poolClear(): void {
   getDb().prepare(`DELETE FROM runtime_worker_pool`).run();
+}
+
+function useSharedWorkerState(): boolean {
+  return SHARED_WORKER_BACKEND === 'redis';
+}
+
+async function sharedPoolGet(key: string): Promise<RuntimeWorkerRecord | null> {
+  if (!useSharedWorkerState()) return null;
+  const redis = getRedisClient();
+  const raw = await redis.hget(SHARED_WORKER_POOL_HASH, key);
+  if (!raw) return null;
+  const parsed = safeJsonParse(raw);
+  if (!parsed || typeof parsed !== 'object') return null;
+  return parsed as RuntimeWorkerRecord;
+}
+
+async function sharedPoolSet(key: string, record: RuntimeWorkerRecord): Promise<void> {
+  if (!useSharedWorkerState()) return;
+  const redis = getRedisClient();
+  await redis.hset(SHARED_WORKER_POOL_HASH, key, JSON.stringify(record));
 }
 
 function pausedProjectHas(projectId: string): boolean {
@@ -308,6 +331,7 @@ export class DynamicWorkerSpawnManager {
     this.onTransition(record, from, transition.to, Date.now());
     record.state = transition.to;
     poolSet(keyOf(record.projectId, record.agentSlug), record);
+    await sharedPoolSet(keyOf(record.projectId, record.agentSlug), record);
     if (emitEvents) {
       await emitRuntimeEvent({
         type: 'worker.state_changed',
@@ -332,7 +356,11 @@ export class DynamicWorkerSpawnManager {
     }
     const agentSlug = String(input.agentSlug || 'system-core').trim() || 'system-core';
     const key = keyOf(projectId, agentSlug);
-    const existing = poolGet(key);
+    const sharedExisting = await sharedPoolGet(key);
+    if (sharedExisting) {
+      poolSet(key, sharedExisting);
+    }
+    const existing = sharedExisting || poolGet(key);
 
     if (existing) {
       if (existing.manuallyPaused) {
@@ -377,6 +405,7 @@ export class DynamicWorkerSpawnManager {
         });
       }
       poolSet(key, existing);
+      await sharedPoolSet(key, existing);
       return { worker: { ...existing }, spawned: false };
     }
 
@@ -450,6 +479,7 @@ export class DynamicWorkerSpawnManager {
       manuallyPaused: false,
     };
     poolSet(key, record);
+    await sharedPoolSet(key, record);
     await this.transitionState(record, 'starting', input, emitEvents);
     await this.transitionState(record, 'hot', input, emitEvents);
     await this.transitionState(record, 'active', input, emitEvents);
@@ -485,6 +515,7 @@ export class DynamicWorkerSpawnManager {
     record.lastHeartbeatAt = Date.now();
     record.heartbeatCount += 1;
     poolSet(key, record);
+    await sharedPoolSet(key, record);
   }
 
   static async heartbeat(input: EnsureWorkerInput, options?: { emitEvents?: boolean }): Promise<void> {
@@ -497,6 +528,7 @@ export class DynamicWorkerSpawnManager {
     record.lastHeartbeatAt = Date.now();
     record.heartbeatCount += 1;
     poolSet(key, record);
+    await sharedPoolSet(key, record);
     if (emitEvents) {
       await emitRuntimeEvent({
         type: 'worker.heartbeat',
@@ -522,6 +554,7 @@ export class DynamicWorkerSpawnManager {
     if (!record) return;
     await this.transitionState(record, 'failed', input, emitEvents);
     poolSet(key, record);
+    await sharedPoolSet(key, record);
     if (emitEvents) {
       await emitRuntimeEvent({
         type: 'worker.failed',

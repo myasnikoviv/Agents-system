@@ -25,3 +25,14 @@ Introduce a distributed-ready queue execution path without breaking existing syn
 
 ## Rationale
 This creates a migration-safe bridge to multi-host dispatch semantics while preserving current APIs used by non-upgraded paths.
+
+## Slice 2 (Shared Worker State Mirror)
+1. Added optional shared worker state backend flag:
+   - env: `RUNTIME_SHARED_WORKER_STATE_BACKEND=redis`
+2. `DynamicWorkerSpawnManager` now mirrors worker records into Redis hash `runtime:worker:pool` on:
+   - state transitions
+   - ensure/reuse
+   - release/heartbeat/failure updates
+3. Ensure path now reads shared worker record first (when enabled) and hydrates local pool from shared source before decision.
+
+This lowers duplicate-spawn risk across multi-host runtime nodes while preserving existing sqlite local pool behavior as compatibility fallback.
