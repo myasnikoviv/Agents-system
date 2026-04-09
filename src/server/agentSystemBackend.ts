@@ -17,6 +17,7 @@ import { updateCockpitExecutorConfig, getCockpitExecutorConfig } from '../runtim
 import { DynamicDiscoveryService, AgentRegistry, PipelineRegistry, SkillRegistry } from '../runtime/DynamicDiscoveryService';
 import { runExternalExecutor } from '../runtime/ExternalExecutionAdapter';
 import { registerTelemetryRoutes } from './routes/telemetryRoutes';
+import { registerProviderSettingsRoutes } from './routes/providerSettingsRoutes';
 
 dotenv.config();
 
@@ -2539,15 +2540,6 @@ app.post('/api/projects/:projectId/policy', async (req, res) => {
   }
 });
 
-app.get('/api/cockpit/runtime/enforcement', (req, res) => {
-  const projectId = String(req.query?.projectId || '').trim();
-  if (!projectId) {
-    res.status(400).json({ success: false, error: 'project_id_required' });
-    return;
-  }
-  const profile = runtimeEnforcementByProject[projectId] || {};
-  res.json({ success: true, projectId, profile });
-});
 registerTelemetryRoutes(app, {
   fetchRecentEvents,
   readControlActionAuditRows,
@@ -2555,49 +2547,31 @@ registerTelemetryRoutes(app, {
   readRunLedgerEvents,
   normalizeRuntimeEvent,
 });
-
-app.post('/api/cockpit/runtime/enforcement', (req, res) => {
-  if (!requireRole(req, res, 'admin')) return;
-  const projectId = String(req.body?.projectId || '').trim();
-  if (!projectId) {
-    res.status(400).json({ success: false, error: 'project_id_required' });
-    return;
-  }
-  const pipeline = String(req.body?.pipeline || '').trim();
-  const skills = Array.isArray(req.body?.skills)
-    ? req.body.skills.map((s: any) => String(s || '').trim()).filter(Boolean)
-    : [];
-  runtimeEnforcementByProject[projectId] = {
-    ...(pipeline ? { pipeline } : {}),
-    ...(skills.length > 0 ? { skills: Array.from(new Set(skills)) } : {}),
-  };
-  saveRuntimeState('runtime_enforcement_by_project', runtimeEnforcementByProject);
-  res.json({ success: true, projectId, profile: runtimeEnforcementByProject[projectId] });
-});
-
-app.get('/api/cockpit/providers', (_req, res) => {
-  const runtimeFromSettings = getRuntimeSelectionFromExecutorSettings();
-  if (runtimeFromSettings) {
-    runtimeSelection = runtimeFromSettings;
-    saveRuntimeState('runtime_selection', runtimeSelection);
-  } else if (!isRuntimeProvider(runtimeSelection.provider)) {
-    runtimeSelection = {
-      provider: 'codex-cli',
-      model: providerModelCatalog['codex-cli'][0],
-    };
-    saveRuntimeState('runtime_selection', runtimeSelection);
-  }
-
-  res.json({
-    success: true,
-    runtimeSelection,
-    capabilities: {
-      providers: Object.keys(providerModelCatalog),
-      providerModels: providerModelCatalog,
-      executionTargets: ['local'],
-      accessPolicies: ['full-access', 'sandbox'],
-    },
-  });
+registerProviderSettingsRoutes(app, {
+  requireRole,
+  getAuthContext,
+  getRuntimeSelectionFromExecutorSettings,
+  isRuntimeProvider,
+  providerModelCatalog,
+  getRuntimeSelection: () => runtimeSelection,
+  setRuntimeSelection: (next) => {
+    runtimeSelection = next;
+  },
+  saveRuntimeState,
+  settingsStoreGet: (section) => settingsStore.get(section),
+  settingsStoreSet: (section, value) => settingsStore.set(section, value),
+  persistSettingsStore,
+  syncExecutorSettingsToRuntimeConfig,
+  secretsStoreUpsert: (input) => secretsStore.upsert(input),
+  getRuntimeEnforcementByProject: () => runtimeEnforcementByProject,
+  setRuntimeEnforcementByProject: (next) => {
+    runtimeEnforcementByProject = next;
+  },
+  getRuntimeFooter: () => runtimeFooter,
+  setRuntimeFooter: (next) => {
+    runtimeFooter = next;
+  },
+  runExternalExecutor,
 });
 
 app.get('/api/cockpit/storage/postgres/health', async (_req, res) => {
@@ -2868,24 +2842,6 @@ app.get('/api/cockpit/plane/bindings', (_req, res) => {
   res.json({ success: true, bindings });
 });
 
-app.get('/api/cockpit/runtime-footer', (_req, res) => {
-  res.json({
-    success: true,
-    runtimeFooter,
-  });
-});
-
-app.post('/api/cockpit/runtime-footer', (req, res) => {
-  if (!requireRole(req, res, 'admin')) return;
-  const patch = req.body || {};
-  runtimeFooter = {
-    ...runtimeFooter,
-    ...patch,
-  };
-  saveRuntimeState('runtime_footer', runtimeFooter);
-  res.json({ success: true, runtimeFooter });
-});
-
 app.get('/api/cockpit/work-scope', (_req, res) => {
   res.json({
     success: true,
@@ -2911,192 +2867,6 @@ app.get('/api/cockpit/analytics/skills', (_req, res) => {
   });
 });
 
-app.get('/api/cockpit/providers/openhands/health', (_req, res) => {
-  const raw = settingsStore.get('executor');
-  const executor = (raw && typeof raw === 'object') ? raw as { openhands?: { serverUrl?: string } } : {};
-  const configuredUrl = String(executor.openhands?.serverUrl || '').trim();
-  const serverUrl = (configuredUrl || process.env.OPENHANDS_SERVER_URL || 'http://127.0.0.1:8000').replace(/\/$/, '');
-  fetch(`${serverUrl}/health`)
-    .then(async (response) => {
-      if (!response.ok) {
-        res.json({ success: true, alive: false, error: `HTTP ${response.status}`, serverUrl });
-        return;
-      }
-      const data = await response.json().catch(() => ({}));
-      res.json({ success: true, alive: true, serverUrl, details: data });
-    })
-    .catch((error) => {
-      res.json({ success: true, alive: false, error: error?.message || 'unreachable', serverUrl });
-    });
-});
-
-app.get('/api/cockpit/providers/cli/status', (_req, res) => {
-  res.json({
-    success: true,
-    status: {
-      codex: { loggedIn: false },
-      claude: { loggedIn: false, needsLogin: true },
-    },
-  });
-});
-
-app.post('/api/cockpit/providers/cli/test', (req, res) => {
-  const provider = String(req.body?.provider || 'unknown');
-  res.json({
-    success: false,
-    error: `${provider} test is unavailable in standalone backend mode`,
-    result: { stdout: '', stderr: 'not_implemented' },
-  });
-});
-
-app.post('/api/cockpit/providers/cli/login', (_req, res) => {
-  res.json({ success: false, error: 'CLI login is not implemented in standalone backend mode' });
-});
-
-app.post('/api/cockpit/providers/test-message', async (req, res) => {
-  if (!requireRole(req, res, 'member')) return;
-  const provider = String(req.body?.provider || runtimeSelection.provider || 'codex-cli').trim();
-  const model = String(req.body?.model || runtimeSelection.model || '').trim();
-  const prompt = String(
-    req.body?.prompt ||
-      'Health-check prompt. Reply with exactly: LLM_TEST_OK',
-  ).trim();
-
-  const executor: 'claude-code' | 'codex-cli' | 'openhands-sdk' =
-    provider === 'claude-cli'
-      ? 'claude-code'
-      : provider === 'openhands-sdk'
-        ? 'openhands-sdk'
-        : 'codex-cli';
-
-  try {
-    const result = await runExternalExecutor({
-      executor,
-      prompt,
-      cwd: process.cwd(),
-      model: model || undefined,
-      timeoutMs: Number(process.env.COCKPIT_PROVIDER_TEST_TIMEOUT_MS || 45000),
-    });
-
-    const output = String(result.stdout || '').trim();
-    const error = String(result.stderr || '').trim();
-    res.json({
-      success: result.ok,
-      status: result.ok ? 'ok' : 'failed',
-      provider,
-      model: model || null,
-      message: result.ok ? 'LLM test completed' : (error || 'Provider test failed'),
-      result: {
-        ok: result.ok,
-        exitCode: result.exitCode,
-        durationMs: result.durationMs,
-        stdout: output.slice(0, 1200),
-        stderr: error.slice(0, 1200),
-        command: result.command,
-      },
-    });
-  } catch (error: any) {
-    res.status(500).json({
-      success: false,
-      status: 'failed',
-      provider,
-      model: model || null,
-      message: error?.message || 'Provider test execution failed',
-      result: {
-        ok: false,
-        exitCode: -1,
-        durationMs: 0,
-        stdout: '',
-        stderr: String(error?.message || error || 'unknown_error'),
-        command: [],
-      },
-    });
-  }
-});
-
-app.post('/api/cockpit/providers/select', (req, res) => {
-  const auth = requireRole(req, res, 'admin');
-  if (!auth) return;
-  const requestedProvider = String(req.body?.provider || runtimeSelection.provider);
-  const model = String(req.body?.model || runtimeSelection.model);
-  const provider: RuntimeProvider = isRuntimeProvider(requestedProvider) ? requestedProvider : 'codex-cli';
-  runtimeSelection = { provider, model };
-  saveRuntimeState('runtime_selection', runtimeSelection);
-
-  const raw = settingsStore.get('executor');
-  const executor = (raw && typeof raw === 'object' ? raw : {}) as Record<string, any>;
-  executor.backend = provider;
-  if (provider === 'claude-cli') executor.claude = { ...(executor.claude || {}), model };
-  if (provider === 'codex-cli') executor.codex = { ...(executor.codex || {}), model };
-  if (provider === 'openhands-sdk') executor.openhands = { ...(executor.openhands || {}), model };
-  settingsStore.set('executor', executor);
-  persistSettingsStore();
-  syncExecutorSettingsToRuntimeConfig(executor, auth);
-
-  res.json({ success: true, runtimeSelection });
-});
-
-app.get('/api/cockpit/settings/:section', (req, res) => {
-  const auth = getAuthContext(req);
-  if (!auth) return res.status(401).json({ success: false, error: 'unauthorized' });
-  const section = String(req.params.section || '').trim().toLowerCase();
-  const current = settingsStore.get(section) || {};
-  if (section === 'executor' && current && typeof current === 'object') {
-    const cloned = JSON.parse(JSON.stringify(current));
-    if (cloned?.openhands?.apiKeys && typeof cloned.openhands.apiKeys === 'object') {
-      const masked: Record<string, string> = {};
-      for (const provider of Object.keys(cloned.openhands.apiKeys)) masked[provider] = '***';
-      cloned.openhands.apiKeys = masked;
-    }
-    return res.json({ success: true, settings: cloned });
-  }
-  res.json({
-    success: true,
-    settings: current,
-  });
-});
-
-app.post('/api/cockpit/settings/:section', (req, res) => {
-  const auth = requireRole(req, res, 'admin');
-  if (!auth) return;
-  const section = String(req.params.section || '').trim().toLowerCase();
-  const settings = (req.body && typeof req.body === 'object') ? req.body : {};
-  if (section === 'executor' && settings.openhands && typeof settings.openhands === 'object') {
-    const providedApiKeys = settings.openhands.apiKeys && typeof settings.openhands.apiKeys === 'object'
-      ? settings.openhands.apiKeys
-      : {};
-    for (const [provider, rawKey] of Object.entries(providedApiKeys)) {
-      const value = String(rawKey || '').trim();
-      if (!value) continue;
-      secretsStore.upsert({
-        tenantId: auth.tenantId,
-        workspaceId: auth.workspaceId,
-        key: `openhands.apiKeys.${provider}`,
-        value,
-        createdBy: auth.userId,
-      });
-    }
-    settings.openhands = {
-      ...settings.openhands,
-      apiKeys: Object.fromEntries(Object.keys(providedApiKeys).map((provider) => [provider, '***'])),
-    };
-  }
-  settingsStore.set(section, settings);
-  persistSettingsStore();
-
-  if (section === 'executor') {
-    const runtimeFromSettings = getRuntimeSelectionFromExecutorSettings();
-    if (runtimeFromSettings) {
-      runtimeSelection = runtimeFromSettings;
-      saveRuntimeState('runtime_selection', runtimeSelection);
-    }
-    if (settings && typeof settings === 'object') {
-      syncExecutorSettingsToRuntimeConfig(settings as Record<string, any>, auth);
-    }
-  }
-
-  res.json({ success: true, settings });
-});
 
 app.get('/api/cockpit/secrets', (req, res) => {
   const auth = requireRole(req, res, 'admin');
