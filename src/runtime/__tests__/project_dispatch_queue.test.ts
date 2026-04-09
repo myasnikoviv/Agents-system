@@ -177,4 +177,23 @@ describe('ProjectDispatchQueue', () => {
     const secondPickup = ProjectDispatchQueue.pickup('proj-a', 'developer');
     expect(secondPickup?.taskId).toBe(high.taskId);
   });
+
+  it('supports async queue API with sqlite fallback', async () => {
+    const queued = await ProjectDispatchQueue.enqueueAsync({
+      runId: 'r11',
+      projectId: 'proj-a',
+      chainId: 'c11',
+      pipelineId: 'feature-change',
+      stageId: 'dev',
+      agentSlug: 'developer',
+      payload: { source: 'async-test' },
+    });
+    expect(queued.taskId).toContain('proj-a:developer:');
+    expect(await ProjectDispatchQueue.depthAsync('proj-a', 'developer')).toBe(1);
+
+    const pulled = await ProjectDispatchQueue.pickupForWorkerAsync('proj-a', 'developer', 'worker-1');
+    expect(pulled?.taskId).toBe(queued.taskId);
+    expect((pulled?.payload as any)?.pulledByWorkerId).toBe('worker-1');
+    expect(await ProjectDispatchQueue.depthAsync('proj-a', 'developer')).toBe(0);
+  });
 });
