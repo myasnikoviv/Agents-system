@@ -12,7 +12,7 @@ describe('UnifiedSwarmGraph Test', () => {
     beforeAll(() => {
         threadId = uuidv4();
         runId = uuidv4();
-        issueId = 'TKT-1029'; // mock Plane issue
+        issueId = 'TKT-1029'; // sample Plane issue
     });
 
     afterAll(async () => {
