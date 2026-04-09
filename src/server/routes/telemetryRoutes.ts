@@ -24,7 +24,7 @@ interface TelemetryRouteDeps {
 }
 
 export function registerTelemetryRoutes(app: express.Express, deps: TelemetryRouteDeps): void {
-  app.get('/api/cockpit/control-actions', async (req, res) => {
+  const readControlActions = async (req: express.Request, res: express.Response) => {
     try {
       const projectId = String(req.query?.projectId || '').trim();
       const limit = Math.max(1, Math.min(500, Number(req.query?.limit || 100)));
@@ -38,6 +38,14 @@ export function registerTelemetryRoutes(app: express.Express, deps: TelemetryRou
         message: error?.message || 'Failed to read control action audit',
       });
     }
+  };
+
+  app.get('/api/cockpit/control-actions', async (req, res) => {
+    await readControlActions(req, res);
+  });
+
+  app.get('/api/system/control-actions', async (req, res) => {
+    await readControlActions(req, res);
   });
 
   app.get('/api/cockpit/audit/logs', async (req, res) => {

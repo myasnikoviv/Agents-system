@@ -20,7 +20,6 @@ interface ControlPlaneRouteDeps {
 
 export function registerControlPlaneRoutes(app: express.Express, deps: ControlPlaneRouteDeps): void {
   const bootOrchestrator = new LocalPlatformBootOrchestrator(deps.manager);
-  const withMember = (req: express.Request, res: express.Response): boolean => !!deps.requireRole(req, res, 'member');
   const withAdmin = (req: express.Request, res: express.Response): boolean => !!deps.requireRole(req, res, 'admin');
   const readServices = (_req: express.Request, res: express.Response): void => {
     const serviceIds = deps.manager.listServices();
@@ -43,12 +42,12 @@ export function registerControlPlaneRoutes(app: express.Express, deps: ControlPl
   };
 
   app.get('/api/system/control-plane/services/:serviceId/status', (req, res) => {
-    if (!withMember(req, res)) return;
+    if (!withAdmin(req, res)) return;
     readServiceStatus(req, res);
   });
 
   app.get('/api/system/control-plane/services', (req, res) => {
-    if (!withMember(req, res)) return;
+    if (!withAdmin(req, res)) return;
     readServices(req, res);
   });
 
@@ -119,7 +118,7 @@ export function registerControlPlaneRoutes(app: express.Express, deps: ControlPl
   });
 
   app.get('/api/system/control-plane/health', (req, res) => {
-    if (!withMember(req, res)) return;
+    if (!withAdmin(req, res)) return;
     const serviceIds = deps.manager.listServices();
     const items = serviceIds.map((serviceId) => deps.manager.getStatus(serviceId));
     res.json({
@@ -130,17 +129,24 @@ export function registerControlPlaneRoutes(app: express.Express, deps: ControlPl
     });
   });
   app.get('/api/system/control-plane/events', (req, res) => {
-    if (!withMember(req, res)) return;
+    if (!withAdmin(req, res)) return;
     res.json({ success: true, items: deps.manager.listLifecycleEvents() });
   });
   app.get('/api/system/control-plane/dashboard-data', (req, res) => {
-    if (!withMember(req, res)) return;
+    if (!withAdmin(req, res)) return;
     res.json({ success: true, snapshot: buildServiceStatusDashboardSnapshot(deps.manager) });
   });
   app.post('/api/system/control-plane/boot/start', async (req, res) => {
-    if (!withAdmin(req, res)) return;
+    const auth = deps.requireRole(req, res, 'admin');
+    if (!auth) return;
     try {
       const result = await bootOrchestrator.bootAll();
+      deps.appendControlActionAudit?.({
+        action: 'control_plane_boot_start',
+        projectId: 'control-plane',
+        actorId: String(auth.userId || 'unknown'),
+        result: { ok: Boolean(result?.success) },
+      });
       res.json({ success: result.success, result });
     } catch (error: any) {
       res.status(500).json({ success: false, error: 'control_plane_boot_failed', message: error?.message || 'Boot failed' });

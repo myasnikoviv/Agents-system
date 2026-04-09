@@ -1327,7 +1327,7 @@ export function CockpitSettingsPage() {
 
   const loadControlActions = async () => {
     try {
-      const res = await fetch(apiUrl(`/api/cockpit/control-actions?projectId=${encodeURIComponent(governanceProjectId)}&limit=100`));
+      const res = await fetch(apiUrl(`/api/system/control-actions?projectId=${encodeURIComponent(governanceProjectId)}&limit=100`));
       const data = await res.json();
       if (!data?.success || !Array.isArray(data.actions)) throw new Error(data?.message || 'failed_to_load_control_actions');
       setControlActions(data.actions as GovernanceControlAction[]);
