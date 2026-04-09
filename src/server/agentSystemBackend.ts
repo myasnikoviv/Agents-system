@@ -7,6 +7,7 @@ import { execSync } from 'child_process';
 import crypto from 'crypto';
 import Database from 'better-sqlite3';
 import { v4 as uuidv4 } from 'uuid';
+import { PostgresControlPlaneStore } from './storage/PostgresControlPlaneStore';
 import { executeRuntimeRun, resumeRuntimeRun } from '../runtime/graphs/RuntimeExecutionRouter';
 import { detectLanguage } from '../runtime/LanguageDetection';
 import { fetchRecentEvents } from '../runtime/events/EventBus';
@@ -191,9 +192,26 @@ const appendControlActionAudit = (input: {
       result: input.result || {},
     };
     fs.appendFileSync(CONTROL_ACTION_AUDIT_FILE, `${JSON.stringify(row)}\n`, 'utf-8');
+    void postgresStore.recordAuditAction({
+      action: row.action,
+      projectId: input.projectId,
+      actorId: input.actorId,
+      reason: input.reason,
+      target: input.target,
+      result: input.result,
+    });
   } catch {
     // non-blocking audit
   }
+};
+
+const appendPolicyMetadata = (input: {
+  eventKind: string;
+  projectId?: string;
+  entityId?: string;
+  payload?: Record<string, any>;
+}) => {
+  void postgresStore.recordPolicyMetadata(input);
 };
 
 const PLANE_BASE_URL = (process.env.PLANE_BASE_URL || 'http://127.0.0.1:3000').replace(/\/$/, '');
@@ -259,6 +277,8 @@ runtimeDb.exec(`
   );
   CREATE INDEX IF NOT EXISTS idx_auth_sessions_user ON auth_sessions(user_id);
 `);
+const postgresStore = new PostgresControlPlaneStore();
+void postgresStore.init();
 try {
   runtimeDb.exec(`ALTER TABLE cockpit_projects ADD COLUMN agent_context_path TEXT`);
 } catch {
@@ -370,6 +390,7 @@ const saveRuntimeState = (key: string, value: unknown) => {
        ON CONFLICT(key) DO UPDATE SET value_json=excluded.value_json, updated_at=excluded.updated_at`,
     )
     .run(key, JSON.stringify(value), new Date().toISOString());
+  void postgresStore.upsertState(key, value);
 };
 
 const loadRuntimeState = <T>(key: string, fallback: T): T => {
@@ -399,6 +420,9 @@ const persistSettingsStore = () => {
       }
     });
     tx();
+    for (const [section, value] of settingsStore.entries()) {
+      void postgresStore.upsertSetting(section, value);
+    }
   } catch (error) {
     console.error('[agent-system-backend] failed to persist settings store:', error);
   }
@@ -2022,6 +2046,11 @@ app.post('/api/governance/loops', async (req, res) => {
       target: { loopId: loop.id, kind: loop.kind },
       result: { ok: true },
     });
+    appendPolicyMetadata({
+      eventKind: 'governance_loop_create',
+      entityId: loop.id,
+      payload: { kind: loop.kind, scope: loop.scope || null },
+    });
     res.json({ success: true, loop, serverNow: new Date().toISOString() });
   } catch (error: any) {
     res.status(400).json({ success: false, error: 'governance_loop_create_failed', message: error?.message || 'Failed to create loop' });
@@ -2041,6 +2070,11 @@ app.post('/api/governance/loops/:loopId', async (req, res) => {
       target: { loopId },
       result: { ok: true },
     });
+    appendPolicyMetadata({
+      eventKind: 'governance_loop_update',
+      entityId: loopId,
+      payload: { patch },
+    });
     res.json({ success: true, loop, serverNow: new Date().toISOString() });
   } catch (error: any) {
     res.status(400).json({ success: false, error: 'governance_loop_update_failed', message: error?.message || 'Failed to update loop' });
@@ -2059,6 +2093,11 @@ app.post('/api/governance/loops/:loopId/disable', async (req, res) => {
       actorId: 'cockpit-user',
       target: { loopId, disabled },
       result: { ok: true },
+    });
+    appendPolicyMetadata({
+      eventKind: 'governance_loop_disable',
+      entityId: loopId,
+      payload: { disabled },
     });
     res.json({ success: true, loop, serverNow: new Date().toISOString() });
   } catch (error: any) {
@@ -2149,6 +2188,11 @@ app.post('/api/governance/rules', async (req, res) => {
       target: { ruleId: created.id },
       result: { ok: true },
     });
+    appendPolicyMetadata({
+      eventKind: 'governance_rule_create',
+      entityId: created.id,
+      payload: { triggerPhases: created.triggerPhases || [] },
+    });
     res.json({ success: true, rule: created, serverNow: new Date().toISOString() });
   } catch (error: any) {
     res.status(400).json({ success: false, error: 'governance_rule_create_failed', message: error?.message || 'Failed to create rule' });
@@ -2167,6 +2211,11 @@ app.post('/api/governance/rules/:ruleId', async (req, res) => {
       actorId: 'cockpit-user',
       target: { ruleId },
       result: { ok: true },
+    });
+    appendPolicyMetadata({
+      eventKind: 'governance_rule_update',
+      entityId: ruleId,
+      payload: { patch },
     });
     res.json({ success: true, rule: updated, serverNow: new Date().toISOString() });
   } catch (error: any) {
@@ -2199,6 +2248,12 @@ app.post('/api/governance/rules/:ruleId/disable', async (req, res) => {
         target: { ruleId, disabled },
         result: { ok: true },
       });
+      appendPolicyMetadata({
+        eventKind: 'governance_rule_disable_project',
+        projectId,
+        entityId: ruleId,
+        payload: { disabled },
+      });
       res.json({ success: true, projectId, policy: updatedPolicy, serverNow: new Date().toISOString() });
       return;
     }
@@ -2208,6 +2263,11 @@ app.post('/api/governance/rules/:ruleId/disable', async (req, res) => {
       actorId: 'cockpit-user',
       target: { ruleId, disabled },
       result: { ok: true },
+    });
+    appendPolicyMetadata({
+      eventKind: 'governance_rule_disable_global',
+      entityId: ruleId,
+      payload: { disabled },
     });
     res.json({ success: true, rule: updated, serverNow: new Date().toISOString() });
   } catch (error: any) {
@@ -2227,6 +2287,11 @@ app.delete('/api/governance/rules/:ruleId', async (req, res) => {
       actorId: 'cockpit-user',
       target: { ruleId, force },
       result: { ok: true, ...result },
+    });
+    appendPolicyMetadata({
+      eventKind: 'governance_rule_delete',
+      entityId: ruleId,
+      payload: { force },
     });
     res.json({ success: true, ruleId, force, ...result, serverNow: new Date().toISOString() });
   } catch (error: any) {
@@ -2324,6 +2389,15 @@ app.post('/api/projects/:projectId/policy', async (req, res) => {
       actorId: 'cockpit-user',
       result: { ok: true },
     });
+    appendPolicyMetadata({
+      eventKind: 'project_policy_update',
+      projectId,
+      entityId: projectId,
+      payload: {
+        enabledRules: Array.isArray(payload.enabledRules) ? payload.enabledRules : [],
+        disabledRules: Array.isArray(payload.disabledRules) ? payload.disabledRules : [],
+      },
+    });
     res.json({ success: true, policy, serverNow: new Date().toISOString() });
   } catch (error: any) {
     res.status(400).json({ success: false, error: 'project_policy_update_failed', message: error?.message || 'Failed to update project policy' });
@@ -2413,6 +2487,16 @@ app.get('/api/cockpit/providers', (_req, res) => {
       executionTargets: ['local'],
       accessPolicies: ['full-access', 'sandbox'],
     },
+  });
+});
+
+app.get('/api/cockpit/storage/postgres/health', async (_req, res) => {
+  const health = await postgresStore.health();
+  res.json({
+    success: health.ok,
+    backend: 'postgres',
+    enabled: health.enabled,
+    ...(health.error ? { error: health.error } : {}),
   });
 });
 
