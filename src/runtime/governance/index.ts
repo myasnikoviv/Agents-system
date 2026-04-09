@@ -45,3 +45,10 @@ export {
 } from './ProjectPolicyBinding';
 export { listDeterministicEvaluators, registerDeterministicEvaluator } from './DeterministicEvaluationEngine';
 export { listEvaluators, registerEvaluator, resolveEvaluator } from './EvaluatorRegistry';
+export {
+  buildGovernanceDataModelSnapshot,
+  type GovernanceRuleEntity,
+  type GovernanceProfileEntity,
+  type GovernanceArtifactEntity,
+  type GovernanceDataModelSnapshot,
+} from './GovernanceDataModel';
