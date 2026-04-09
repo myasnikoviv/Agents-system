@@ -18,6 +18,10 @@ export interface StoredObjectPayload extends StoredObjectRecord {
   contentBase64: string;
 }
 
+type Queryable = {
+  query: (sql: string, params?: any[]) => Promise<{ rows?: any[] }>;
+};
+
 function normalizeBucket(value?: string): string {
   const bucket = String(value || 'artifacts').trim();
   return bucket.length > 0 ? bucket.slice(0, 120) : 'artifacts';
@@ -169,6 +173,200 @@ export class SqliteObjectStorageService {
       metadata: (() => {
         try { return JSON.parse(row.metadata_json || '{}'); } catch { return {}; }
       })(),
+    }));
+  }
+}
+
+export class PostgresObjectStorageService {
+  private connectionString: string;
+  private client: Queryable | null = null;
+  private initPromise: Promise<void> | null = null;
+  private enabled = false;
+
+  constructor(options?: { connectionString?: string }) {
+    this.connectionString = String(options?.connectionString || process.env.POSTGRES_URL || process.env.DATABASE_URL || '').trim();
+  }
+
+  isEnabled(): boolean {
+    return this.enabled;
+  }
+
+  private async init(): Promise<void> {
+    if (this.initPromise) return this.initPromise;
+    this.initPromise = this.initInternal();
+    return this.initPromise;
+  }
+
+  private async initInternal(): Promise<void> {
+    if (!this.connectionString) {
+      this.enabled = false;
+      return;
+    }
+    try {
+      const mod = await import('pg').catch(() => null as any);
+      const PoolCtor = mod?.Pool;
+      if (!PoolCtor) {
+        this.enabled = false;
+        return;
+      }
+      const pool = new PoolCtor({ connectionString: this.connectionString });
+      await pool.query('SELECT 1');
+      this.client = pool as Queryable;
+      await this.client.query(`
+        CREATE TABLE IF NOT EXISTS cockpit_object_storage_pg (
+          id TEXT PRIMARY KEY,
+          bucket TEXT NOT NULL,
+          key TEXT NOT NULL,
+          project_id TEXT,
+          thread_id TEXT,
+          mime_type TEXT NOT NULL,
+          size BIGINT NOT NULL,
+          checksum_sha256 TEXT NOT NULL,
+          content_base64 TEXT NOT NULL,
+          metadata_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+        CREATE INDEX IF NOT EXISTS idx_cockpit_object_storage_pg_bucket_key
+          ON cockpit_object_storage_pg(bucket, key);
+        CREATE INDEX IF NOT EXISTS idx_cockpit_object_storage_pg_project_thread
+          ON cockpit_object_storage_pg(project_id, thread_id, created_at DESC);
+      `);
+      this.enabled = true;
+    } catch {
+      this.enabled = false;
+      this.client = null;
+    }
+  }
+
+  private async ensureReady(): Promise<boolean> {
+    await this.init();
+    return Boolean(this.enabled && this.client);
+  }
+
+  async ready(): Promise<boolean> {
+    return this.ensureReady();
+  }
+
+  async putObject(input: {
+    bucket?: string;
+    key?: string;
+    projectId?: string;
+    threadId?: string;
+    mimeType?: string;
+    contentBase64: string;
+    metadata?: Record<string, any>;
+  }): Promise<StoredObjectRecord | null> {
+    if (!(await this.ensureReady())) return null;
+    const bucket = normalizeBucket(input.bucket);
+    const key = normalizeKey(input.key);
+    const contentBase64 = String(input.contentBase64 || '');
+    const raw = Buffer.from(contentBase64, 'base64');
+    const checksumSha256 = crypto.createHash('sha256').update(raw).digest('hex');
+    const id = `obj-${Date.now().toString(36)}-${crypto.randomBytes(4).toString('hex')}`;
+    const createdAt = new Date().toISOString();
+    const metadata = input.metadata || {};
+    const mimeType = String(input.mimeType || 'application/octet-stream');
+    await this.client!.query(
+      `INSERT INTO cockpit_object_storage_pg(
+         id, bucket, key, project_id, thread_id, mime_type, size, checksum_sha256, content_base64, metadata_json, created_at
+       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,NOW())`,
+      [
+        id,
+        bucket,
+        key,
+        input.projectId || null,
+        input.threadId || null,
+        mimeType,
+        raw.length,
+        checksumSha256,
+        contentBase64,
+        JSON.stringify(metadata),
+      ],
+    );
+    return {
+      id,
+      bucket,
+      key,
+      projectId: input.projectId,
+      threadId: input.threadId,
+      mimeType,
+      size: raw.length,
+      checksumSha256,
+      createdAt,
+      metadata,
+    };
+  }
+
+  async getObject(id: string): Promise<StoredObjectPayload | null> {
+    if (!(await this.ensureReady())) return null;
+    const row = (await this.client!.query(
+      `SELECT id, bucket, key, project_id, thread_id, mime_type, size, checksum_sha256, content_base64, metadata_json, created_at
+       FROM cockpit_object_storage_pg
+       WHERE id = $1
+       LIMIT 1`,
+      [id],
+    ))?.rows?.[0] as any;
+    if (!row) return null;
+    return {
+      id: String(row.id),
+      bucket: String(row.bucket),
+      key: String(row.key),
+      projectId: row?.project_id ? String(row.project_id) : undefined,
+      threadId: row?.thread_id ? String(row.thread_id) : undefined,
+      mimeType: String(row.mime_type),
+      size: Number(row.size || 0),
+      checksumSha256: String(row.checksum_sha256),
+      contentBase64: String(row.content_base64 || ''),
+      createdAt: String(row.created_at || new Date().toISOString()),
+      metadata: (row?.metadata_json && typeof row.metadata_json === 'object') ? row.metadata_json : {},
+    };
+  }
+
+  async listObjects(input?: {
+    bucket?: string;
+    projectId?: string;
+    threadId?: string;
+    limit?: number;
+  }): Promise<StoredObjectRecord[]> {
+    if (!(await this.ensureReady())) return [];
+    const bucket = input?.bucket ? normalizeBucket(input.bucket) : null;
+    const limit = Math.max(1, Math.min(Number(input?.limit || 100), 500));
+    const clauses: string[] = [];
+    const values: any[] = [];
+    let idx = 1;
+    if (bucket) {
+      clauses.push(`bucket = $${idx++}`);
+      values.push(bucket);
+    }
+    if (input?.projectId) {
+      clauses.push(`project_id = $${idx++}`);
+      values.push(input.projectId);
+    }
+    if (input?.threadId) {
+      clauses.push(`thread_id = $${idx++}`);
+      values.push(input.threadId);
+    }
+    const where = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '';
+    values.push(limit);
+    const rows = (await this.client!.query(
+      `SELECT id, bucket, key, project_id, thread_id, mime_type, size, checksum_sha256, metadata_json, created_at
+       FROM cockpit_object_storage_pg
+       ${where}
+       ORDER BY created_at DESC
+       LIMIT $${idx}`,
+      values,
+    ))?.rows || [];
+    return rows.map((row: any) => ({
+      id: String(row.id),
+      bucket: String(row.bucket),
+      key: String(row.key),
+      projectId: row?.project_id ? String(row.project_id) : undefined,
+      threadId: row?.thread_id ? String(row.thread_id) : undefined,
+      mimeType: String(row.mime_type),
+      size: Number(row.size || 0),
+      checksumSha256: String(row.checksum_sha256),
+      createdAt: String(row.created_at || new Date().toISOString()),
+      metadata: (row?.metadata_json && typeof row.metadata_json === 'object') ? row.metadata_json : {},
     }));
   }
 }

@@ -8,8 +8,8 @@ import crypto from 'crypto';
 import Database from 'better-sqlite3';
 import { v4 as uuidv4 } from 'uuid';
 import { PostgresControlPlaneStore } from './storage/PostgresControlPlaneStore';
-import { SqliteObjectStorageService } from './storage/ObjectStorageService';
-import { SqliteSecretsStore } from './storage/SecretsStore';
+import { PostgresObjectStorageService, SqliteObjectStorageService } from './storage/ObjectStorageService';
+import { PostgresSecretsStore, SqliteSecretsStore } from './storage/SecretsStore';
 import { executeRuntimeRun, resumeRuntimeRun } from '../runtime/graphs/RuntimeExecutionRouter';
 import { detectLanguage } from '../runtime/LanguageDetection';
 import { fetchRecentEvents, fetchEventsByRunId } from '../runtime/events/EventBus';
@@ -458,6 +458,7 @@ runtimeDb.exec(`
 `);
 
 const objectStorage = new SqliteObjectStorageService(runtimeDb);
+const postgresObjectStorage = new PostgresObjectStorageService();
 const postgresStore = new PostgresControlPlaneStore();
 void postgresStore.init();
 try {
@@ -485,9 +486,22 @@ const normalizeProjectKey = (value: string): string =>
 const AUTH_SESSION_TTL_HOURS = Math.max(1, Number(process.env.AUTH_SESSION_TTL_HOURS || 24));
 const AUTH_SECRET = String(process.env.AUTH_SECRET || 'agent-system-dev-secret');
 const secretsStore = new SqliteSecretsStore(runtimeDb, AUTH_SECRET);
+const postgresSecretsStore = new PostgresSecretsStore(AUTH_SECRET);
+const OBJECT_STORAGE_BACKEND = String(process.env.COCKPIT_OBJECT_STORAGE_BACKEND || '').trim().toLowerCase();
+const SECRETS_STORAGE_BACKEND = String(process.env.COCKPIT_SECRETS_BACKEND || '').trim().toLowerCase();
 
 const hashPassword = (raw: string): string =>
   crypto.createHash('sha256').update(`${AUTH_SECRET}:${String(raw || '')}`).digest('hex');
+
+const shouldUsePostgresSecrets = async (): Promise<boolean> => {
+  if (SECRETS_STORAGE_BACKEND !== 'postgres') return false;
+  return postgresSecretsStore.ready();
+};
+
+const shouldUsePostgresObjects = async (): Promise<boolean> => {
+  if (OBJECT_STORAGE_BACKEND !== 'postgres') return false;
+  return postgresObjectStorage.ready();
+};
 
 const parseBearerToken = (headerValue?: string): string => {
   const header = String(headerValue || '').trim();
@@ -1463,6 +1477,11 @@ app.get('/api/health', (_req, res) => {
       },
       postgres: controlPlaneSourceState.postgres,
       ...(controlPlaneSourceState.lastHydratedAt ? { lastHydratedAt: controlPlaneSourceState.lastHydratedAt } : {}),
+    },
+    storage: {
+      objectStorageBackend: OBJECT_STORAGE_BACKEND || 'sqlite',
+      secretsBackend: SECRETS_STORAGE_BACKEND || 'sqlite',
+      fallbackStore: 'sqlite',
     },
   });
 });
@@ -2794,9 +2813,35 @@ app.get('/api/cockpit/analytics/skills', (_req, res) => {
 
 registerSecretsRoutes(app, {
   requireRole,
-  secretsListMeta: (input) => secretsStore.listMeta(input),
-  secretsUpsert: (input) => secretsStore.upsert(input),
-  secretsDelete: (input) => secretsStore.delete(input),
+  secretsListMeta: async (input) => {
+    if (await shouldUsePostgresSecrets()) {
+      const pgRows = await postgresSecretsStore.listMeta(input);
+      if (pgRows.length > 0) return pgRows;
+    }
+    return secretsStore.listMeta(input);
+  },
+  secretsUpsert: async (input) => {
+    const sqliteSaved = secretsStore.upsert(input);
+    if (await shouldUsePostgresSecrets()) {
+      try {
+        await postgresSecretsStore.upsert(input);
+      } catch {
+        // sqlite mirror already persisted; keep response deterministic
+      }
+    }
+    return sqliteSaved;
+  },
+  secretsDelete: async (input) => {
+    const sqliteDeleted = secretsStore.delete(input);
+    if (await shouldUsePostgresSecrets()) {
+      try {
+        await postgresSecretsStore.delete(input);
+      } catch {
+        // keep sqlite deletion result
+      }
+    }
+    return sqliteDeleted;
+  },
   appendControlActionAudit,
 });
 
@@ -3185,9 +3230,31 @@ app.get('/api/events/stream', (req, res) => {
 });
 
 registerAttachmentStorageRoutes(app, {
-  objectStorageList: (input) => objectStorage.listObjects(input),
-  objectStorageGet: (id) => objectStorage.getObject(id),
-  objectStoragePut: (input) => objectStorage.putObject(input),
+  objectStorageList: async (input) => {
+    if (await shouldUsePostgresObjects()) {
+      const pgItems = await postgresObjectStorage.listObjects(input);
+      if (pgItems.length > 0) return pgItems;
+    }
+    return objectStorage.listObjects(input);
+  },
+  objectStorageGet: async (id) => {
+    if (await shouldUsePostgresObjects()) {
+      const pgObject = await postgresObjectStorage.getObject(id);
+      if (pgObject) return pgObject;
+    }
+    return objectStorage.getObject(id);
+  },
+  objectStoragePut: async (input) => {
+    const sqliteStored = objectStorage.putObject(input);
+    if (await shouldUsePostgresObjects()) {
+      try {
+        await postgresObjectStorage.putObject(input);
+      } catch {
+        // sqlite mirror already persisted
+      }
+    }
+    return sqliteStored;
+  },
   appendControlActionAudit,
 });
 

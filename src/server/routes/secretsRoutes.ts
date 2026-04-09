@@ -2,15 +2,15 @@ import type express from 'express';
 
 interface SecretsRouteDeps {
   requireRole: (req: express.Request, res: express.Response, role?: 'member' | 'admin') => any;
-  secretsListMeta: (input: { tenantId: string; workspaceId: string }) => any[];
+  secretsListMeta: (input: { tenantId: string; workspaceId: string }) => Promise<any[]>;
   secretsUpsert: (input: {
     tenantId: string;
     workspaceId: string;
     key: string;
     value: string;
     createdBy: string;
-  }) => any;
-  secretsDelete: (input: { tenantId: string; workspaceId: string; key: string }) => boolean;
+  }) => Promise<any>;
+  secretsDelete: (input: { tenantId: string; workspaceId: string; key: string }) => Promise<boolean>;
   appendControlActionAudit: (entry: {
     action: string;
     actorId: string;
@@ -20,14 +20,14 @@ interface SecretsRouteDeps {
 }
 
 export function registerSecretsRoutes(app: express.Express, deps: SecretsRouteDeps): void {
-  app.get('/api/cockpit/secrets', (req, res) => {
+  app.get('/api/cockpit/secrets', async (req, res) => {
     const auth = deps.requireRole(req, res, 'admin');
     if (!auth) return;
-    const items = deps.secretsListMeta({ tenantId: auth.tenantId, workspaceId: auth.workspaceId });
+    const items = await deps.secretsListMeta({ tenantId: auth.tenantId, workspaceId: auth.workspaceId });
     res.json({ success: true, items });
   });
 
-  app.post('/api/cockpit/secrets', (req, res) => {
+  app.post('/api/cockpit/secrets', async (req, res) => {
     const auth = deps.requireRole(req, res, 'admin');
     if (!auth) return;
     const key = String(req.body?.key || '').trim();
@@ -35,7 +35,7 @@ export function registerSecretsRoutes(app: express.Express, deps: SecretsRouteDe
     if (!key || !value) {
       return res.status(400).json({ success: false, error: 'key_and_value_required' });
     }
-    const saved = deps.secretsUpsert({
+    const saved = await deps.secretsUpsert({
       tenantId: auth.tenantId,
       workspaceId: auth.workspaceId,
       key,
@@ -51,14 +51,14 @@ export function registerSecretsRoutes(app: express.Express, deps: SecretsRouteDe
     res.json({ success: true, secret: saved });
   });
 
-  app.delete('/api/cockpit/secrets/:key', (req, res) => {
+  app.delete('/api/cockpit/secrets/:key', async (req, res) => {
     const auth = deps.requireRole(req, res, 'admin');
     if (!auth) return;
     const key = String(req.params.key || '').trim();
     if (!key) {
       return res.status(400).json({ success: false, error: 'key_required' });
     }
-    const deleted = deps.secretsDelete({
+    const deleted = await deps.secretsDelete({
       tenantId: auth.tenantId,
       workspaceId: auth.workspaceId,
       key,
