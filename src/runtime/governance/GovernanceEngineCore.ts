@@ -4,6 +4,8 @@ import { runHybridVerifier } from './LlmVerifierWrapper';
 import { isBypassAllowed, isGlobalGovernanceDisabled } from './EmergencyBrake';
 import { resolveEnabledRules } from './ProjectPolicyBinding';
 import { loadGovernanceRules } from './RuleRegistry';
+import { resolveManualOverride } from './ManualOverrideRegistry';
+import { resolveScopedRules } from './ScopeResolutionEngine';
 import { GovernanceEngineContext, GovernancePhase, GovernancePhaseResult } from './GovernanceEngineTypes';
 import fs from 'fs';
 import path from 'path';
@@ -87,7 +89,8 @@ export async function runGovernancePhase(
   const registryRules = loadGovernanceRules(ctx.workspacePath);
   const executionPolicy = loadExecutionPolicy(ctx.workspacePath);
   const enabled = resolveEnabledRules(ctx.projectId || 'default', ctx.workspacePath);
-  const rules = registryRules.filter((r) => enabled.has(r.id) && r.triggerPhases.includes(normalizedPhase));
+  const scopedRules = resolveScopedRules({ rules: registryRules, context: ctx });
+  const rules = scopedRules.filter((r) => !r.disabled && enabled.has(r.id) && r.triggerPhases.includes(normalizedPhase));
   const entries = [] as GovernancePhaseResult['entries'];
 
   let blocked = false;
@@ -95,6 +98,31 @@ export async function runGovernancePhase(
   let retrySuggested = false;
 
   for (const rule of rules) {
+    const manualOverride = resolveManualOverride({
+      context: ctx,
+      phase: normalizedPhase,
+      ruleId: rule.id,
+    });
+    if (manualOverride) {
+      const result = {
+        ruleId: rule.id,
+        verdict: 'pass' as const,
+        reason: `manual_override:${manualOverride.id}`,
+        evidenceSummary: `actor=${manualOverride.actorId};scope=${manualOverride.scope};reason=${manualOverride.reason}`,
+      };
+      entries.push(result);
+      logGovernance({
+        rule: rule.id,
+        status: 'pass',
+        action: 'allow',
+        ticket: ctx.ticketId,
+        runId: ctx.runId,
+        chainId: ctx.chainId,
+        detail: `${normalizedPhase}:manual_override;overrideId=${manualOverride.id};actor=${manualOverride.actorId};reason=${manualOverride.reason}`,
+      });
+      continue;
+    }
+
     let result = await evaluateDeterministic(rule, ctx);
 
     const allowLlmFallback = executionPolicy.strictDeterministic ? false : executionPolicy.llmFallbackEnabled === true;

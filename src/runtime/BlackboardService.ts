@@ -15,10 +15,23 @@ export class BlackboardService {
 
   /**
    * Generates a hierarchical Redis key based on the Memory Contract Spec.
-   * Format: agsys:{projectId}:{chainId}:{runId}:{entity}
+   * Format: agsys:{tenantId}:{workspaceId}:{projectId}:{environmentId}:{chainId}:{runId}:{entity}
    */
-  private static getKey(context: { projectId: string; chainId: string; runId: string }, entity: string): string {
-    return `${this.redisPrefix}${context.projectId}:${context.chainId}:${context.runId}:${entity}`;
+  private static getKey(
+    context: {
+      tenantId?: string;
+      workspaceId?: string;
+      projectId: string;
+      environmentId?: string;
+      chainId: string;
+      runId: string;
+    },
+    entity: string,
+  ): string {
+    const tenantId = String(context.tenantId || process.env.DEFAULT_TENANT_ID || `tenant:${context.projectId}`).trim();
+    const workspaceId = String(context.workspaceId || process.env.DEFAULT_WORKSPACE_ID || `workspace:${context.projectId}`).trim();
+    const environmentId = String(context.environmentId || `env:${tenantId}:${workspaceId}:project:${context.projectId}`).trim();
+    return `${this.redisPrefix}${tenantId}:${workspaceId}:${context.projectId}:${environmentId}:${context.chainId}:${context.runId}:${entity}`;
   }
 
   /**
@@ -37,10 +50,28 @@ export class BlackboardService {
       const runFacts = await redis.hgetall(this.getKey(context, 'facts:run'));
       
       // 3. Fetch Facts (Hash) - Chain Level (Hydration rule: Chain facts take precedence over Run facts if keys collide, or they are merged)
-      const chainFacts = await redis.hgetall(this.getKey({ projectId, chainId, runId: 'shared' }, 'facts:chain'));
+      const chainFacts = await redis.hgetall(
+        this.getKey({
+          tenantId: context.tenantId,
+          workspaceId: context.workspaceId,
+          projectId,
+          environmentId: (context as any).environmentId,
+          chainId,
+          runId: 'shared',
+        }, 'facts:chain'),
+      );
       
       // 4. Fetch Facts (Hash) - Project Level
-      const projectFacts = await redis.hgetall(this.getKey({ projectId, chainId: 'shared', runId: 'shared' }, 'facts:project'));
+      const projectFacts = await redis.hgetall(
+        this.getKey({
+          tenantId: context.tenantId,
+          workspaceId: context.workspaceId,
+          projectId,
+          environmentId: (context as any).environmentId,
+          chainId: 'shared',
+          runId: 'shared',
+        }, 'facts:project'),
+      );
 
       context.memory.sharedFacts = {
         ...Object.fromEntries(Object.entries(projectFacts).map(([k, v]) => [k, JSON.parse(v)])),
@@ -69,7 +100,17 @@ export class BlackboardService {
   /**
    * Saves a structured artifact to the blackboard.
    */
-  static async saveArtifact(context: { projectId: string; chainId: string; runId: string }, artifact: StructuredArtifact): Promise<void> {
+  static async saveArtifact(
+    context: {
+      tenantId?: string;
+      workspaceId?: string;
+      projectId: string;
+      environmentId?: string;
+      chainId: string;
+      runId: string;
+    },
+    artifact: StructuredArtifact,
+  ): Promise<void> {
     const redis = getRedisClient();
     await redis.rpush(this.getKey(context, 'artifacts'), JSON.stringify(artifact));
     console.log(`[BlackboardService] Saved artifact for run ${context.runId}`);
@@ -78,7 +119,16 @@ export class BlackboardService {
   /**
    * Returns all stored artifacts for the given run context.
    */
-  static async getArtifacts(context: { projectId: string; chainId: string; runId: string }): Promise<StructuredArtifact[]> {
+  static async getArtifacts(
+    context: {
+      tenantId?: string;
+      workspaceId?: string;
+      projectId: string;
+      environmentId?: string;
+      chainId: string;
+      runId: string;
+    },
+  ): Promise<StructuredArtifact[]> {
     const redis = getRedisClient();
     const rows = await redis.lrange(this.getKey(context, 'artifacts'), 0, -1);
     return rows
@@ -96,7 +146,14 @@ export class BlackboardService {
    * Publishes a fact to the shared blackboard at a specific level.
    */
   static async publishFact(
-    context: { projectId: string; chainId: string; runId: string }, 
+    context: {
+      tenantId?: string;
+      workspaceId?: string;
+      projectId: string;
+      environmentId?: string;
+      chainId: string;
+      runId: string;
+    },
     key: string, 
     value: any, 
     level: 'run' | 'chain' | 'project' = 'run'
@@ -105,10 +162,9 @@ export class BlackboardService {
     let effectiveContext = { ...context };
     
     if (level === 'project') {
-      effectiveContext.chainId = 'shared';
-      effectiveContext.runId = 'shared';
+      effectiveContext = { ...effectiveContext, chainId: 'shared', runId: 'shared' };
     } else if (level === 'chain') {
-      effectiveContext.runId = 'shared';
+      effectiveContext = { ...effectiveContext, runId: 'shared' };
     }
 
     const redisKey = this.getKey(effectiveContext, `facts:${level}`);
@@ -119,7 +175,18 @@ export class BlackboardService {
   /**
    * Logs a decision to the blackboard.
    */
-  static async logDecision(context: { projectId: string; chainId: string; runId: string }, nodeName: string, decision: any): Promise<void> {
+  static async logDecision(
+    context: {
+      tenantId?: string;
+      workspaceId?: string;
+      projectId: string;
+      environmentId?: string;
+      chainId: string;
+      runId: string;
+    },
+    nodeName: string,
+    decision: any,
+  ): Promise<void> {
     const redis = getRedisClient();
     await redis.hset(this.getKey(context, 'decisions'), nodeName, JSON.stringify(decision));
   }
@@ -127,7 +194,17 @@ export class BlackboardService {
   /**
    * Sets the handoff context.
    */
-  static async setHandoffContext(context: { projectId: string; chainId: string; runId: string }, handoff: { fromRole: string; toRole: string; summary: string; rationale: string }): Promise<void> {
+  static async setHandoffContext(
+    context: {
+      tenantId?: string;
+      workspaceId?: string;
+      projectId: string;
+      environmentId?: string;
+      chainId: string;
+      runId: string;
+    },
+    handoff: { fromRole: string; toRole: string; summary: string; rationale: string },
+  ): Promise<void> {
     const redis = getRedisClient();
     await redis.set(this.getKey(context, 'handoff'), JSON.stringify(handoff));
   }

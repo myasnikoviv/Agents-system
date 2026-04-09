@@ -1,11 +1,13 @@
 import React, { useMemo, useState, useEffect, useRef } from 'react';
-import { Mic, Send, Cpu, Activity, LayoutDashboard, Terminal, Settings, PanelLeftClose, PanelLeftOpen, Globe2, ChevronDown, Plus, PencilLine, Folder, FolderPlus, Laptop, ShieldCheck, GitBranch, RefreshCw, Trash2 } from 'lucide-react';
+import { Mic, Send, Square, Cpu, Activity, LayoutDashboard, Terminal, Settings, PanelLeftClose, PanelLeftOpen, Globe2, ChevronDown, Plus, PencilLine, Folder, FolderPlus, Laptop, ShieldCheck, GitBranch, RefreshCw, Trash2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { ArtifactRenderer } from './ArtifactRenderer';
 import { apiUrl, fetchJsonSafe } from '../../lib/http';
 import { StreamRenderer, type RuntimeEvent } from './StreamRenderer';
+import { ObservabilityPanels } from './ObservabilityPanels';
 import './CockpitPage.css';
 const RUNTIME_MODE_KEY = 'cockpit.runtime.mode.v1';
+const CHAT_EVENT_RENDER_MODE_KEY = 'cockpit.chat.event.render.mode.v1';
 
 export interface ChatMessage {
     id: string;
@@ -34,6 +36,17 @@ interface RuntimeFooterState {
     activeBranch?: string;
     worktreePath?: string;
     preflightToken?: string | null;
+}
+interface CanonicalSseEvent {
+    id?: string;
+    type?: string;
+    runId?: string;
+    chainId?: string;
+    projectId?: string;
+    timestamp?: number | string;
+    actor?: { id?: string; role?: string };
+    payload?: Record<string, any>;
+    [key: string]: any;
 }
 
 interface CatalogState {
@@ -78,6 +91,56 @@ interface AgentRuntimeStatus {
     lastUpdated: string;
     delegatedFrom?: string | null;
     isPaused?: boolean;
+}
+interface WorkerHealthRow {
+    projectId: string;
+    agentSlug: string;
+    workerId: string;
+    enabled: boolean;
+    availabilityState: 'hot' | 'cold';
+    executionState: 'active' | 'standby';
+    rawLifecycleState: string;
+    heartbeatFreshness: 'fresh' | 'stale' | 'dead';
+    heartbeatAgeMs: number;
+    lastHeartbeatAt: number;
+    isPaused?: boolean;
+    assignedTask?: {
+        taskId: string;
+        stageId?: string;
+        pipelineId?: string;
+        runId: string;
+    } | null;
+}
+interface SwarmSummaryState {
+    workersTotal: number;
+    activeWorkers: number;
+    standbyWorkers: number;
+    unhealthyWorkers: number;
+    queuePressure: number;
+}
+interface ProjectSwitchFeedback {
+    fromProjectId: string;
+    toProjectId: string;
+    switching: boolean;
+    startedAtMs: number;
+    resolvedAtMs: number | null;
+    warmupMs: number | null;
+    previousWorkers: number;
+    currentWorkers: number;
+    previousHot: number;
+    currentHot: number;
+    spawned: number;
+    demoted: number;
+    coldWorkers: number;
+}
+interface QueueTaskSnapshot {
+    taskId: string;
+    stageId: string;
+    agentSlug: string;
+    status: 'pending' | 'assigned' | 'completed';
+    queuedAt: number;
+    assignedAt: number | null;
+    updatedAt: number;
 }
 interface PersistedThreadMessage {
     id: string;
@@ -161,6 +224,7 @@ interface DirectoryPickerWindow extends Window {
 }
 
 type RuntimeProvider = 'claude-cli' | 'codex-cli' | 'openhands-sdk';
+type ChatEventRenderMode = 'humanized' | 'raw' | 'both';
 
 const toRenderableMarkdown = (raw: string): string =>
     String(raw || '').replace(
@@ -176,6 +240,11 @@ export function CockpitPage() {
         return 'multiple_agents';
     });
     const [messagesByThread, setMessagesByThread] = useState<Record<string, ChatMessage[]>>({});
+    const [chatEventRenderMode, setChatEventRenderMode] = useState<ChatEventRenderMode>(() => {
+        const stored = localStorage.getItem(CHAT_EVENT_RENDER_MODE_KEY);
+        if (stored === 'humanized' || stored === 'raw' || stored === 'both') return stored;
+        return 'humanized';
+    });
     const [input, setInput] = useState('');
     const [isRecording, setIsRecording] = useState(false);
     const [eventsByThread, setEventsByThread] = useState<Record<string, RuntimeEvent[]>>({});
@@ -186,11 +255,27 @@ export function CockpitPage() {
     const [currentThreadId, setCurrentThreadId] = useState<string | null>(null);
     const [currentTicketId, setCurrentTicketId] = useState<string | null>(null);
     const [status, setStatus] = useState<string>('idle');
+    const [activeRunId, setActiveRunId] = useState<string | null>(null);
     const [observability, setObservability] = useState<ObservabilityState | null>(null);
     const [gitContext, setGitContext] = useState<GitContext | null>(null);
     const [catalog, setCatalog] = useState<CatalogState>({ agents: [], pipelines: [], skills: [] });
     const [agentRegistry, setAgentRegistry] = useState<AgentRegistryEntry[]>([]);
     const [agentRuntime, setAgentRuntime] = useState<Record<string, AgentRuntimeStatus>>({});
+    const [swarmSummary, setSwarmSummary] = useState<SwarmSummaryState>({
+        workersTotal: 0,
+        activeWorkers: 0,
+        standbyWorkers: 0,
+        unhealthyWorkers: 0,
+        queuePressure: 0,
+    });
+    const [swarmWorkers, setSwarmWorkers] = useState<WorkerHealthRow[]>([]);
+    const [swarmRefreshNonce, setSwarmRefreshNonce] = useState(0);
+    const [workerControlPending, setWorkerControlPending] = useState<Record<string, string>>({});
+    const [projectSwitchFeedback, setProjectSwitchFeedback] = useState<ProjectSwitchFeedback | null>(null);
+    const [queueControlPending, setQueueControlPending] = useState<Record<string, string>>({});
+    const [governanceControlPending, setGovernanceControlPending] = useState<Record<string, string>>({});
+    const [runtimeEnforcementPending, setRuntimeEnforcementPending] = useState<Record<string, string>>({});
+    const [swarmControlPending, setSwarmControlPending] = useState<Record<string, string>>({});
 
     const [selectedProvider, setSelectedProvider] = useState<RuntimeProvider>('claude-cli');
     const [selectedModel, setSelectedModel] = useState('auto');
@@ -237,6 +322,10 @@ export function CockpitPage() {
         statusSummary: { total: 0, done: 0, inProgress: 0, todo: 0 },
     });
     const [uploadedAttachments, setUploadedAttachments] = useState<UploadedAttachment[]>([]);
+    const [replayEnabled, setReplayEnabled] = useState(false);
+    const [replayPlaying, setReplayPlaying] = useState(false);
+    const [replayIndex, setReplayIndex] = useState(0);
+    const [replaySpeedMs, setReplaySpeedMs] = useState(350);
     const [isProjectModalOpen, setIsProjectModalOpen] = useState(false);
     const [projectDirectory, setProjectDirectory] = useState('');
     const [projectAgentContextDirectory, setProjectAgentContextDirectory] = useState('');
@@ -250,7 +339,10 @@ export function CockpitPage() {
     const [newChainScope, setNewChainScope] = useState<'current' | 'unbound'>('current');
     const activeThreadKey = selectedThread || currentThreadId || '__unbound_thread__';
     const messages = messagesByThread[activeThreadKey] || [];
+    const activeEvents = eventsByThread[activeThreadKey] || [];
     const agentRegistryRef = useRef<AgentRegistryEntry[]>([]);
+    const previousProjectRef = useRef<string>('');
+    const requestSwarmRefresh = () => setSwarmRefreshNonce((prev) => prev + 1);
 
     const resolveAgentSlug = (rawRole: string): string => {
         const probe = String(rawRole || '').trim().toLowerCase();
@@ -263,6 +355,35 @@ export function CockpitPage() {
         const byCallsign = registry.find((agent) => agent.callsign.toLowerCase() === probe);
         if (byCallsign) return byCallsign.slug;
         return probe;
+    };
+
+    useEffect(() => {
+        localStorage.setItem(CHAT_EVENT_RENDER_MODE_KEY, chatEventRenderMode);
+    }, [chatEventRenderMode]);
+
+    const formatRawEventForChat = (event: RuntimeEvent): string | null => {
+        const eventType = String(event.event_type || event.type || '').trim();
+        if (!eventType) return null;
+        const role = String(event.agent_role || event.actor?.role || event.actor?.id || 'system').trim();
+        const stageRaw = String(event.payload?.stageId || event.source_stage || '').trim();
+        const stageTitleRaw = String(event.payload?.stageTitle || event.payload?.toStageTitle || '').trim();
+        const stageLabel = stageTitleRaw || stageRaw || 'n/a';
+        const payloadPreview = String(
+            event.payload?.message ||
+            event.payload?.summary ||
+            event.payload?.detail ||
+            event.payload?.reason ||
+            event.payload?.status ||
+            event.payload?.content ||
+            ''
+        ).trim();
+        const lines = [
+            `event: \`${eventType}\``,
+            `agent: \`${role}\``,
+            `stage: \`${stageLabel}\``,
+        ];
+        if (payloadPreview) lines.push(`payload: ${payloadPreview.slice(0, 280)}`);
+        return lines.join('\n');
     };
 
     const resolveAgentDisplay = (slug: string) => {
@@ -281,6 +402,224 @@ export function CockpitPage() {
             return `${compact.slice(0, 117)}...`;
         }
         return compact;
+    };
+
+    const formatHeartbeatTimestamp = (ts: number): string => {
+        if (!Number.isFinite(ts) || ts <= 0) return 'n/a';
+        return new Date(ts).toLocaleTimeString();
+    };
+
+    const workerControlKey = (projectId: string, agentSlug: string, workerId: string) =>
+        `${projectId}:${agentSlug}:${workerId}`;
+
+    const invokeWorkerControl = async (input: {
+        projectId: string;
+        agentSlug?: string;
+        workerId?: string;
+        action: 'pause' | 'resume' | 'restart' | 'kill';
+    }) => {
+        const key = workerControlKey(input.projectId, input.agentSlug || 'unknown', input.workerId || 'unknown');
+        setWorkerControlPending((prev) => ({ ...prev, [key]: input.action }));
+        try {
+            const res = await fetch(apiUrl('/api/cockpit/swarm/workers/control'), {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(input),
+            });
+            const data = await res.json();
+            if (!res.ok || !data?.success) {
+                const message = String(data?.message || data?.error || `worker_control_failed:${res.status}`);
+                setProviderMessage(`Worker control failed: ${message}`);
+                return false;
+            }
+            if (Array.isArray(data.workers)) {
+                setSwarmWorkers(data.workers as WorkerHealthRow[]);
+            }
+            requestSwarmRefresh();
+            return true;
+        } catch (error: any) {
+            setProviderMessage(`Worker control failed: ${String(error?.message || 'network_error')}`);
+            return false;
+        } finally {
+            setWorkerControlPending((prev) => {
+                const next = { ...prev };
+                delete next[key];
+                return next;
+            });
+        }
+    };
+
+    const invokeQueueControl = async (input: { action: 'retry' | 'reassign' | 'cancel' | 'priority'; projectId: string; taskId: string; toAgentSlug?: string; priority?: number }) => {
+        const key = `${input.action}:${input.taskId}`;
+        setQueueControlPending((prev) => ({ ...prev, [key]: input.action }));
+        try {
+            const endpoint = input.action === 'retry'
+                ? '/api/cockpit/swarm/queue/retry'
+                : input.action === 'reassign'
+                    ? '/api/cockpit/swarm/queue/reassign'
+                    : input.action === 'cancel'
+                        ? '/api/cockpit/swarm/queue/cancel'
+                        : '/api/cockpit/swarm/queue/priority';
+            const body: Record<string, any> = {
+                projectId: input.projectId,
+                taskId: input.taskId,
+            };
+            if (input.action === 'reassign') body.toAgentSlug = input.toAgentSlug;
+            if (input.action === 'priority') body.priority = Number(input.priority ?? 0);
+            const res = await fetch(apiUrl(endpoint), {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body),
+            });
+            const data = await res.json();
+            if (!res.ok || !data?.success) {
+                setProviderMessage(String(data?.message || data?.error || 'Queue control failed'));
+                return false;
+            }
+            requestSwarmRefresh();
+            return true;
+        } catch (error: any) {
+            setProviderMessage(`Queue control failed: ${String(error?.message || 'network_error')}`);
+            return false;
+        } finally {
+            setQueueControlPending((prev) => {
+                const next = { ...prev };
+                delete next[key];
+                return next;
+            });
+        }
+    };
+
+    const invokeGovernanceControl = async (input: {
+        action: 'override' | 'force-loop';
+        projectId: string;
+        scope?: 'global' | 'phase' | 'rule';
+        reason?: string;
+        phase?: string;
+        ruleId?: string;
+        loopType?: 'improvement' | 'validation';
+    }) => {
+        const key = `${input.action}:${input.projectId}`;
+        setGovernanceControlPending((prev) => ({ ...prev, [key]: input.action }));
+        try {
+            const endpoint = input.action === 'override'
+                ? '/api/cockpit/governance/overrides'
+                : '/api/cockpit/governance/loops/force';
+            const body: Record<string, any> = { projectId: input.projectId };
+            if (input.action === 'override') {
+                body.scope = input.scope || 'global';
+                body.reason = input.reason || 'manual override from cockpit';
+                if (input.phase) body.phase = input.phase;
+                if (input.ruleId) body.ruleId = input.ruleId;
+                if (currentTicketId) body.ticketId = currentTicketId;
+                body.actorId = 'cockpit-user';
+            } else {
+                body.loopType = input.loopType || 'improvement';
+                body.runId = activeRunId || `${selectedThread || 'thread'}-${Date.now()}`;
+                body.chainId = selectedThread || 'manual-loop';
+            }
+            const res = await fetch(apiUrl(endpoint), {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body),
+            });
+            const data = await res.json();
+            if (!res.ok || !data?.success) {
+                setProviderMessage(String(data?.message || data?.error || 'Governance control failed'));
+                return false;
+            }
+            setProviderMessage(
+                input.action === 'override'
+                    ? `Override created: ${data?.override?.id || 'ok'}`
+                    : `Loop executed: ${data?.loopType || input.loopType || 'ok'}`,
+            );
+            requestSwarmRefresh();
+            return true;
+        } catch (error: any) {
+            setProviderMessage(`Governance control failed: ${String(error?.message || 'network_error')}`);
+            return false;
+        } finally {
+            setGovernanceControlPending((prev) => {
+                const next = { ...prev };
+                delete next[key];
+                return next;
+            });
+        }
+    };
+
+    const saveRuntimeEnforcement = async (input: {
+        projectId: string;
+        pipeline?: string;
+        skills?: string[];
+    }) => {
+        const key = `enforcement:${input.projectId}`;
+        setRuntimeEnforcementPending((prev) => ({ ...prev, [key]: 'saving' }));
+        try {
+            const res = await fetch(apiUrl('/api/cockpit/runtime/enforcement'), {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    projectId: input.projectId,
+                    pipeline: input.pipeline || '',
+                    skills: input.skills || [],
+                }),
+            });
+            const data = await res.json();
+            if (!res.ok || !data?.success) {
+                setProviderMessage(String(data?.message || data?.error || 'Failed to save enforcement profile'));
+                return false;
+            }
+            setProviderMessage('Runtime enforcement profile saved.');
+            return true;
+        } catch (error: any) {
+            setProviderMessage(`Failed to save enforcement profile: ${String(error?.message || 'network_error')}`);
+            return false;
+        } finally {
+            setRuntimeEnforcementPending((prev) => {
+                const next = { ...prev };
+                delete next[key];
+                return next;
+            });
+        }
+    };
+
+    const invokeSwarmControl = async (input: {
+        kind: 'bulk' | 'project';
+        action: string;
+        projectId: string;
+    }) => {
+        const key = `${input.kind}:${input.action}:${input.projectId}`;
+        setSwarmControlPending((prev) => ({ ...prev, [key]: input.action }));
+        try {
+            const endpoint = input.kind === 'bulk'
+                ? '/api/cockpit/swarm/workers/bulk'
+                : '/api/cockpit/swarm/projects/control';
+            const res = await fetch(apiUrl(endpoint), {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ projectId: input.projectId, action: input.action }),
+            });
+            const data = await res.json();
+            if (!res.ok || !data?.success) {
+                setProviderMessage(String(data?.message || data?.error || 'Swarm control failed'));
+                return false;
+            }
+            if (Array.isArray(data.workers)) {
+                setSwarmWorkers(data.workers as WorkerHealthRow[]);
+            }
+            setProviderMessage(`Swarm control executed: ${input.action}`);
+            requestSwarmRefresh();
+            return true;
+        } catch (error: any) {
+            setProviderMessage(`Swarm control failed: ${String(error?.message || 'network_error')}`);
+            return false;
+        } finally {
+            setSwarmControlPending((prev) => {
+                const next = { ...prev };
+                delete next[key];
+                return next;
+            });
+        }
     };
 
     const agentStatusRows = useMemo<AgentRuntimeStatus[]>(() => {
@@ -313,6 +652,210 @@ export function CockpitPage() {
         });
     }, [agentStatusRows]);
 
+    const projectScopedWorkers = useMemo<WorkerHealthRow[]>(() => {
+        if (!selectedProject) return swarmWorkers;
+        return swarmWorkers.filter((w) => String(w.projectId || '').trim() === selectedProject);
+    }, [swarmWorkers, selectedProject]);
+
+    const projectRosterSummary = useMemo(() => {
+        const uniqueAgents = new Set<string>();
+        let enabled = 0;
+        let hot = 0;
+        let cold = 0;
+        for (const worker of projectScopedWorkers) {
+            uniqueAgents.add(String(worker.agentSlug || '').trim());
+            if (worker.enabled) enabled += 1;
+            if (worker.availabilityState === 'hot') hot += 1;
+            if (worker.availabilityState === 'cold') cold += 1;
+        }
+        return {
+            uniqueAgents: uniqueAgents.size,
+            enabled,
+            hot,
+            cold,
+            totalWorkers: projectScopedWorkers.length,
+        };
+    }, [projectScopedWorkers]);
+
+    const queueSnapshot = useMemo(() => {
+        const tasks = new Map<string, QueueTaskSnapshot>();
+        for (const event of activeEvents) {
+            const eventType = String(event.event_type || event.type || '').trim();
+            if (eventType !== 'task.queued' && eventType !== 'task.dispatched' && eventType !== 'swarm_stage_completed') continue;
+            const taskId = String(event.payload?.taskId || '').trim();
+            if (!taskId) continue;
+            const ts = Number(new Date(String(event.timestamp || Date.now())).getTime());
+            const existing = tasks.get(taskId);
+            const nextStatus: QueueTaskSnapshot['status'] =
+                eventType === 'task.queued'
+                    ? 'pending'
+                    : eventType === 'task.dispatched'
+                        ? 'assigned'
+                        : 'completed';
+            tasks.set(taskId, {
+                taskId,
+                stageId: String(event.payload?.stageId || existing?.stageId || 'n/a').trim(),
+                agentSlug: String(event.payload?.agentSlug || event.actor?.id || existing?.agentSlug || 'unknown').trim(),
+                status: nextStatus,
+                queuedAt: existing?.queuedAt || ts,
+                assignedAt:
+                    nextStatus === 'assigned'
+                        ? ts
+                        : existing?.assignedAt || null,
+                updatedAt: ts,
+            });
+        }
+        const all = Array.from(tasks.values()).sort((a, b) => b.updatedAt - a.updatedAt);
+        const waiting = all.filter((t) => t.status === 'pending');
+        const assigned = all.filter((t) => t.status === 'assigned');
+        const completed = all.filter((t) => t.status === 'completed');
+        return {
+            waiting,
+            assigned,
+            completed,
+            totalTracked: all.length,
+            queueLength: waiting.length,
+        };
+    }, [activeEvents]);
+
+    const taskWorkerMapping = useMemo(() => {
+        const rows = projectScopedWorkers
+            .filter((w) => w.assignedTask?.taskId)
+            .map((w) => ({
+                taskId: String(w.assignedTask?.taskId || 'n/a').trim(),
+                stageId: String(w.assignedTask?.stageId || 'n/a').trim(),
+                workerId: String(w.workerId || 'n/a').trim(),
+                agentSlug: String(w.agentSlug || 'unknown').trim(),
+                projectId: String(w.projectId || 'n/a').trim(),
+                status: (w.executionState === 'active' ? 'assigned' : 'pending') as 'pending' | 'assigned',
+            }));
+        return rows.sort((a, b) => a.taskId.localeCompare(b.taskId));
+    }, [projectScopedWorkers]);
+
+    const dispatchLatencySummary = useMemo(() => {
+        const warningThresholdMs = 3000;
+        const latencies = queueSnapshot.assigned
+            .map((t) => (t.assignedAt && t.queuedAt ? Math.max(0, t.assignedAt - t.queuedAt) : null))
+            .filter((v): v is number => Number.isFinite(v as number));
+        const avgMs = latencies.length > 0 ? Math.round(latencies.reduce((a, b) => a + b, 0) / latencies.length) : null;
+        const maxMs = latencies.length > 0 ? Math.max(...latencies) : null;
+        const warning = maxMs !== null && maxMs > warningThresholdMs;
+        return { avgMs, maxMs, samples: latencies.length, warningThresholdMs, warning };
+    }, [queueSnapshot.assigned]);
+
+    const workerLifecycleTimeline = useMemo(() => {
+        const rows = activeEvents
+            .filter((event) => {
+                const t = String(event.event_type || event.type || '').trim();
+                return (
+                    t === 'worker.starting' ||
+                    t === 'worker.spawned' ||
+                    t === 'worker.reused' ||
+                    t === 'worker.state_changed' ||
+                    t === 'worker.failed' ||
+                    t === 'worker.unhealthy'
+                );
+            })
+            .map((event) => {
+                const type = String(event.event_type || event.type || '').trim();
+                return {
+                    id: String(event.event_id || event.id || `${Date.now()}-${Math.random()}`),
+                    at: new Date(String(event.timestamp || Date.now())).getTime(),
+                    type,
+                    workerId: String(event.payload?.workerId || 'n/a').trim(),
+                    agentSlug: String(event.payload?.agentSlug || event.actor?.id || 'unknown').trim(),
+                    from: String(event.payload?.from || '').trim(),
+                    to: String(event.payload?.to || '').trim(),
+                    taskId: String(event.payload?.taskId || '').trim(),
+                };
+            })
+            .sort((a, b) => b.at - a.at);
+        return rows.slice(0, 16);
+    }, [activeEvents]);
+
+    const workerDebugRows = useMemo(() => {
+        return activeEvents
+            .filter((event) => {
+                const t = String(event.event_type || event.type || '').trim();
+                return (
+                    t === 'worker.heartbeat' ||
+                    t === 'worker.state_changed' ||
+                    t === 'worker.failed' ||
+                    t === 'worker.unhealthy' ||
+                    t === 'tool.call' ||
+                    t === 'tool.called' ||
+                    t === 'tool.result' ||
+                    t === 'llm.request' ||
+                    t === 'llm.response'
+                );
+            })
+            .map((event) => ({
+                id: String(event.event_id || event.id || `${Date.now()}-${Math.random()}`),
+                at: new Date(String(event.timestamp || Date.now())).getTime(),
+                type: String(event.event_type || event.type || '').trim(),
+                workerId: String(event.payload?.workerId || 'n/a').trim(),
+                agentSlug: String(event.payload?.agentSlug || event.actor?.id || 'unknown').trim(),
+                taskId: String(event.payload?.taskId || '').trim(),
+                stageId: String(event.payload?.stageId || event.source_stage || '').trim(),
+                tool: String(event.payload?.tool || '').trim(),
+                model: String(event.payload?.model || '').trim(),
+                summary: String(event.payload?.summary || event.payload?.message || event.payload?.detail || '').trim(),
+            }))
+            .sort((a, b) => b.at - a.at)
+            .slice(0, 40);
+    }, [activeEvents]);
+
+    const workerTraceRows = useMemo(() => {
+        type TraceRow = {
+            workerId: string;
+            agentSlug: string;
+            steps: number;
+            toolCalls: number;
+            llmCalls: number;
+            lastAt: number;
+        };
+        const byWorker = new Map<string, TraceRow>();
+        for (const event of activeEvents) {
+            const t = String(event.event_type || event.type || '').trim();
+            const workerId = String(event.payload?.workerId || '').trim();
+            const agentSlug = String(event.payload?.agentSlug || event.actor?.id || 'unknown').trim();
+            if (!workerId) continue;
+            const key = `${agentSlug}:${workerId}`;
+            const current = byWorker.get(key) || {
+                workerId,
+                agentSlug,
+                steps: 0,
+                toolCalls: 0,
+                llmCalls: 0,
+                lastAt: 0,
+            };
+            const at = new Date(String(event.timestamp || Date.now())).getTime();
+            if (t === 'stage.started' || t === 'swarm_stage_completed' || t === 'agent.started' || t === 'agent.completed') {
+                current.steps += 1;
+            }
+            if (t === 'tool.call' || t === 'tool.called') {
+                current.toolCalls += 1;
+            }
+            if (t === 'llm.request') {
+                current.llmCalls += 1;
+            }
+            current.lastAt = Math.max(current.lastAt, at);
+            byWorker.set(key, current);
+        }
+        return Array.from(byWorker.values())
+            .sort((a, b) => b.lastAt - a.lastAt)
+            .slice(0, 20);
+    }, [activeEvents]);
+
+    const resourcePressure = useMemo(() => {
+        const workers = Math.max(1, swarmSummary.workersTotal);
+        const pressure = swarmSummary.queuePressure;
+        const ratio = pressure / workers;
+        if (ratio >= 2) return { label: 'overload', className: 'text-red-400' };
+        if (ratio >= 1) return { label: 'high', className: 'text-amber-300' };
+        return { label: 'normal', className: 'text-emerald-400' };
+    }, [swarmSummary.queuePressure, swarmSummary.workersTotal]);
+
     const appendMessagesToThread = (threadId: string | undefined, next: ChatMessage[]) => {
         const key = threadId && threadId.trim().length > 0 ? threadId : activeThreadKey;
         if (next.length === 0) return;
@@ -330,12 +873,22 @@ export function CockpitPage() {
         const text = String(content || '').trim();
         if (!text) return;
         const key = threadId && threadId.trim().length > 0 ? threadId : activeThreadKeyRef.current;
+        const nowTs = (timestamp || new Date()).getTime();
         setMessagesByThread((prev) => {
             const existing = prev[key] || [];
             const last = existing[existing.length - 1];
             if (last && last.role === 'agent' && String(last.content || '').trim() === text) {
                 return prev;
             }
+            // Drop near-duplicate telemetry chatter within recent window.
+            const duplicateRecent = existing
+                .slice(-8)
+                .some((msg) =>
+                    msg.role === 'agent' &&
+                    String(msg.content || '').trim() === text &&
+                    Math.abs(nowTs - new Date(msg.timestamp).getTime()) <= 15000
+                );
+            if (duplicateRecent) return prev;
             return {
                 ...prev,
                 [key]: [
@@ -351,6 +904,32 @@ export function CockpitPage() {
         });
     };
 
+    const normalizeSseEvent = (raw: CanonicalSseEvent): RuntimeEvent => {
+        const timestamp = raw?.timestamp ?? Date.now();
+        const timestampIso = typeof timestamp === 'number'
+            ? new Date(timestamp).toISOString()
+            : String(timestamp);
+        const payload = raw?.payload && typeof raw.payload === 'object' ? raw.payload : {};
+        return {
+            event_id: String(raw?.event_id || raw?.id || `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`),
+            event_type: String(raw?.event_type || raw?.type || '').trim(),
+            timestamp: timestampIso,
+            pipeline_run_id: String(raw?.pipeline_run_id || raw?.runId || ''),
+            runId: String(raw?.runId || ''),
+            chainId: String(raw?.chainId || raw?.thread_id || ''),
+            agent_role: String(raw?.agent_role || raw?.actor?.role || raw?.actor?.id || 'system'),
+            actor: raw?.actor || undefined,
+            source_stage: String(raw?.source_stage || payload.stageId || ''),
+            target_stage: String(raw?.target_stage || payload.nextStageId || ''),
+            status: String(raw?.status || payload.status || ''),
+            plane_issue_id: String(raw?.plane_issue_id || raw?.projectId || ''),
+            thread_id: String(raw?.thread_id || raw?.chainId || ''),
+            payload,
+            type: String(raw?.type || ''),
+            id: String(raw?.id || ''),
+        };
+    };
+
     // Auto-scroll refs
     const scrollRef = useRef<HTMLDivElement>(null);
     const feedEndRef = useRef<HTMLDivElement>(null);
@@ -362,6 +941,7 @@ export function CockpitPage() {
     const audioChunksRef = useRef<Blob[]>([]);
     const recognitionRef = useRef<SpeechRecognitionInstance | null>(null);
     const seenChatEventIdsRef = useRef<Set<string>>(new Set());
+    const seenStreamEventIdsRef = useRef<Set<string>>(new Set());
     const activeThreadKeyRef = useRef(activeThreadKey);
 
     useEffect(() => {
@@ -371,6 +951,30 @@ export function CockpitPage() {
     useEffect(() => {
         agentRegistryRef.current = agentRegistry;
     }, [agentRegistry]);
+
+    useEffect(() => {
+        const previousProjectId = previousProjectRef.current;
+        if (previousProjectId && selectedProject && previousProjectId !== selectedProject) {
+            const previousScoped = swarmWorkers.filter((w) => String(w.projectId || '').trim() === previousProjectId);
+            const previousHot = previousScoped.filter((w) => w.availabilityState === 'hot').length;
+            setProjectSwitchFeedback({
+                fromProjectId: previousProjectId,
+                toProjectId: selectedProject,
+                switching: true,
+                startedAtMs: Date.now(),
+                resolvedAtMs: null,
+                warmupMs: null,
+                previousWorkers: previousScoped.length,
+                currentWorkers: 0,
+                previousHot,
+                currentHot: 0,
+                spawned: 0,
+                demoted: 0,
+                coldWorkers: 0,
+            });
+        }
+        previousProjectRef.current = selectedProject;
+    }, [selectedProject, swarmWorkers]);
 
     useEffect(() => {
         scrollRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -420,25 +1024,47 @@ export function CockpitPage() {
         }
     }, [voiceLang]);
 
-    const sseInitialized = useRef(false);
-
     useEffect(() => {
-        if (sseInitialized.current) return;
-        sseInitialized.current = true;
-
+        let source: EventSource | null = null;
+        let reconnectTimer: number | null = null;
+        let closed = false;
+        let reconnectAttempt = 0;
         const url = apiUrl('/api/events/stream');
-        const source = new EventSource(url);
 
-        source.onopen = () => {
-            console.log('[SSE] Connected to', url);
+        const scheduleReconnect = () => {
+            if (closed) return;
+            const delayMs = Math.min(15000, 1000 * (2 ** Math.min(reconnectAttempt, 4)));
+            reconnectAttempt += 1;
+            reconnectTimer = window.setTimeout(() => {
+                reconnectTimer = null;
+                connect();
+            }, delayMs);
         };
 
-        source.onmessage = (e) => {
-            try {
-                const data = JSON.parse(e.data);
+        const connect = () => {
+            if (closed) return;
+            source = new EventSource(url);
+            source.onopen = () => {
+                reconnectAttempt = 0;
+                console.log('[SSE] Connected to', url);
+            };
+            source.onmessage = (e) => {
+                try {
+                const data = JSON.parse(e.data) as CanonicalSseEvent;
                 if (data.type === 'connected') return;
-                const event = data as RuntimeEvent;
-                const threadKey = String(event.thread_id || '').trim() || '__global__';
+                const event = normalizeSseEvent(data);
+                const canonicalEventId = String(event.event_id || event.id || '').trim();
+                if (canonicalEventId) {
+                    if (seenStreamEventIdsRef.current.has(canonicalEventId)) {
+                        return;
+                    }
+                    seenStreamEventIdsRef.current.add(canonicalEventId);
+                    if (seenStreamEventIdsRef.current.size > 2000) {
+                        const first = seenStreamEventIdsRef.current.values().next().value as string | undefined;
+                        if (first) seenStreamEventIdsRef.current.delete(first);
+                    }
+                }
+                const threadKey = String(event.thread_id || event.chainId || '').trim() || '__global__';
                 setEventsByThread((prev) => ({
                     ...prev,
                     [threadKey]: [...(prev[threadKey] || []), event].slice(-120),
@@ -446,8 +1072,20 @@ export function CockpitPage() {
 
                 const eventType = String(event.event_type || '').trim();
                 const isHandoffEvent = eventType === 'swarm_handoff' || eventType === 'swarm.handoff';
+                if (
+                    eventType.startsWith('worker.') ||
+                    eventType.startsWith('swarm.') ||
+                    eventType.startsWith('run.') ||
+                    eventType === 'stage.started' ||
+                    eventType === 'stage.failed' ||
+                    eventType === 'agent.started' ||
+                    eventType === 'agent.completed'
+                ) {
+                    requestSwarmRefresh();
+                }
                 const roleLabel = String(event.agent_role || 'system').trim();
-                const resolvedSlug = resolveAgentSlug(roleLabel);
+                const payloadAgentSlug = String(event.payload?.agentSlug || '').trim();
+                const resolvedSlug = payloadAgentSlug || resolveAgentSlug(roleLabel);
                 if (resolvedSlug && resolvedSlug !== 'system') {
                     setAgentRuntime((prev) => {
                         const display = resolveAgentDisplay(resolvedSlug);
@@ -466,19 +1104,31 @@ export function CockpitPage() {
                         const status: AgentLiveStatus =
                             isHardFailure
                                 ? 'unavailable'
-                                : eventType === 'stage.started' || eventType === 'tool.called'
+                                : eventType === 'stage.started' || eventType === 'agent.started' || eventType === 'tool.called' || eventType === 'tool.call'
+                                    || eventType === 'worker.starting' || eventType === 'worker.spawned' || eventType === 'worker.reused'
                                     ? 'active'
-                                    : eventType === 'swarm_stage_completed' || eventType === 'run.completed'
+                                    : eventType === 'swarm_stage_completed' || eventType === 'agent.completed' || eventType === 'run.completed' || eventType === 'run.cancelled' || eventType === 'worker.state_changed'
                                         ? 'standby'
+                                        : eventType === 'worker.failed' || eventType === 'worker.unhealthy'
+                                            ? 'unavailable'
                                         : existing.status;
                         const currentStage =
                             String(event.payload?.stageId || event.source_stage || existing.currentStage || 'n/a').trim() || 'n/a';
                         let currentTask = existing.currentTask || 'n/a';
+                        const stageRaw = String(event.payload?.stageId || event.source_stage || '').trim();
+                        const stageTitleRaw = String(event.payload?.stageTitle || event.payload?.toStageTitle || '').trim();
+                        const stageLabel = stageTitleRaw || (/^\d+$/.test(stageRaw) ? `step #${stageRaw}` : (stageRaw || 'n/a'));
                         if (eventType === 'stage.started') {
-                            currentTask = `stage: ${currentStage}`;
-                        } else if (eventType === 'tool.called') {
+                            currentTask = `stage: ${stageLabel}`;
+                        } else if (eventType === 'agent.started') {
+                            currentTask = `stage: ${stageLabel}`;
+                        } else if (eventType === 'tool.called' || eventType === 'tool.call') {
                             currentTask = `tool: ${String(event.payload?.tool || 'tool').trim()}`;
-                        } else if (eventType === 'swarm_stage_completed' || eventType === 'run.completed') {
+                        } else if (eventType === 'worker.heartbeat') {
+                            currentTask = `heartbeat #${String(event.payload?.heartbeatCount || '?')}`;
+                        } else if (eventType === 'worker.failed') {
+                            currentTask = `failed: ${String(event.payload?.reason || 'runtime failure').trim()}`;
+                        } else if (eventType === 'swarm_stage_completed' || eventType === 'agent.completed' || eventType === 'run.completed' || eventType === 'run.cancelled') {
                             currentTask = 'n/a';
                         }
                         const currentIssue =
@@ -498,14 +1148,35 @@ export function CockpitPage() {
                                 currentTask: status === 'standby' ? 'n/a' : sanitizeTaskText(currentTask),
                                 currentIssue,
                                 threadId: threadKey,
-                                lastUpdated: event.timestamp || new Date().toISOString(),
+                                lastUpdated: String(event.timestamp || new Date().toISOString()),
                                 delegatedFrom,
                             },
                         };
                     });
                 }
 
-                const eventId = String(event.event_id || '').trim();
+                const isActiveThreadEvent = threadKey === activeThreadKeyRef.current;
+                if (eventType === 'run.started' && isActiveThreadEvent) {
+                    setStatus('running');
+                    if (event.pipeline_run_id) setActiveRunId(String(event.pipeline_run_id));
+                }
+                if (eventType === 'run.cancelled' && isActiveThreadEvent) {
+                    setStatus('cancelled');
+                    setIsAwaitingAgentReply(false);
+                    setIsProcessing(false);
+                }
+                if (eventType === 'run.completed' && isActiveThreadEvent) {
+                    setStatus('completed');
+                    setIsAwaitingAgentReply(false);
+                    setIsProcessing(false);
+                }
+                if (eventType === 'run.failed' && isActiveThreadEvent) {
+                    setStatus('failed');
+                    setIsAwaitingAgentReply(false);
+                    setIsProcessing(false);
+                }
+
+                const eventId = String(event.event_id || event.id || '').trim();
                 const shouldPropagateToChat =
                     !!threadKey &&
                     threadKey !== '__global__' &&
@@ -513,18 +1184,67 @@ export function CockpitPage() {
                     !seenChatEventIdsRef.current.has(eventId);
 
                 if (shouldPropagateToChat) {
-                    let chatText: string | null = null;
-                    if (eventType === 'swarm_stage_completed') {
-                        const stageMessage = String(event.payload?.message || '').trim();
-                        if (stageMessage) {
-                            chatText = stageMessage;
-                        } else {
-                            const stageLabel = String(event.payload?.stageId || event.source_stage || 'n/a').trim();
-                            chatText = `Swarm update: **${roleLabel}** completed stage \`${stageLabel}\`.`;
+                    const chatTexts: string[] = [];
+                    const stageRaw = String(event.payload?.stageId || event.source_stage || '').trim();
+                    const stageTitleRaw = String(event.payload?.stageTitle || event.payload?.toStageTitle || '').trim();
+                    const stageLabel = stageTitleRaw || (/^\d+$/.test(stageRaw) ? `step #${stageRaw}` : (stageRaw || 'n/a'));
+                    const normalizeStepMessage = (raw: string): string => {
+                        const value = String(raw || '').trim();
+                        const compact = value.replace(/\s+/g, ' ');
+                        const match = compact.match(/^agent\s+(.+?)\s+(completed|started)\s+(\d+)$/i);
+                        if (match) {
+                            const [, agent, action, step] = match;
+                            return `Agent **${agent}** ${action.toLowerCase()} step #${step}.`;
                         }
-                    } else if (eventType === 'run.completed' && threadKey === activeThreadKeyRef.current) {
-                        setStatus('completed');
-                        setIsAwaitingAgentReply(false);
+                        return compact;
+                    };
+                    const inAllowlist =
+                        eventType === 'swarm_stage_completed' ||
+                        eventType === 'swarm.handoff' ||
+                        eventType === 'agent.started' ||
+                        eventType === 'agent.completed' ||
+                        eventType === 'agent.message' ||
+                        eventType === 'run.failed' ||
+                        eventType === 'run.cancelled';
+
+                    if ((chatEventRenderMode === 'raw' || chatEventRenderMode === 'both') && inAllowlist) {
+                        const rawText = formatRawEventForChat(event);
+                        if (rawText) chatTexts.push(rawText);
+                    }
+
+                    if (chatEventRenderMode === 'humanized' || chatEventRenderMode === 'both') {
+                        let chatText: string | null = null;
+                        if (eventType === 'swarm_stage_completed') {
+                            const stageMessage = String(event.payload?.message || '').trim();
+                            if (stageMessage) {
+                                chatText = normalizeStepMessage(stageMessage);
+                            } else {
+                                chatText = `Swarm update: **${roleLabel}** completed stage \`${stageLabel}\`.`;
+                            }
+                        } else if (eventType === 'swarm.handoff') {
+                            const fromAgent = String(event.payload?.fromAgentTitle || event.payload?.fromAgentId || 'unknown').trim();
+                            const toAgent = String(event.payload?.toAgentTitle || event.payload?.toAgentId || 'unknown').trim();
+                            chatText = stageLabel && stageLabel !== 'n/a'
+                                ? `Handoff: \`${fromAgent}\` -> \`${toAgent}\` (next: \`${stageLabel}\`)`
+                                : `Handoff: \`${fromAgent}\` -> \`${toAgent}\``;
+                        } else if (eventType === 'agent.started') {
+                            chatText = `Agent **${roleLabel}** started \`${stageLabel}\`.`;
+                        } else if (eventType === 'agent.completed') {
+                            const outcome = String(event.payload?.outcome || '').trim();
+                            const summary = String(event.payload?.summary || '').trim();
+                            chatText = outcome
+                                ? `Agent **${roleLabel}** completed \`${stageLabel}\` with status \`${outcome}\`.${summary ? `\n\n${summary}` : ''}`
+                                : `Agent **${roleLabel}** completed \`${stageLabel}\`.${summary ? `\n\n${summary}` : ''}`;
+                        } else if (eventType === 'agent.message') {
+                            chatText = String(event.payload?.message || event.payload?.content || '').trim() || null;
+                        } else if (eventType === 'run.failed') {
+                            chatText = `Run failed: ${String(event.payload?.message || event.payload?.reason || 'unknown error')}`;
+                        } else if (eventType === 'run.cancelled') {
+                            chatText = `Run cancelled: ${String(event.payload?.reason || 'Cancelled by user')}`;
+                        }
+                        if (chatText) chatTexts.push(chatText);
+                    }
+                    if (eventType === 'run.completed' && threadKey === activeThreadKeyRef.current) {
                         setAgentRuntime((prev) => {
                             const next = { ...prev };
                             for (const [slug, runtime] of Object.entries(next)) {
@@ -540,31 +1260,43 @@ export function CockpitPage() {
                         });
                     }
 
-                    if (chatText) {
+                    if (chatTexts.length > 0) {
                         seenChatEventIdsRef.current.add(eventId);
                         if (seenChatEventIdsRef.current.size > 500) {
                             const first = seenChatEventIdsRef.current.values().next().value as string | undefined;
                             if (first) seenChatEventIdsRef.current.delete(first);
                         }
-                        appendAgentMessageIfChanged(threadKey, chatText, new Date(event.timestamp || Date.now()));
+                        const ts = new Date(event.timestamp || Date.now());
+                        for (const chatText of chatTexts) {
+                            appendAgentMessageIfChanged(threadKey, chatText, ts);
+                        }
                     }
                 }
 
-            } catch (err) {
-                console.error('SSE Error parsing data:', err);
-            }
+                } catch (err) {
+                    console.error('SSE Error parsing data:', err);
+                }
+            };
+
+            source.onerror = (err) => {
+                console.error('SSE connection error:', err);
+                if (source) {
+                    source.close();
+                    source = null;
+                }
+                scheduleReconnect();
+            };
         };
 
-        source.onerror = (err) => {
-            console.error('SSE connection error:', err);
-            source.close();
-            sseInitialized.current = false;
-        };
+        connect();
 
         return () => {
+            closed = true;
+            if (reconnectTimer !== null) {
+                window.clearTimeout(reconnectTimer);
+            }
             console.log('[SSE] Closing connection');
-            source.close();
-            sseInitialized.current = false;
+            if (source) source.close();
         };
     }, []);
 
@@ -576,6 +1308,30 @@ export function CockpitPage() {
         window.addEventListener('click', handleClickOutside);
         return () => window.removeEventListener('click', handleClickOutside);
     }, []);
+
+    useEffect(() => {
+        if (!replayEnabled || !replayPlaying) return;
+        const total = activeEvents.length;
+        if (total === 0) return;
+        const timer = window.setInterval(() => {
+            setReplayIndex((prev) => {
+                if (prev >= total) {
+                    setReplayPlaying(false);
+                    return total;
+                }
+                return prev + 1;
+            });
+        }, Math.max(100, replaySpeedMs));
+        return () => window.clearInterval(timer);
+    }, [replayEnabled, replayPlaying, replaySpeedMs, activeEvents.length]);
+
+    useEffect(() => {
+        if (!replayEnabled) return;
+        const total = activeEvents.length;
+        if (replayIndex > total) {
+            setReplayIndex(total);
+        }
+    }, [activeEvents.length, replayEnabled, replayIndex]);
 
     const handleFileAttach = async (event: React.ChangeEvent<HTMLInputElement>) => {
         const files = Array.from(event.target.files || []);
@@ -641,6 +1397,120 @@ export function CockpitPage() {
         void loadCatalog();
         void loadAgentRegistry();
     }, [selectedProject]);
+
+    useEffect(() => {
+        let cancelled = false;
+        const pollWorkerHealth = async () => {
+            const projectQuery = selectedProject ? `?projectId=${encodeURIComponent(selectedProject)}` : '';
+            const data = await fetchJsonSafe<{ success?: boolean; workers?: WorkerHealthRow[] }>(
+                `/api/cockpit/swarm/workers${projectQuery}`,
+            );
+            if (cancelled || !data?.success || !Array.isArray(data.workers)) return;
+            const workers = data.workers;
+            setSwarmWorkers(workers);
+            setProjectSwitchFeedback((prev) => {
+                if (!prev || !prev.switching) return prev;
+                if (!selectedProject || prev.toProjectId !== selectedProject) return prev;
+                const currentHot = workers.filter((w) => w.availabilityState === 'hot').length;
+                const coldWorkers = workers.filter((w) => w.availabilityState === 'cold').length;
+                const ready = workers.length > 0;
+                if (!ready) return prev;
+                const now = Date.now();
+                return {
+                    ...prev,
+                    switching: false,
+                    resolvedAtMs: now,
+                    warmupMs: Math.max(0, now - prev.startedAtMs),
+                    currentWorkers: workers.length,
+                    currentHot,
+                    spawned: Math.max(0, workers.length - prev.previousWorkers),
+                    demoted: Math.max(0, prev.previousHot - currentHot),
+                    coldWorkers,
+                };
+            });
+            setAgentRuntime((prev) => {
+                const next: Record<string, AgentRuntimeStatus> = { ...prev };
+                for (const worker of data.workers || []) {
+                    const slug = String(worker.agentSlug || '').trim();
+                    if (!slug) continue;
+                    const display = resolveAgentDisplay(slug);
+                    const existing = next[slug] || {
+                        slug,
+                        title: display.title,
+                        callsign: display.callsign,
+                        status: 'standby' as AgentLiveStatus,
+                        currentStage: 'n/a',
+                        currentTask: 'n/a',
+                        currentIssue: 'n/a',
+                        threadId: selectedThread || currentThreadId || 'n/a',
+                        lastUpdated: '',
+                    };
+                    const status: AgentLiveStatus =
+                        worker.heartbeatFreshness === 'dead' || worker.enabled === false
+                            ? 'unavailable'
+                            : worker.isPaused
+                                ? 'standby'
+                            : worker.executionState === 'active'
+                                ? 'active'
+                                : 'standby';
+                    const existingUpdatedAtMs = existing.lastUpdated ? new Date(existing.lastUpdated).getTime() : 0;
+                    const existingIsRecentActive =
+                        existing.status === 'active' &&
+                        Number.isFinite(existingUpdatedAtMs) &&
+                        (Date.now() - existingUpdatedAtMs) < 15000;
+                    const effectiveStatus: AgentLiveStatus = existingIsRecentActive ? 'active' : status;
+                    const hbSec = Math.max(0, Math.floor(Number(worker.heartbeatAgeMs || 0) / 1000));
+                    const taskLabel = worker.assignedTask?.stageId
+                        ? `${worker.assignedTask.stageId}`
+                        : worker.assignedTask?.taskId
+                            ? `${worker.assignedTask.taskId}`
+                            : '';
+                    next[slug] = {
+                        ...existing,
+                        title: display.title,
+                        callsign: display.callsign,
+                        status: effectiveStatus,
+                        currentTask: effectiveStatus === 'active'
+                            ? `worker:${worker.workerId} ${taskLabel ? `[${taskLabel}] ` : ''}(${hbSec}s ago)`
+                            : 'n/a',
+                        currentStage: String(worker.rawLifecycleState || existing.currentStage || 'n/a'),
+                        lastUpdated: new Date().toISOString(),
+                    };
+                }
+                return next;
+            });
+        };
+        void pollWorkerHealth();
+        const timer = window.setInterval(() => void pollWorkerHealth(), 3000);
+        return () => {
+            cancelled = true;
+            window.clearInterval(timer);
+        };
+    }, [selectedProject, selectedThread, currentThreadId, swarmRefreshNonce]);
+
+    useEffect(() => {
+        let cancelled = false;
+        const pollSwarmSummary = async () => {
+            const projectQuery = selectedProject ? `?projectId=${encodeURIComponent(selectedProject)}` : '';
+            const data = await fetchJsonSafe<{ success?: boolean; summary?: SwarmSummaryState }>(
+                `/api/cockpit/swarm/summary${projectQuery}`,
+            );
+            if (cancelled || !data?.success || !data.summary) return;
+            setSwarmSummary({
+                workersTotal: Number(data.summary.workersTotal || 0),
+                activeWorkers: Number(data.summary.activeWorkers || 0),
+                standbyWorkers: Number(data.summary.standbyWorkers || 0),
+                unhealthyWorkers: Number(data.summary.unhealthyWorkers || 0),
+                queuePressure: Number(data.summary.queuePressure || 0),
+            });
+        };
+        void pollSwarmSummary();
+        const timer = window.setInterval(() => void pollSwarmSummary(), 3000);
+        return () => {
+            cancelled = true;
+            window.clearInterval(timer);
+        };
+    }, [selectedProject, swarmRefreshNonce]);
 
     useEffect(() => {
         const loadProviders = async () => {
@@ -766,7 +1636,7 @@ export function CockpitPage() {
     const handleSend = async () => {
         const hasText = input.trim().length > 0;
         const hasTokens = promptTokens.length > 0;
-        if ((!hasText && !hasTokens) || isProcessing) return;
+        if ((!hasText && !hasTokens) || isProcessing || isAwaitingAgentReply) return;
         
         const threadIdToUse = String(selectedThread || '').trim() || `thread_${Date.now()}`;
         if (!selectedThread) {
@@ -796,6 +1666,7 @@ export function CockpitPage() {
 
         setIsProcessing(true);
         setIsAwaitingAgentReply(true);
+        setStatus('running');
 
         try {
             const res = await fetch(apiUrl('/api/chat'), {
@@ -817,6 +1688,7 @@ export function CockpitPage() {
                     setCurrentThreadId(responseThreadId);
                     setSelectedThread(responseThreadId);
                 }
+                if (data.runId) setActiveRunId(String(data.runId));
                 setCurrentTicketId(data.ticketId || null);
                 setStatus(data.status);
                 if (data.observability) setObservability(data.observability);
@@ -852,6 +1724,8 @@ export function CockpitPage() {
         } catch (error) {
             console.error('Chat error:', error);
             setIsAwaitingAgentReply(false);
+            setIsProcessing(false);
+            setStatus('failed');
             appendMessageToThread(threadIdToUse, {
                 id: `chat-error-${Date.now()}`,
                 role: 'agent',
@@ -859,9 +1733,44 @@ export function CockpitPage() {
                 timestamp: new Date()
             });
         } finally {
-            setIsProcessing(false);
+            if (mode !== 'multiple_agents') {
+                setIsProcessing(false);
+            }
         }
     };
+
+    const handleStop = async () => {
+        const threadIdToCancel = String(selectedThread || currentThreadId || '').trim();
+        if (!threadIdToCancel && !activeRunId) return;
+        try {
+            await fetch(apiUrl('/api/chat/cancel'), {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    threadId: threadIdToCancel || undefined,
+                    runId: activeRunId || undefined,
+                    reason: 'Cancelled by user from cockpit',
+                }),
+            });
+            setStatus('cancelled');
+            setIsProcessing(false);
+            setIsAwaitingAgentReply(false);
+            appendMessageToThread(threadIdToCancel || activeThreadKeyRef.current, {
+                id: `chat-cancel-${Date.now()}`,
+                role: 'agent',
+                content: 'Run cancelled by user.',
+                timestamp: new Date(),
+            });
+        } catch (error) {
+            console.error('Cancel error:', error);
+        }
+    };
+
+    const replayVisibleEvents = useMemo(() => {
+        if (!replayEnabled) return activeEvents;
+        const cut = Math.max(0, Math.min(replayIndex, activeEvents.length));
+        return activeEvents.slice(0, cut);
+    }, [activeEvents, replayEnabled, replayIndex]);
 
     const handleApprove = async () => {
         if (!currentThreadId || isProcessing) return;
@@ -1681,6 +2590,7 @@ export function CockpitPage() {
                             className="task-textarea"
                             placeholder="Describe the feature, issue, or strategy idea..."
                             value={input}
+                            disabled={isProcessing || isAwaitingAgentReply}
                             onChange={e => {
                                 const value = e.target.value;
                                 const cursor = e.target.selectionStart ?? value.length;
@@ -1911,15 +2821,28 @@ export function CockpitPage() {
                                 >
                                     <Mic size={15} />
                                 </button>
-                                <button 
-                                    className="icon-btn icon-btn-codex-send"
-                                    onClick={handleSend}
-                                    disabled={(!input.trim() && promptTokens.length === 0) || isProcessing || isRecording}
-                                    aria-label="Send task"
-                                    title="Send task"
-                                >
-                                    <Send size={15} />
-                                </button>
+                                {(isProcessing || isAwaitingAgentReply || status === 'running') ? (
+                                    <button
+                                        className="icon-btn icon-btn-codex-send"
+                                        onClick={handleStop}
+                                        disabled={false}
+                                        aria-label="Stop run"
+                                        title="Stop run"
+                                        style={{ color: '#ef4444' }}
+                                    >
+                                        <Square size={14} />
+                                    </button>
+                                ) : (
+                                    <button 
+                                        className="icon-btn icon-btn-codex-send"
+                                        onClick={handleSend}
+                                        disabled={(!input.trim() && promptTokens.length === 0) || isRecording || isAwaitingAgentReply}
+                                        aria-label="Send task"
+                                        title="Send task"
+                                    >
+                                        <Send size={15} />
+                                    </button>
+                                )}
                             </div>
                         </div>
                         <input
@@ -2028,7 +2951,12 @@ export function CockpitPage() {
                                 )}
                             </div>
                             <button type="button" className="runtime-footer-item runtime-footer-item-mode" title="Runtime mode">
-                                <span>{runtimeModeLabel}</span>
+                                <span>
+                                    {runtimeModeLabel}
+                                    {mode === 'multiple_agents'
+                                        ? (swarmSummary.workersTotal > 0 ? ' · distributed runtime active' : ' · distributed runtime not confirmed')
+                                        : ''}
+                                </span>
                             </button>
                             <button type="button" className="runtime-footer-item icon-only" title="Refresh runtime state" onClick={() => void loadRuntimeFooter()}>
                                 <RefreshCw size={12} />
@@ -2053,9 +2981,11 @@ export function CockpitPage() {
                             <div className="agent-info">
                                 <div className="agent-name">Swarm Controller</div>
                                 <div className="agent-activity">
-                                    {sortedAgentStatusRows.length > 0
-                                        ? `${sortedAgentStatusRows.filter((row) => row.status === 'active').length} active / ${sortedAgentStatusRows.length} total agents`
-                                        : 'No discovered agents yet'}
+                                    {swarmSummary.workersTotal > 0
+                                        ? `${swarmSummary.activeWorkers} active / ${swarmSummary.workersTotal} workers`
+                                        : sortedAgentStatusRows.length > 0
+                                            ? `${sortedAgentStatusRows.filter((row) => row.status === 'active').length} active / ${sortedAgentStatusRows.length} total agents`
+                                            : 'No discovered agents yet'}
                                 </div>
                             </div>
                         </div>
@@ -2064,16 +2994,177 @@ export function CockpitPage() {
                             <div className="catalog-title">Runtime Summary</div>
                             <div className="catalog-section">
                                 <span className={statusBadgeClass(status)}>{status || 'idle'}</span>
+                                <span className={swarmSummary.activeWorkers >= 2 ? 'text-emerald-400' : 'text-slate-300'}>
+                                    Parallel execution: {swarmSummary.activeWorkers >= 2 ? 'on' : 'off'}
+                                </span>
+                                <span>Project scope: {selectedProject || 'global/unbound'}</span>
                                 <span>Active thread: {selectedThread || 'n/a'}</span>
                                 <span>Ticket: {currentTicketId || 'n/a'}</span>
                                 <span>Branch: {gitContext?.activeBranch || runtimeFooter.activeBranch || 'n/a'}</span>
                                 <span>Worktree: {gitContext?.worktreePath || runtimeFooter.worktreePath || 'n/a'}</span>
+                                <span>Queue pressure: {swarmSummary.queuePressure}</span>
+                                <span>Unhealthy workers: {swarmSummary.unhealthyWorkers}</span>
+                                <span className={resourcePressure.className}>Resource pressure: {resourcePressure.label}</span>
+                                {projectSwitchFeedback && (
+                                    <>
+                                        <span>
+                                            Switch: {projectSwitchFeedback.fromProjectId || 'n/a'} {'->'} {projectSwitchFeedback.toProjectId || 'n/a'}
+                                        </span>
+                                        <span className={projectSwitchFeedback.switching ? 'text-amber-300' : 'text-emerald-300'}>
+                                            Transition: {projectSwitchFeedback.switching ? 'warming up...' : 'ready'}
+                                        </span>
+                                        <span>
+                                            Spawned: {projectSwitchFeedback.spawned} | Demoted: {projectSwitchFeedback.demoted} | Cold: {projectSwitchFeedback.coldWorkers}
+                                        </span>
+                                        <span>
+                                            Warmup: {projectSwitchFeedback.warmupMs === null ? 'n/a' : `${Math.max(0, Math.floor(projectSwitchFeedback.warmupMs))}ms`}
+                                        </span>
+                                    </>
+                                )}
+                                <div className="flex items-center gap-1 mt-2">
+                                    <button
+                                        disabled={!selectedProject || Boolean(governanceControlPending[`override:${selectedProject}`])}
+                                        className="px-2 py-0.5 rounded text-[0.72rem] border border-orange-500/40 text-orange-300 hover:bg-orange-500/10 disabled:opacity-50"
+                                        onClick={() => {
+                                            if (!selectedProject) return;
+                                            const confirmStart = window.confirm('Create manual governance override?');
+                                            if (!confirmStart) return;
+                                            const reason = window.prompt('Override reason:', 'manual gate override from cockpit');
+                                            if (!reason || !reason.trim()) return;
+                                            const scopeRaw = window.prompt('Scope: global | phase | rule', 'global') || 'global';
+                                            const scope = (scopeRaw.trim().toLowerCase() as 'global' | 'phase' | 'rule');
+                                            let phase: string | undefined;
+                                            let ruleId: string | undefined;
+                                            if (scope === 'phase') {
+                                                phase = window.prompt('Phase (e.g. BEFORE_RUN, AFTER_STEP, AFTER_RUN):', 'BEFORE_RUN') || '';
+                                            }
+                                            if (scope === 'rule') {
+                                                ruleId = window.prompt('Rule ID (e.g. git_preflight, postflight_evidence):', 'git_preflight') || '';
+                                            }
+                                            void invokeGovernanceControl({
+                                                action: 'override',
+                                                projectId: selectedProject,
+                                                scope,
+                                                reason: reason.trim(),
+                                                ...(phase ? { phase: phase.trim() } : {}),
+                                                ...(ruleId ? { ruleId: ruleId.trim() } : {}),
+                                            });
+                                        }}
+                                    >
+                                        Gate Override
+                                    </button>
+                                    <button
+                                        disabled={!selectedProject || Boolean(governanceControlPending[`force-loop:${selectedProject}`])}
+                                        className="px-2 py-0.5 rounded text-[0.72rem] border border-cyan-500/40 text-cyan-300 hover:bg-cyan-500/10 disabled:opacity-50"
+                                        onClick={() => {
+                                            if (!selectedProject) return;
+                                            const loopRaw = window.prompt('Loop type: improvement | validation', 'improvement') || 'improvement';
+                                            const loopType = loopRaw.trim().toLowerCase() === 'validation' ? 'validation' : 'improvement';
+                                            void invokeGovernanceControl({
+                                                action: 'force-loop',
+                                                projectId: selectedProject,
+                                                loopType,
+                                            });
+                                        }}
+                                    >
+                                        Force Loop
+                                    </button>
+                                    <button
+                                        disabled={!selectedProject || Boolean(runtimeEnforcementPending[`enforcement:${selectedProject}`])}
+                                        className="px-2 py-0.5 rounded text-[0.72rem] border border-fuchsia-500/40 text-fuchsia-300 hover:bg-fuchsia-500/10 disabled:opacity-50"
+                                        onClick={() => {
+                                            if (!selectedProject) return;
+                                            const pipeline = window.prompt('Forced pipeline (empty to clear):', 'new-feature') || '';
+                                            const skillsRaw = window.prompt('Forced skills CSV (e.g. engineering/repo-navigation,engineering/test-generation):', '');
+                                            const skills = String(skillsRaw || '')
+                                                .split(',')
+                                                .map((x) => x.trim())
+                                                .filter(Boolean);
+                                            void saveRuntimeEnforcement({
+                                                projectId: selectedProject,
+                                                ...(pipeline.trim() ? { pipeline: pipeline.trim() } : {}),
+                                                ...(skills.length > 0 ? { skills } : {}),
+                                            });
+                                        }}
+                                    >
+                                        Enforce Route
+                                    </button>
+                                    <button
+                                        disabled={!selectedProject || Boolean(swarmControlPending[`bulk:pause_all:${selectedProject}`])}
+                                        className="px-2 py-0.5 rounded text-[0.72rem] border border-amber-500/40 text-amber-300 hover:bg-amber-500/10 disabled:opacity-50"
+                                        onClick={() => {
+                                            if (!selectedProject) return;
+                                            void invokeSwarmControl({ kind: 'bulk', action: 'pause_all', projectId: selectedProject });
+                                        }}
+                                    >
+                                        Pause All
+                                    </button>
+                                    <button
+                                        disabled={!selectedProject || Boolean(swarmControlPending[`bulk:restart_group:${selectedProject}`])}
+                                        className="px-2 py-0.5 rounded text-[0.72rem] border border-sky-500/40 text-sky-300 hover:bg-sky-500/10 disabled:opacity-50"
+                                        onClick={() => {
+                                            if (!selectedProject) return;
+                                            void invokeSwarmControl({ kind: 'bulk', action: 'restart_group', projectId: selectedProject });
+                                        }}
+                                    >
+                                        Restart Group
+                                    </button>
+                                    <button
+                                        disabled={!selectedProject || Boolean(swarmControlPending[`bulk:kill_all:${selectedProject}`])}
+                                        className="px-2 py-0.5 rounded text-[0.72rem] border border-red-500/40 text-red-300 hover:bg-red-500/10 disabled:opacity-50"
+                                        onClick={() => {
+                                            if (!selectedProject) return;
+                                            const ok = window.confirm('Kill all workers in project?');
+                                            if (!ok) return;
+                                            void invokeSwarmControl({ kind: 'bulk', action: 'kill_all', projectId: selectedProject });
+                                        }}
+                                    >
+                                        Kill All
+                                    </button>
+                                    <button
+                                        disabled={!selectedProject || Boolean(swarmControlPending[`project:pause_project:${selectedProject}`])}
+                                        className="px-2 py-0.5 rounded text-[0.72rem] border border-orange-500/40 text-orange-300 hover:bg-orange-500/10 disabled:opacity-50"
+                                        onClick={() => {
+                                            if (!selectedProject) return;
+                                            void invokeSwarmControl({ kind: 'project', action: 'pause_project', projectId: selectedProject });
+                                        }}
+                                    >
+                                        Pause Project
+                                    </button>
+                                    <button
+                                        disabled={!selectedProject || Boolean(swarmControlPending[`project:resume_project:${selectedProject}`])}
+                                        className="px-2 py-0.5 rounded text-[0.72rem] border border-emerald-500/40 text-emerald-300 hover:bg-emerald-500/10 disabled:opacity-50"
+                                        onClick={() => {
+                                            if (!selectedProject) return;
+                                            void invokeSwarmControl({ kind: 'project', action: 'resume_project', projectId: selectedProject });
+                                        }}
+                                    >
+                                        Resume Project
+                                    </button>
+                                    <button
+                                        disabled={!selectedProject || Boolean(swarmControlPending[`project:clear_queue:${selectedProject}`])}
+                                        className="px-2 py-0.5 rounded text-[0.72rem] border border-violet-500/40 text-violet-300 hover:bg-violet-500/10 disabled:opacity-50"
+                                        onClick={() => {
+                                            if (!selectedProject) return;
+                                            void invokeSwarmControl({ kind: 'project', action: 'clear_queue', projectId: selectedProject });
+                                        }}
+                                    >
+                                        Clear Queue
+                                    </button>
+                                </div>
                             </div>
                         </div>
                     </div>
 
                     <div className="catalog-card">
                         <div className="catalog-title">Agent Runtime Board</div>
+                        <div className="catalog-section">
+                            <span>Project agents: {sortedAgentStatusRows.length}</span>
+                            <span>Workers: {projectRosterSummary.totalWorkers}</span>
+                            <span>Enabled workers: {projectRosterSummary.enabled}</span>
+                            <span>Hot workers: {projectRosterSummary.hot}</span>
+                            <span>Cold workers: {projectRosterSummary.cold}</span>
+                        </div>
                         <div className="agent-board">
                             {sortedAgentStatusRows.length === 0 ? (
                                 <div className="agent-board-empty">No agent registry data.</div>
@@ -2104,12 +3195,28 @@ export function CockpitPage() {
                                                         ? 'border-emerald-500/40 text-emerald-400 hover:bg-emerald-500/10'
                                                         : 'border-amber-500/40 text-amber-400 hover:bg-amber-500/10'
                                                 }`}
-                                                onClick={() => {
+                                                onClick={async () => {
+                                                    if (!selectedProject) {
+                                                        setProviderMessage('Worker control requires a selected project.');
+                                                        return;
+                                                    }
+                                                    const targetWorker = projectScopedWorkers.find((w) => w.agentSlug === row.slug);
+                                                    if (!targetWorker) {
+                                                        setProviderMessage(`No worker found for agent ${row.slug} in current project.`);
+                                                        return;
+                                                    }
+                                                    const action = row.isPaused ? 'resume' : 'pause';
+                                                    const ok = await invokeWorkerControl({
+                                                        projectId: selectedProject,
+                                                        agentSlug: row.slug,
+                                                        workerId: targetWorker.workerId,
+                                                        action,
+                                                    });
+                                                    if (!ok) return;
                                                     setAgentRuntime((prev) => ({
                                                         ...prev,
                                                         [row.slug]: { ...prev[row.slug], isPaused: !row.isPaused },
                                                     }));
-                                                    alert(`${row.isPaused ? 'Resuming' : 'Pausing'} agent: ${row.callsign || row.slug}\n(Mock — backend hook pending)`);
                                                 }}
                                             >
                                                 {row.isPaused ? 'Resume' : 'Pause'}
@@ -2121,8 +3228,385 @@ export function CockpitPage() {
                         </div>
                     </div>
 
+                    <div className="catalog-card">
+                        <div className="catalog-title">Worker Runtime Board</div>
+                        <div className="agent-board">
+                            {projectScopedWorkers.length === 0 ? (
+                                <div className="agent-board-empty">No worker runtime data.</div>
+                            ) : (
+                                projectScopedWorkers.map((worker) => {
+                                    const availabilityClass = worker.availabilityState === 'hot' ? 'text-emerald-400' : 'text-slate-400';
+                                    const executionClass = worker.executionState === 'active' ? 'text-amber-300' : 'text-slate-300';
+                                    const heartbeatClass =
+                                        worker.heartbeatFreshness === 'fresh'
+                                            ? 'text-emerald-400'
+                                            : worker.heartbeatFreshness === 'stale'
+                                                ? 'text-amber-300'
+                                                : 'text-red-400';
+                                    const healthLabel =
+                                        worker.heartbeatFreshness === 'dead'
+                                            ? 'dead'
+                                            : worker.heartbeatFreshness === 'stale'
+                                                ? 'degraded'
+                                                : 'healthy';
+                                    const healthClass =
+                                        healthLabel === 'healthy'
+                                            ? 'text-emerald-400'
+                                            : healthLabel === 'degraded'
+                                                ? 'text-amber-300'
+                                                : 'text-red-400';
+                                    const assignedTask = worker.assignedTask?.taskId || 'n/a';
+                                    const assignedStage = worker.assignedTask?.stageId || 'n/a';
+                                    return (
+                                        <div key={`${worker.projectId}:${worker.agentSlug}:${worker.workerId}`} className="agent-board-row">
+                                            <div className={`agent-dot ${worker.executionState === 'active' ? 'active' : 'standby'}`} />
+                                            <div className="agent-board-main">
+                                                <div className="agent-board-title">{worker.agentSlug}</div>
+                                                <div className="agent-board-sub">{worker.workerId}</div>
+                                            </div>
+                                            <div className="agent-board-meta">
+                                                <span>project: {worker.projectId || 'n/a'}</span>
+                                                <span className={availabilityClass}>availability: {worker.availabilityState}</span>
+                                                <span className={executionClass}>execution: {worker.executionState}</span>
+                                                <span>paused: {worker.isPaused ? 'yes' : 'no'}</span>
+                                                <span>lifecycle: {worker.rawLifecycleState}</span>
+                                                <span className={healthClass}>health: {healthLabel}</span>
+                                                <span className={heartbeatClass}>heartbeat: {worker.heartbeatFreshness}</span>
+                                                <span>last heartbeat: {Math.max(0, Math.floor(worker.heartbeatAgeMs / 1000))}s ago</span>
+                                                <span>heartbeat ts: {formatHeartbeatTimestamp(Number(worker.lastHeartbeatAt || 0))}</span>
+                                                <span>task: {assignedTask}</span>
+                                                <span>stage: {assignedStage}</span>
+                                            </div>
+                                            <div className="flex items-center gap-1 ml-2">
+                                                {(() => {
+                                                    const key = workerControlKey(worker.projectId, worker.agentSlug, worker.workerId);
+                                                    const pendingAction = workerControlPending[key];
+                                                    const disabled = Boolean(pendingAction);
+                                                    const isActive = worker.executionState === 'active' && !worker.isPaused;
+                                                    return (
+                                                        <>
+                                                            <button
+                                                                disabled={disabled || !worker.enabled}
+                                                                className="px-2 py-0.5 rounded text-[0.72rem] border border-amber-500/40 text-amber-300 hover:bg-amber-500/10 disabled:opacity-50"
+                                                                onClick={() => void invokeWorkerControl({
+                                                                    projectId: worker.projectId,
+                                                                    agentSlug: worker.agentSlug,
+                                                                    workerId: worker.workerId,
+                                                                    action: isActive ? 'pause' : 'resume',
+                                                                })}
+                                                            >
+                                                                {disabled && (pendingAction === 'pause' || pendingAction === 'resume')
+                                                                    ? '...'
+                                                                    : isActive ? 'Pause' : 'Resume'}
+                                                            </button>
+                                                            <button
+                                                                disabled={disabled}
+                                                                className="px-2 py-0.5 rounded text-[0.72rem] border border-sky-500/40 text-sky-300 hover:bg-sky-500/10 disabled:opacity-50"
+                                                                onClick={() => void invokeWorkerControl({
+                                                                    projectId: worker.projectId,
+                                                                    agentSlug: worker.agentSlug,
+                                                                    workerId: worker.workerId,
+                                                                    action: 'restart',
+                                                                })}
+                                                            >
+                                                                {disabled && pendingAction === 'restart' ? '...' : 'Restart'}
+                                                            </button>
+                                                            <button
+                                                                disabled={disabled}
+                                                                className="px-2 py-0.5 rounded text-[0.72rem] border border-red-500/40 text-red-300 hover:bg-red-500/10 disabled:opacity-50"
+                                                                onClick={() => {
+                                                                    const ok = window.confirm(`Kill worker ${worker.workerId}? This action is destructive.`);
+                                                                    if (!ok) return;
+                                                                    void invokeWorkerControl({
+                                                                        projectId: worker.projectId,
+                                                                        agentSlug: worker.agentSlug,
+                                                                        workerId: worker.workerId,
+                                                                        action: 'kill',
+                                                                    });
+                                                                }}
+                                                            >
+                                                                {disabled && pendingAction === 'kill' ? '...' : 'Kill'}
+                                                            </button>
+                                                        </>
+                                                    );
+                                                })()}
+                                            </div>
+                                        </div>
+                                    );
+                                })
+                            )}
+                        </div>
+                    </div>
+
+                    <div className="catalog-card">
+                        <div className="catalog-title">Queue & Dispatch</div>
+                        <div className="catalog-section">
+                            <span>Project: {selectedProject || 'global/unbound'}</span>
+                            <span>Queue length: {queueSnapshot.queueLength}</span>
+                            <span>Waiting tasks: {queueSnapshot.waiting.length}</span>
+                            <span>Assigned tasks: {queueSnapshot.assigned.length}</span>
+                            <span>Completed tasks: {queueSnapshot.completed.length}</span>
+                            <span>Tracked tasks: {queueSnapshot.totalTracked}</span>
+                            <span>Dispatch avg: {dispatchLatencySummary.avgMs === null ? 'n/a' : `${dispatchLatencySummary.avgMs}ms`}</span>
+                            <span>Dispatch max: {dispatchLatencySummary.maxMs === null ? 'n/a' : `${dispatchLatencySummary.maxMs}ms`}</span>
+                            <span className={dispatchLatencySummary.warning ? 'text-amber-300' : 'text-slate-300'}>
+                                Dispatch warning: {dispatchLatencySummary.warning ? `max > ${dispatchLatencySummary.warningThresholdMs}ms` : 'none'}
+                            </span>
+                        </div>
+                        <div className="agent-board">
+                            {queueSnapshot.waiting.length === 0 ? (
+                                <div className="agent-board-empty">No waiting tasks in current event stream.</div>
+                            ) : (
+                                queueSnapshot.waiting.slice(0, 8).map((task) => (
+                                    <div key={`queue-${task.taskId}`} className="agent-board-row">
+                                        <div className="agent-dot standby" />
+                                        <div className="agent-board-main">
+                                            <div className="agent-board-title">{task.taskId}</div>
+                                            <div className="agent-board-sub">stage: {task.stageId}</div>
+                                        </div>
+                                        <div className="agent-board-meta">
+                                            <span>status: {task.status}</span>
+                                            <span>agent: {task.agentSlug}</span>
+                                            <span>updated: {new Date(task.updatedAt).toLocaleTimeString()}</span>
+                                        </div>
+                                        <div className="flex items-center gap-1 ml-2">
+                                            <button
+                                                disabled={Boolean(queueControlPending[`retry:${task.taskId}`]) || !selectedProject}
+                                                className="px-2 py-0.5 rounded text-[0.72rem] border border-emerald-500/40 text-emerald-300 hover:bg-emerald-500/10 disabled:opacity-50"
+                                                onClick={() => void invokeQueueControl({
+                                                    action: 'retry',
+                                                    projectId: selectedProject,
+                                                    taskId: task.taskId,
+                                                })}
+                                            >
+                                                Retry
+                                            </button>
+                                            <button
+                                                disabled={Boolean(queueControlPending[`cancel:${task.taskId}`]) || !selectedProject}
+                                                className="px-2 py-0.5 rounded text-[0.72rem] border border-red-500/40 text-red-300 hover:bg-red-500/10 disabled:opacity-50"
+                                                onClick={() => {
+                                                    const ok = window.confirm(`Cancel queued task ${task.taskId}?`);
+                                                    if (!ok) return;
+                                                    void invokeQueueControl({
+                                                        action: 'cancel',
+                                                        projectId: selectedProject,
+                                                        taskId: task.taskId,
+                                                    });
+                                                }}
+                                            >
+                                                Cancel
+                                            </button>
+                                            <button
+                                                disabled={Boolean(queueControlPending[`priority:${task.taskId}`]) || !selectedProject}
+                                                className="px-2 py-0.5 rounded text-[0.72rem] border border-amber-500/40 text-amber-300 hover:bg-amber-500/10 disabled:opacity-50"
+                                                onClick={() => {
+                                                    const nextPriority = window.prompt('Set numeric priority (-100..100). Higher means sooner:', '10');
+                                                    if (nextPriority === null) return;
+                                                    const parsed = Number(nextPriority);
+                                                    if (!Number.isFinite(parsed)) return;
+                                                    void invokeQueueControl({
+                                                        action: 'priority',
+                                                        projectId: selectedProject,
+                                                        taskId: task.taskId,
+                                                        priority: parsed,
+                                                    });
+                                                }}
+                                            >
+                                                Priority
+                                            </button>
+                                            <button
+                                                disabled={Boolean(queueControlPending[`reassign:${task.taskId}`]) || !selectedProject}
+                                                className="px-2 py-0.5 rounded text-[0.72rem] border border-violet-500/40 text-violet-300 hover:bg-violet-500/10 disabled:opacity-50"
+                                                onClick={() => {
+                                                    const nextAgent = window.prompt('Reassign to agent slug (e.g. developer, pm-orchestrator):', task.agentSlug || '');
+                                                    const cleaned = String(nextAgent || '').trim();
+                                                    if (!cleaned) return;
+                                                    void invokeQueueControl({
+                                                        action: 'reassign',
+                                                        projectId: selectedProject,
+                                                        taskId: task.taskId,
+                                                        toAgentSlug: cleaned,
+                                                    });
+                                                }}
+                                            >
+                                                Reassign
+                                            </button>
+                                        </div>
+                                    </div>
+                                ))
+                            )}
+                        </div>
+                        <div className="agent-board mt-2">
+                            {taskWorkerMapping.length === 0 ? (
+                                <div className="agent-board-empty">No task-to-worker assignments yet.</div>
+                            ) : (
+                                taskWorkerMapping.slice(0, 10).map((row) => (
+                                    <div key={`map-${row.projectId}-${row.taskId}-${row.workerId}`} className="agent-board-row">
+                                        <div className={`agent-dot ${row.status === 'assigned' ? 'active' : 'standby'}`} />
+                                        <div className="agent-board-main">
+                                            <div className="agent-board-title">{row.taskId}</div>
+                                            <div className="agent-board-sub">worker: {row.workerId}</div>
+                                        </div>
+                                        <div className="agent-board-meta">
+                                            <span>status: {row.status}</span>
+                                            <span>agent: {row.agentSlug}</span>
+                                            <span>stage: {row.stageId}</span>
+                                            <span>project: {row.projectId}</span>
+                                        </div>
+                                    </div>
+                                ))
+                            )}
+                        </div>
+                    </div>
+
+                    <div className="catalog-card">
+                        <div className="catalog-title">Worker Lifecycle Timeline</div>
+                        <div className="agent-board">
+                            {workerLifecycleTimeline.length === 0 ? (
+                                <div className="agent-board-empty">No worker lifecycle events yet.</div>
+                            ) : (
+                                workerLifecycleTimeline.map((row) => (
+                                    <div key={`lifecycle-${row.id}`} className="agent-board-row">
+                                        <div className={`agent-dot ${row.type === 'worker.failed' || row.type === 'worker.unhealthy' ? 'unavailable' : 'active'}`} />
+                                        <div className="agent-board-main">
+                                            <div className="agent-board-title">{row.type}</div>
+                                            <div className="agent-board-sub">{new Date(row.at).toLocaleTimeString()}</div>
+                                        </div>
+                                        <div className="agent-board-meta">
+                                            <span>worker: {row.workerId}</span>
+                                            <span>agent: {row.agentSlug}</span>
+                                            {row.from && row.to && <span>state: {row.from} {'->'} {row.to}</span>}
+                                            {row.taskId && <span>task: {row.taskId}</span>}
+                                        </div>
+                                    </div>
+                                ))
+                            )}
+                        </div>
+                    </div>
+
+                    <div className="catalog-card">
+                        <div className="catalog-title">Worker Debug Logs</div>
+                        <div className="agent-board">
+                            {workerDebugRows.length === 0 ? (
+                                <div className="agent-board-empty">No worker debug events yet.</div>
+                            ) : (
+                                workerDebugRows.map((row) => (
+                                    <div key={`debug-${row.id}`} className="agent-board-row">
+                                        <div className={`agent-dot ${row.type.includes('failed') || row.type.includes('unhealthy') ? 'unavailable' : 'standby'}`} />
+                                        <div className="agent-board-main">
+                                            <div className="agent-board-title">{row.type}</div>
+                                            <div className="agent-board-sub">{new Date(row.at).toLocaleTimeString()}</div>
+                                        </div>
+                                        <div className="agent-board-meta">
+                                            <span>worker: {row.workerId}</span>
+                                            <span>agent: {row.agentSlug}</span>
+                                            {row.taskId ? <span>task: {row.taskId}</span> : null}
+                                            {row.stageId ? <span>stage: {row.stageId}</span> : null}
+                                            {row.tool ? <span>tool: {row.tool}</span> : null}
+                                            {row.model ? <span>model: {row.model}</span> : null}
+                                            {row.summary ? <span>detail: {row.summary}</span> : null}
+                                        </div>
+                                    </div>
+                                ))
+                            )}
+                        </div>
+                    </div>
+
+                    <div className="catalog-card">
+                        <div className="catalog-title">Execution Trace Per Worker</div>
+                        <div className="agent-board">
+                            {workerTraceRows.length === 0 ? (
+                                <div className="agent-board-empty">No worker trace yet.</div>
+                            ) : (
+                                workerTraceRows.map((row) => (
+                                    <div key={`trace-${row.agentSlug}-${row.workerId}`} className="agent-board-row">
+                                        <div className="agent-dot active" />
+                                        <div className="agent-board-main">
+                                            <div className="agent-board-title">{row.agentSlug}</div>
+                                            <div className="agent-board-sub">worker: {row.workerId}</div>
+                                        </div>
+                                        <div className="agent-board-meta">
+                                            <span>steps: {row.steps}</span>
+                                            <span>tool calls: {row.toolCalls}</span>
+                                            <span>llm calls: {row.llmCalls}</span>
+                                            <span>last: {new Date(row.lastAt).toLocaleTimeString()}</span>
+                                        </div>
+                                    </div>
+                                ))
+                            )}
+                        </div>
+                    </div>
+
                     <div className="feed-container">
-                        <StreamRenderer events={eventsByThread[activeThreadKey] || []} />
+                        <div className="mb-2 rounded-md border border-white/10 bg-slate-900/40 px-3 py-2">
+                            <div className="flex items-center gap-2 text-xs text-slate-300">
+                                <span className="uppercase tracking-wide text-slate-400">Run Replay</span>
+                                <button
+                                    className={`rounded border px-2 py-0.5 ${
+                                        chatEventRenderMode === 'raw'
+                                            ? 'border-amber-500/40 text-amber-300'
+                                            : chatEventRenderMode === 'both'
+                                                ? 'border-violet-500/40 text-violet-300'
+                                                : 'border-emerald-500/40 text-emerald-300'
+                                    }`}
+                                    onClick={() =>
+                                        setChatEventRenderMode((prev) =>
+                                            prev === 'humanized' ? 'raw' : prev === 'raw' ? 'both' : 'humanized'
+                                        )
+                                    }
+                                    title="Switch chat event rendering mode"
+                                >
+                                    Chat: {chatEventRenderMode === 'raw' ? 'Raw' : chatEventRenderMode === 'both' ? 'Both' : 'Humanized'}
+                                </button>
+                                <button
+                                    className={`rounded border px-2 py-0.5 ${replayEnabled ? 'border-cyan-500/40 text-cyan-300' : 'border-white/20 text-slate-300'}`}
+                                    onClick={() => {
+                                        setReplayEnabled((v) => !v);
+                                        setReplayPlaying(false);
+                                        setReplayIndex(0);
+                                    }}
+                                >
+                                    {replayEnabled ? 'Disable' : 'Enable'}
+                                </button>
+                                <button
+                                    className="rounded border border-white/20 px-2 py-0.5 text-slate-300 disabled:opacity-40"
+                                    disabled={!replayEnabled || activeEvents.length === 0}
+                                    onClick={() => setReplayPlaying((v) => !v)}
+                                >
+                                    {replayPlaying ? 'Pause' : 'Play'}
+                                </button>
+                                <button
+                                    className="rounded border border-white/20 px-2 py-0.5 text-slate-300 disabled:opacity-40"
+                                    disabled={!replayEnabled}
+                                    onClick={() => {
+                                        setReplayPlaying(false);
+                                        setReplayIndex(0);
+                                    }}
+                                >
+                                    Reset
+                                </button>
+                                <label className="ml-2 text-slate-400">
+                                    speed
+                                    <select
+                                        className="ml-1 rounded border border-white/20 bg-slate-950 px-1 py-0.5 text-slate-200"
+                                        value={replaySpeedMs}
+                                        onChange={(e) => setReplaySpeedMs(Number(e.target.value))}
+                                        disabled={!replayEnabled}
+                                    >
+                                        <option value={150}>fast</option>
+                                        <option value={350}>normal</option>
+                                        <option value={700}>slow</option>
+                                    </select>
+                                </label>
+                                {replayEnabled && (
+                                    <span className="ml-auto text-slate-500">
+                                        {Math.min(replayIndex, activeEvents.length)} / {activeEvents.length}
+                                    </span>
+                                )}
+                            </div>
+                        </div>
+                        <StreamRenderer events={replayVisibleEvents} />
+                        <ObservabilityPanels events={replayVisibleEvents} />
                         <div ref={feedEndRef} />
                     </div>
                 </section>

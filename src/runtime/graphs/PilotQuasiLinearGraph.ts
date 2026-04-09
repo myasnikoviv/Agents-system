@@ -13,6 +13,9 @@ import { loadConfig } from '../CockpitExecutorConfig';
 import { ReclassificationCheckpoint } from '../context/ReclassificationCheckpoint';
 import { detectLanguage, type DetectedLanguage } from '../LanguageDetection';
 import { buildContractRepromptInstruction, validateAgentResponseContract } from '../ResponseContractGuard';
+import { DynamicWorkerSpawnManager } from '../workers/DynamicWorkerSpawnManager';
+import { ProjectDispatchQueue } from '../queue/ProjectDispatchQueue';
+import { executeRunContextInSubprocess } from '../workers/WorkerProcessExecutor';
 
 
 // The officially supported way to type State in LangGraph TS
@@ -53,6 +56,14 @@ export const PilotStateAnnotation = Annotation.Root({
   customAgents: Annotation<string[]>({
     reducer: (_: string[], y: string[]) => y,  // Replace, not concat
     default: () => [],
+  }),
+  requestedSkills: Annotation<string[]>({
+    reducer: (_: string[], y: string[]) => y,
+    default: () => [],
+  }),
+  enforcement: Annotation<{ pipeline?: string; skills?: string[] }>({
+    reducer: (_: { pipeline?: string; skills?: string[] }, y: { pipeline?: string; skills?: string[] }) => y,
+    default: () => ({ pipeline: undefined, skills: [] }),
   }),
   messages: Annotation<{ role: string, content: string }[]>({
     reducer: (x: { role: string, content: string }[], y: { role: string, content: string }[]) => x.concat(y),
@@ -141,9 +152,20 @@ function isAgentStatusChainRequest(state: PilotState): boolean {
   return hasChainIntent && hasStatusIntent;
 }
 
-function buildContractFallbackMessage(state: PilotState, runContext: any, pipelineId: string, stageId: string): string {
+function buildContractFallbackMessage(
+  state: PilotState,
+  runContext: any,
+  pipelineId: string,
+  stageId: string,
+  validationErrors: string[],
+  rawResponse: string
+): string {
   const callsign = runContext?.agent?.callsign || runContext?.agent?.title || runContext?.agent?.slug || 'Agent';
   const ticket = String(state.ticketId || '').trim() || 'N/A';
+  const normalizedErrors = Array.isArray(validationErrors) && validationErrors.length > 0
+    ? validationErrors
+    : ['Unknown contract validation error'];
+  const rawExcerpt = compactText(String(rawResponse || '').trim(), 500);
   return [
     `Active role: ${callsign}`,
     `Pipeline: ${pipelineId || 'unified-task-intake'}`,
@@ -156,10 +178,14 @@ function buildContractFallbackMessage(state: PilotState, runContext: any, pipeli
     'Відповідь переформатовано системою через порушення контракту формату.',
     '',
     'findings',
-    '- Первинна відповідь не пройшла contract guard.',
+    ...normalizedErrors.map((err) => `- ${err}`),
     '- Виконано fallback-форматування для стабільності виводу.',
+    '',
+    'original_response_excerpt',
+    rawExcerpt || '(empty)',
   ].join('\n');
 }
+
 
 function extractRetrySeconds(text: string): string | null {
   const retryInMatch = text.match(/retry in\s+([\d.]+)s/i);
@@ -174,6 +200,7 @@ function summarizeExecutionError(language: DetectedLanguage, rawError: string, p
   const lower = text.toLowerCase();
   const retrySec = extractRetrySeconds(text);
   const missingBinaryMatch = text.match(/spawn\s+([^\s]+)\s+ENOENT/i);
+  const looksLikeOpenHands = providerLabel.toLowerCase().includes('openhands');
 
   if (missingBinaryMatch?.[1]) {
     const bin = missingBinaryMatch[1];
@@ -216,11 +243,58 @@ function summarizeExecutionError(language: DetectedLanguage, rawError: string, p
       : `${providerLabel} is temporarily rate-limited. Please retry shortly.`;
   }
 
+  const billingError =
+    lower.includes('insufficient_quota') ||
+    lower.includes('billing') ||
+    lower.includes('payment required') ||
+    lower.includes('api key not valid') ||
+    lower.includes('invalid api key') ||
+    lower.includes('authentication failed');
+  if (billingError) {
+    if (language === 'uk') {
+      return `${providerLabel} не зміг виконати запит через проблему з білінгом/доступом до моделі. Перевірте оплату, ліміти та API-ключ провайдера, потім повторіть запуск.`;
+    }
+    if (language === 'ru') {
+      return `${providerLabel} не смог выполнить запрос из-за проблемы с биллингом/доступом к модели. Проверьте оплату, лимиты и API-ключ провайдера, затем повторите запуск.`;
+    }
+    if (language === 'be') {
+      return `${providerLabel} не змог выканаць запыт праз праблему з білінгам/доступам да мадэлі. Праверце аплату, ліміты і API-ключ правайдара, пасля паўтарыце запуск.`;
+    }
+    return `${providerLabel} could not complete the request due to model billing/access issues. Check billing, limits, and provider API key, then retry.`;
+  }
+
   if (lower.includes('timed out') || lower.includes('timeout')) {
+    if (looksLikeOpenHands) {
+      if (language === 'uk') {
+        return `${providerLabel} не отримав завершену відповідь вчасно. Це timeout на стороні провайдера/оркестратора. Перевірте стан OpenHands, доступність моделі та повторіть запуск.`;
+      }
+      if (language === 'ru') {
+        return `${providerLabel} не получил завершенный ответ вовремя. Это timeout на стороне провайдера/оркестратора. Проверьте состояние OpenHands, доступность модели и повторите запуск.`;
+      }
+      if (language === 'be') {
+        return `${providerLabel} не атрымаў завершаны адказ своечасова. Гэта timeout на баку правайдара/аркестратара. Праверце стан OpenHands, даступнасць мадэлі і паўтарыце запуск.`;
+      }
+      return `${providerLabel} did not return a completed response in time. This is a provider/orchestrator timeout. Check OpenHands health, model availability, and retry.`;
+    }
     if (language === 'uk') return `${providerLabel} не встиг завершити запит вчасно (timeout). Спробуйте ще раз.`;
     if (language === 'ru') return `${providerLabel} не успел завершить запрос вовремя (timeout). Попробуйте снова.`;
     if (language === 'be') return `${providerLabel} не паспеў завяршыць запыт своечасова (timeout). Паспрабуйце яшчэ раз.`;
     return `${providerLabel} timed out while processing the request. Please retry.`;
+  }
+
+  if (lower.includes('maximum run time') || lower.includes('stage_timeout_exceeded')) {
+    if (looksLikeOpenHands) {
+      if (language === 'uk') {
+        return `${providerLabel} перевищив ліміт часу виконання. Це означає, що відповідь не була завершена в межах runtime timeout. Перевірте стан OpenHands та доступність моделі, потім повторіть запит.`;
+      }
+      if (language === 'ru') {
+        return `${providerLabel} превысил лимит времени выполнения. Это значит, что ответ не был завершен в пределах runtime timeout. Проверьте состояние OpenHands и доступность модели, затем повторите запрос.`;
+      }
+      if (language === 'be') {
+        return `${providerLabel} перавысіў ліміт часу выканання. Гэта значыць, што адказ не быў завершаны ў межах runtime timeout. Праверце стан OpenHands і даступнасць мадэлі, пасля паўтарыце запыт.`;
+      }
+      return `${providerLabel} exceeded execution time limit. The response was not completed within runtime timeout. Check OpenHands health and model availability, then retry.`;
+    }
   }
 
   const cleaned = compactText(
@@ -390,7 +464,7 @@ async function swarmNode(state: PilotState): Promise<Partial<PilotState>> {
         projectId: state.projectId,
         chainId: state.threadId,
         actor: { type: 'agent', id: agent.slug, role: agent.slug },
-        payload: { pipelineId, stageId },
+        payload: { pipelineId, stageId, stageTitle: stageId },
       });
 
       if (idx > 0) {
@@ -405,6 +479,8 @@ async function swarmNode(state: PilotState): Promise<Partial<PilotState>> {
             pipelineId,
             fromAgentId: fromAgent.slug,
             toAgentId: agent.slug,
+            toStageId: stageId,
+            toStageTitle: stageId,
           },
         });
       }
@@ -433,6 +509,7 @@ async function swarmNode(state: PilotState): Promise<Partial<PilotState>> {
         payload: {
           pipelineId,
           stageId,
+          stageTitle: stageId,
           outcome: 'success',
         },
       });
@@ -539,12 +616,67 @@ async function swarmNode(state: PilotState): Promise<Partial<PilotState>> {
           pipelineId,
           fromAgentId: fromAgent,
           toAgentId: toAgent,
+          toStageId: String(nextStage.id || '').trim(),
+          toStageTitle: String(nextStage.title || nextStage.name || nextStage.id || '').trim(),
         },
       });
     }
   }
 
   console.log(`[PilotGraph:Swarm] Next stage: ${nextStage.id} (Agent: ${nextStage.agent})`);
+  const queueTask = ProjectDispatchQueue.enqueue({
+    runId: state.runId,
+    projectId: state.projectId,
+    chainId: state.threadId,
+    pipelineId,
+    stageId: String(nextStage.id || '').trim(),
+    agentSlug: String(nextStage.agent || '').trim() || 'system-core',
+    payload: {
+      stageTitle: String(nextStage.title || nextStage.name || nextStage.id || '').trim(),
+      queueDepth: ProjectDispatchQueue.depth(state.projectId),
+    },
+  });
+  await emitEvent({
+    type: 'task.queued',
+    runId: state.runId,
+    projectId: state.projectId,
+    chainId: state.threadId,
+    actor: { type: 'system', id: 'dispatch-queue' },
+    payload: {
+      taskId: queueTask.taskId,
+      stageId: queueTask.stageId,
+      agentSlug: queueTask.agentSlug,
+      queueDepth: ProjectDispatchQueue.depth(state.projectId, queueTask.agentSlug),
+    },
+  });
+  const pickedTask = ProjectDispatchQueue.pickup(state.projectId, queueTask.agentSlug);
+  if (!pickedTask) {
+    throw new Error(`Dispatch queue pickup failed for ${state.projectId}:${queueTask.agentSlug}`);
+  }
+  await emitEvent({
+    type: 'task.dispatched',
+    runId: state.runId,
+    projectId: state.projectId,
+    chainId: state.threadId,
+    actor: { type: 'system', id: 'dispatch-queue' },
+    payload: {
+      taskId: pickedTask.taskId,
+      stageId: pickedTask.stageId,
+      agentSlug: pickedTask.agentSlug,
+      queuedForMs: Math.max(0, Date.now() - pickedTask.enqueuedAt),
+      queueDepthAfterPickup: ProjectDispatchQueue.depth(state.projectId, pickedTask.agentSlug),
+    },
+  });
+
+  const workerLease = await DynamicWorkerSpawnManager.ensureWorker({
+    runId: state.runId,
+    projectId: state.projectId,
+    chainId: state.threadId,
+    agentSlug: String(nextStage.agent || '').trim() || 'system-core',
+    taskId: pickedTask.taskId,
+    stageId: pickedTask.stageId,
+    pipelineId: pickedTask.pipelineId,
+  });
 
   await emitEvent({
     type: 'agent.started',
@@ -555,6 +687,10 @@ async function swarmNode(state: PilotState): Promise<Partial<PilotState>> {
     payload: {
       pipelineId,
       stageId: nextStage.id,
+      stageTitle: String(nextStage.title || nextStage.name || nextStage.id || '').trim(),
+      workerId: workerLease.worker.workerId,
+      workerIdentityKey: workerLease.worker.identityKey,
+      workerSpawned: workerLease.spawned,
     },
   });
 
@@ -584,15 +720,18 @@ async function swarmNode(state: PilotState): Promise<Partial<PilotState>> {
       sourcePath: 'runtime://fallback-agent',
     };
 
-  const runContext = await RunContextAssembler.assemble(
-    agent,
-    executionPipelineDef as any,
-    nextStage.id,
-    state.artifactLogs[0] || 'Execute project task',
-    { history, threadId: state.threadId, runId: state.runId },
-    { preferredLanguage: state.preferredLanguage },
-    { projectId: state.projectId, workspacePath: state.workspacePath }
-  );
+  const buildRunContext = async (workerId: string) =>
+    RunContextAssembler.assemble(
+      agent,
+      executionPipelineDef as any,
+      nextStage.id,
+      state.artifactLogs[0] || 'Execute project task',
+      { history, threadId: state.threadId, runId: state.runId, workerId },
+      { preferredLanguage: state.preferredLanguage },
+      { projectId: state.projectId, workspacePath: state.workspacePath }
+    );
+
+  let runContext = await buildRunContext(workerLease.worker.workerId);
 
   const executor = new AgentExecutor();
   let result: { content: string };
@@ -632,37 +771,141 @@ async function swarmNode(state: PilotState): Promise<Partial<PilotState>> {
   }
 
   const stageTimeoutMs = Number(process.env.RUNTIME_STAGE_TIMEOUT_MS || 60000);
+  const heartbeatIntervalMs = Math.max(1000, Number(process.env.RUNTIME_WORKER_HEARTBEAT_INTERVAL_MS || 5000));
+  const heartbeatInput = {
+    runId: state.runId,
+    projectId: state.projectId,
+    chainId: state.threadId,
+    agentSlug: runContext.agent.slug,
+  };
+  const heartbeatTimer = setInterval(() => {
+    void DynamicWorkerSpawnManager.heartbeat(heartbeatInput).catch(() => undefined);
+  }, heartbeatIntervalMs);
+  const stopHeartbeat = () => clearInterval(heartbeatTimer);
+  await DynamicWorkerSpawnManager.heartbeat(heartbeatInput).catch(() => undefined);
 
-  try {
-    result = await runWithStageTimeout(
+  const runInConfiguredMode = async () => {
+    if (state.executionOptions?.mode === 'multiple_agents') {
+      await emitEvent({
+        type: 'system.thought',
+        runId: state.runId,
+        projectId: state.projectId,
+        chainId: state.threadId,
+        actor: { type: 'system', id: 'runtime-router' },
+        payload: {
+          stageId: nextStage.id,
+          agentSlug: runContext.agent.slug,
+          workerId: runContext.memory?.workerId || workerLease.worker.workerId,
+          executionTransport: 'subprocess',
+        },
+      });
+      return runWithStageTimeout(
+        executeRunContextInSubprocess({ runContext, timeoutMs: stageTimeoutMs }),
+        stageTimeoutMs,
+        `${nextStage.id}:${runContext.agent.slug}:subprocess`,
+      );
+    }
+    return runWithStageTimeout(
       executor.run(runContext),
       stageTimeoutMs,
       `${nextStage.id}:${runContext.agent.slug}:primary`,
     );
+  };
+
+  try {
+    result = await runInConfiguredMode();
   } catch (error: any) {
     const errMsg = error?.message || 'Unknown execution error';
-    console.error(`[PilotGraph:Swarm] Stage ${nextStage.id} failed for agent ${runContext.agent.slug}:`, errMsg);
-    return {
-      status: `${nextStage.id}_completed`,
-      messages: [{
-        role: 'assistant',
-        content: localizeSystemMessage(state.preferredLanguage, 'stageFailed', {
-          stageId: nextStage.id,
-          error: errMsg,
-          providerLabel,
-        }),
-      }],
-      artifactLogs: [
-        buildArtifactLog({
-          stage: nextStage.id,
-          role: runContext.agent.title,
-          status: 'fallback',
-          source: 'fallback',
-          fallbackCategory: 'execution_error',
-          message: `Stage failed: ${errMsg}`,
-        }),
-      ],
-    };
+    await DynamicWorkerSpawnManager.markFailed(heartbeatInput, errMsg).catch(() => undefined);
+    const retryLimit = Math.max(0, Number(process.env.RUNTIME_TASK_CRASH_RETRIES || 1));
+    const retryCount = Number((pickedTask.payload as any)?.retryCount || 0);
+
+    if (retryCount < retryLimit) {
+      const retryTask = ProjectDispatchQueue.enqueue({
+        runId: state.runId,
+        projectId: state.projectId,
+        chainId: state.threadId,
+        pipelineId,
+        stageId: pickedTask.stageId,
+        agentSlug: pickedTask.agentSlug,
+        payload: {
+          ...((pickedTask.payload as Record<string, any>) || {}),
+          retryCount: retryCount + 1,
+          retryOfTaskId: pickedTask.taskId,
+          retryReason: errMsg,
+        },
+      });
+      await emitEvent({
+        type: 'task.queued',
+        runId: state.runId,
+        projectId: state.projectId,
+        chainId: state.threadId,
+        actor: { type: 'system', id: 'dispatch-queue' },
+        payload: {
+          taskId: retryTask.taskId,
+          stageId: retryTask.stageId,
+          agentSlug: retryTask.agentSlug,
+          retryCount: retryCount + 1,
+          queueDepth: ProjectDispatchQueue.depth(state.projectId, retryTask.agentSlug),
+        },
+      });
+      const retryPicked = ProjectDispatchQueue.pickup(state.projectId, retryTask.agentSlug);
+      if (retryPicked) {
+        await emitEvent({
+          type: 'task.dispatched',
+          runId: state.runId,
+          projectId: state.projectId,
+          chainId: state.threadId,
+          actor: { type: 'system', id: 'dispatch-queue' },
+          payload: {
+            taskId: retryPicked.taskId,
+            stageId: retryPicked.stageId,
+            agentSlug: retryPicked.agentSlug,
+            retryCount: retryCount + 1,
+            queuedForMs: Math.max(0, Date.now() - retryPicked.enqueuedAt),
+            queueDepthAfterPickup: ProjectDispatchQueue.depth(state.projectId, retryPicked.agentSlug),
+          },
+        });
+        const retryLease = await DynamicWorkerSpawnManager.ensureWorker({
+          runId: state.runId,
+          projectId: state.projectId,
+          chainId: state.threadId,
+          agentSlug: retryPicked.agentSlug,
+          taskId: retryPicked.taskId,
+          stageId: retryPicked.stageId,
+          pipelineId: retryPicked.pipelineId,
+        });
+        runContext = await buildRunContext(retryLease.worker.workerId);
+        result = await runInConfiguredMode();
+      } else {
+        stopHeartbeat();
+        throw error;
+      }
+    } else {
+      stopHeartbeat();
+      console.error(`[PilotGraph:Swarm] Stage ${nextStage.id} failed for agent ${runContext.agent.slug}:`, errMsg);
+      return {
+        status: `${nextStage.id}_completed`,
+        messages: [{
+          role: 'assistant',
+          content: localizeSystemMessage(state.preferredLanguage, 'stageFailed', {
+            stageId: nextStage.id,
+            error: errMsg,
+            providerLabel,
+          }),
+        }],
+        artifactLogs: [
+          buildArtifactLog({
+            stage: nextStage.id,
+            role: runContext.agent.title,
+            status: 'fallback',
+            source: 'fallback',
+            fallbackCategory: 'execution_error',
+            message: `Stage failed: ${errMsg}`,
+          }),
+        ],
+      };
+    }
   }
 
   // Enforce AGENTS.md response contract with a single auto-reprompt recovery.
@@ -708,7 +951,9 @@ async function swarmNode(state: PilotState): Promise<Partial<PilotState>> {
         `${nextStage.id}:${runContext.agent.slug}:reprompt`,
       );
     } catch (error: any) {
+      stopHeartbeat();
       const errMsg = error?.message || 'Unknown execution error';
+      await DynamicWorkerSpawnManager.markFailed(heartbeatInput, errMsg).catch(() => undefined);
       return {
         status: `${nextStage.id}_completed`,
         messages: [{
@@ -735,7 +980,14 @@ async function swarmNode(state: PilotState): Promise<Partial<PilotState>> {
     contractValidation = validateAgentResponseContract(result.content);
     result.content = contractValidation.normalizedText;
     if (!contractValidation.ok) {
-      result.content = buildContractFallbackMessage(state, runContext, pipelineId, nextStage.id);
+      result.content = buildContractFallbackMessage(
+        state,
+        runContext,
+        pipelineId,
+        nextStage.id,
+        contractValidation.errors,
+        result.content
+      );
       contractValidation = validateAgentResponseContract(result.content);
     }
   }
@@ -749,10 +1001,15 @@ async function swarmNode(state: PilotState): Promise<Partial<PilotState>> {
     payload: {
       pipelineId,
       stageId: nextStage.id,
+      stageTitle: String(nextStage.title || nextStage.name || nextStage.id || '').trim(),
       errors: contractValidation.ok ? [] : contractValidation.errors,
       outcome: contractValidation.ok ? 'success' : 'failed',
+      summary: compactText(result.content, 260),
+      workerId: workerLease.worker.workerId,
     },
   });
+  stopHeartbeat();
+  await DynamicWorkerSpawnManager.releaseToStandby(heartbeatInput);
 
   // Check for intent drift (Phase 5)
   const drift = await ReclassificationCheckpoint.detectDrift(runContext, result.content);

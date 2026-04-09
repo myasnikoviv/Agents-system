@@ -24,7 +24,16 @@ export type RuntimeEventType =
   | 'agent.failed'
   | 'agent.waiting_for_approval'
   | 'governance.rule_check'
-  | 'run.failed';
+  | 'run.failed'
+  | 'worker.starting'
+  | 'worker.spawned'
+  | 'worker.reused'
+  | 'worker.failed'
+  | 'worker.state_changed'
+  | 'worker.heartbeat'
+  | 'worker.unhealthy'
+  | 'task.queued'
+  | 'task.dispatched';
 
 export interface RuntimeEvent {
   id: string;

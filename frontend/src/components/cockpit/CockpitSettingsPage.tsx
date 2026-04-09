@@ -8,6 +8,7 @@ const SECTIONS = [
   'general',
   'appearance',
   'configuration',
+  'governance',
   'personalization',
   'usage',
   'mcp-servers',
@@ -174,6 +175,72 @@ interface ExecutorSettings {
     };
   };
 }
+interface GovernanceRuleRow {
+  id: string;
+  triggerPhases: string[];
+  evidence: string[];
+  evaluationType: 'deterministic' | 'hybrid' | 'llm';
+  deterministicCheck?: string;
+  enforcementMode: 'hard' | 'soft' | 'advisory';
+  enabledByDefault: boolean;
+  disabled?: boolean;
+  effectiveEnabled?: boolean;
+  thresholds?: Record<string, number>;
+  metadata?: {
+    name?: string;
+    description?: string;
+    version?: string;
+    owner?: string;
+    tags?: string[];
+    updatedAt?: string;
+  };
+}
+interface ProjectPolicyState {
+  projectId: string;
+  enabledRules: string[];
+  disabledRules: string[];
+  ruleOverrides: Record<string, { evidence?: string[]; thresholds?: Record<string, number> }>;
+}
+interface EvaluatorRow {
+  evaluatorType: string;
+  isBuiltin: boolean;
+}
+
+interface GovernanceRuleHistoryEntry {
+  id: string;
+  ruleId: string;
+  action: 'create' | 'update' | 'disable';
+  timestamp: string;
+  actorId: string;
+}
+
+interface GovernanceControlAction {
+  id: string;
+  timestamp: string;
+  action: string;
+  projectId?: string | null;
+  actorId?: string | null;
+  reason?: string;
+  target?: Record<string, unknown>;
+  result?: Record<string, unknown>;
+}
+
+interface GovernanceLoopRow {
+  id: string;
+  kind: 'improvement' | 'validation';
+  enabledByDefault: boolean;
+  disabled?: boolean;
+  scope?: { level: 'global' | 'project' | 'session'; projectId?: string; sessionId?: string };
+  metadata?: {
+    name?: string;
+    description?: string;
+    version?: string;
+    owner?: string;
+    tags?: string[];
+    updatedAt?: string;
+  };
+  config?: Record<string, unknown>;
+}
 
 
 interface CliStatus {
@@ -264,6 +331,53 @@ export function CockpitSettingsPage() {
     latencyMs?: number;
   } | null>(null);
   const [isTestingLlm, setIsTestingLlm] = useState(false);
+  const [governanceProjectId, setGovernanceProjectId] = useState('agent_system');
+  const [governanceRules, setGovernanceRules] = useState<GovernanceRuleRow[]>([]);
+  const [governanceState, setGovernanceState] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
+  const [projectPolicy, setProjectPolicy] = useState<ProjectPolicyState | null>(null);
+  const [overrideEditor, setOverrideEditor] = useState<{ ruleId: string; evidence: string; thresholdsJson: string }>({
+    ruleId: '',
+    evidence: '',
+    thresholdsJson: '{}',
+  });
+  const [governanceEditor, setGovernanceEditor] = useState<{
+    id: string;
+    triggerPhases: string;
+    evidence: string;
+    deterministicCheck: string;
+    thresholdsJson: string;
+  }>({
+    id: '',
+    triggerPhases: '',
+    evidence: '',
+    deterministicCheck: '',
+    thresholdsJson: '{}',
+  });
+  const [governanceMessage, setGovernanceMessage] = useState('');
+  const [evaluators, setEvaluators] = useState<EvaluatorRow[]>([]);
+  const [evaluatorAlias, setEvaluatorAlias] = useState<{ evaluatorType: string; aliasTo: string }>({
+    evaluatorType: '',
+    aliasTo: '',
+  });
+  const [historyRuleId, setHistoryRuleId] = useState('');
+  const [ruleHistory, setRuleHistory] = useState<GovernanceRuleHistoryEntry[]>([]);
+  const [controlActions, setControlActions] = useState<GovernanceControlAction[]>([]);
+  const [governanceLoops, setGovernanceLoops] = useState<GovernanceLoopRow[]>([]);
+  const [loopEditor, setLoopEditor] = useState<{
+    id: string;
+    kind: 'improvement' | 'validation';
+    scopeLevel: 'global' | 'project' | 'session';
+    scopeProjectId: string;
+    scopeSessionId: string;
+    configJson: string;
+  }>({
+    id: '',
+    kind: 'improvement',
+    scopeLevel: 'global',
+    scopeProjectId: '',
+    scopeSessionId: '',
+    configJson: '{}',
+  });
 
   const [generalSettings, setGeneralSettings] = useState<GeneralSettings>({
     defaultOpenBehavior: 'finder',
@@ -455,6 +569,51 @@ export function CockpitSettingsPage() {
       }
     }
   }, []);
+
+  useEffect(() => {
+    if (currentSection !== 'governance') return;
+    const loadGovernance = async () => {
+      setGovernanceState('loading');
+      try {
+        const res = await fetch(apiUrl(`/api/governance/rules?projectId=${encodeURIComponent(governanceProjectId)}`));
+        const data = await res.json();
+        if (!data?.success || !Array.isArray(data.rules)) throw new Error(data?.message || 'failed_to_load_rules');
+        setGovernanceRules(data.rules);
+        setGovernanceState('ready');
+      } catch (error: any) {
+        setGovernanceState('error');
+        setGovernanceMessage(String(error?.message || 'Failed to load governance rules'));
+      }
+    };
+    void loadGovernance();
+    void loadEvaluators();
+    void loadControlActions();
+    void loadLoops();
+  }, [currentSection, governanceProjectId]);
+
+  useEffect(() => {
+    if (currentSection !== 'governance') return;
+    const loadPolicy = async () => {
+      try {
+        const res = await fetch(apiUrl(`/api/projects/${encodeURIComponent(governanceProjectId)}/policy`));
+        const data = await res.json();
+        if (!data?.success || !data.policy) throw new Error(data?.message || 'failed_to_load_policy');
+        setProjectPolicy(data.policy as ProjectPolicyState);
+      } catch (error: any) {
+        setGovernanceMessage(String(error?.message || 'Failed to load project policy'));
+      }
+    };
+    void loadPolicy();
+  }, [currentSection, governanceProjectId]);
+
+  useEffect(() => {
+    if (currentSection !== 'governance') return;
+    if (!historyRuleId.trim()) {
+      setRuleHistory([]);
+      return;
+    }
+    void loadRuleHistory(historyRuleId.trim());
+  }, [currentSection, historyRuleId]);
 
   useEffect(() => {
     const loadGeneralFromApi = async () => {
@@ -1012,6 +1171,265 @@ export function CockpitSettingsPage() {
     }
   };
 
+  const refreshGovernanceRules = async () => {
+    try {
+      setGovernanceState('loading');
+      const res = await fetch(apiUrl(`/api/governance/rules?projectId=${encodeURIComponent(governanceProjectId)}`));
+      const data = await res.json();
+      if (!data?.success || !Array.isArray(data.rules)) throw new Error(data?.message || 'failed_to_load_rules');
+      setGovernanceRules(data.rules);
+      setGovernanceState('ready');
+    } catch (error: any) {
+      setGovernanceState('error');
+      setGovernanceMessage(String(error?.message || 'Failed to load governance rules'));
+    }
+  };
+
+  const toggleRuleForProject = async (ruleId: string, currentlyEnabled: boolean) => {
+    try {
+      const res = await fetch(apiUrl(`/api/governance/rules/${encodeURIComponent(ruleId)}/disable`), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          projectId: governanceProjectId,
+          disabled: currentlyEnabled,
+        }),
+      });
+      const data = await res.json();
+      if (!data?.success) throw new Error(data?.message || 'toggle_failed');
+      setGovernanceMessage(`Rule ${ruleId} ${currentlyEnabled ? 'disabled' : 'enabled'} for project ${governanceProjectId}.`);
+      await refreshGovernanceRules();
+    } catch (error: any) {
+      setGovernanceMessage(`Toggle failed: ${String(error?.message || 'unknown')}`);
+    }
+  };
+
+  const saveGovernanceRule = async () => {
+    try {
+      if (!governanceEditor.id.trim()) {
+        setGovernanceMessage('Rule id is required');
+        return;
+      }
+      const triggerPhases = governanceEditor.triggerPhases
+        .split(',')
+        .map((v) => v.trim())
+        .filter(Boolean);
+      if (triggerPhases.length === 0) {
+        setGovernanceMessage('Validation failed: at least one trigger phase is required.');
+        return;
+      }
+      const evidence = governanceEditor.evidence
+        .split('\n')
+        .map((v) => v.trim())
+        .filter(Boolean);
+      if (evidence.length === 0) {
+        setGovernanceMessage('Validation failed: at least one evidence line is required.');
+        return;
+      }
+      const thresholds = JSON.parse(governanceEditor.thresholdsJson || '{}');
+      if (thresholds && typeof thresholds === 'object') {
+        for (const [key, value] of Object.entries(thresholds)) {
+          if (!Number.isFinite(Number(value))) {
+            setGovernanceMessage(`Validation failed: threshold "${key}" must be numeric.`);
+            return;
+          }
+        }
+      }
+      const payload = {
+        id: governanceEditor.id.trim(),
+        triggerPhases,
+        evidence,
+        deterministicCheck: governanceEditor.deterministicCheck.trim() || undefined,
+        thresholds,
+      };
+      const exists = governanceRules.some((r) => r.id === payload.id);
+      const endpoint = exists ? `/api/governance/rules/${encodeURIComponent(payload.id)}` : '/api/governance/rules';
+      const res = await fetch(apiUrl(endpoint), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json();
+      if (!data?.success) throw new Error(data?.message || 'save_rule_failed');
+      setGovernanceMessage(`${exists ? 'Updated' : 'Created'} rule ${payload.id}.`);
+      await refreshGovernanceRules();
+    } catch (error: any) {
+      setGovernanceMessage(`Save failed: ${String(error?.message || 'unknown')}`);
+    }
+  };
+
+  const savePolicyOverride = async () => {
+    try {
+      if (!overrideEditor.ruleId.trim()) {
+        setGovernanceMessage('Select rule ID for override.');
+        return;
+      }
+      const thresholds = JSON.parse(overrideEditor.thresholdsJson || '{}');
+      const evidence = overrideEditor.evidence
+        .split('\n')
+        .map((v) => v.trim())
+        .filter(Boolean);
+      const nextOverrides = {
+        ...(projectPolicy?.ruleOverrides || {}),
+        [overrideEditor.ruleId]: {
+          ...(evidence.length > 0 ? { evidence } : {}),
+          ...(thresholds && typeof thresholds === 'object' ? { thresholds } : {}),
+        },
+      };
+      const res = await fetch(apiUrl(`/api/projects/${encodeURIComponent(governanceProjectId)}/policy`), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ruleOverrides: nextOverrides }),
+      });
+      const data = await res.json();
+      if (!data?.success || !data?.policy) throw new Error(data?.message || 'policy_override_save_failed');
+      setProjectPolicy(data.policy as ProjectPolicyState);
+      setGovernanceMessage(`Saved override for ${overrideEditor.ruleId}.`);
+      await refreshGovernanceRules();
+    } catch (error: any) {
+      setGovernanceMessage(`Override save failed: ${String(error?.message || 'unknown')}`);
+    }
+  };
+
+  const loadEvaluators = async () => {
+    try {
+      const res = await fetch(apiUrl('/api/governance/evaluators'));
+      const data = await res.json();
+      if (!data?.success || !Array.isArray(data.evaluators)) throw new Error(data?.message || 'failed_to_load_evaluators');
+      setEvaluators(data.evaluators as EvaluatorRow[]);
+    } catch (error: any) {
+      setGovernanceMessage(`Evaluator list failed: ${String(error?.message || 'unknown')}`);
+    }
+  };
+
+  const registerEvaluatorAlias = async () => {
+    try {
+      if (!evaluatorAlias.evaluatorType.trim() || !evaluatorAlias.aliasTo.trim()) {
+        setGovernanceMessage('Evaluator alias validation failed: evaluatorType and aliasTo are required.');
+        return;
+      }
+      const res = await fetch(apiUrl('/api/governance/evaluators/register'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          evaluatorType: evaluatorAlias.evaluatorType.trim(),
+          aliasTo: evaluatorAlias.aliasTo.trim(),
+        }),
+      });
+      const data = await res.json();
+      if (!data?.success) throw new Error(data?.message || 'register_evaluator_failed');
+      setGovernanceMessage(`Evaluator alias created: ${data.evaluatorType} -> ${data.aliasTo}`);
+      await loadEvaluators();
+    } catch (error: any) {
+      setGovernanceMessage(`Evaluator alias failed: ${String(error?.message || 'unknown')}`);
+    }
+  };
+
+  const loadRuleHistory = async (ruleId: string) => {
+    try {
+      const res = await fetch(apiUrl(`/api/governance/rules/${encodeURIComponent(ruleId)}/history`));
+      const data = await res.json();
+      if (!data?.success || !Array.isArray(data.history)) throw new Error(data?.message || 'failed_to_load_rule_history');
+      setRuleHistory(data.history as GovernanceRuleHistoryEntry[]);
+    } catch (error: any) {
+      setGovernanceMessage(`Rule history load failed: ${String(error?.message || 'unknown')}`);
+      setRuleHistory([]);
+    }
+  };
+
+  const loadControlActions = async () => {
+    try {
+      const res = await fetch(apiUrl(`/api/cockpit/control-actions?projectId=${encodeURIComponent(governanceProjectId)}&limit=100`));
+      const data = await res.json();
+      if (!data?.success || !Array.isArray(data.actions)) throw new Error(data?.message || 'failed_to_load_control_actions');
+      setControlActions(data.actions as GovernanceControlAction[]);
+    } catch (error: any) {
+      setGovernanceMessage(`Control actions load failed: ${String(error?.message || 'unknown')}`);
+      setControlActions([]);
+    }
+  };
+
+  const loadLoops = async () => {
+    try {
+      const res = await fetch(apiUrl('/api/governance/loops'));
+      const data = await res.json();
+      if (!data?.success || !Array.isArray(data.loops)) throw new Error(data?.message || 'failed_to_load_loops');
+      setGovernanceLoops(data.loops as GovernanceLoopRow[]);
+    } catch (error: any) {
+      setGovernanceMessage(`Loop catalog load failed: ${String(error?.message || 'unknown')}`);
+      setGovernanceLoops([]);
+    }
+  };
+
+  const saveLoopEntity = async () => {
+    try {
+      const id = loopEditor.id.trim();
+      if (!id) {
+        setGovernanceMessage('Loop id is required.');
+        return;
+      }
+      const config = JSON.parse(loopEditor.configJson || '{}');
+      const scope: GovernanceLoopRow['scope'] = {
+        level: loopEditor.scopeLevel,
+        ...(loopEditor.scopeProjectId.trim() ? { projectId: loopEditor.scopeProjectId.trim() } : {}),
+        ...(loopEditor.scopeSessionId.trim() ? { sessionId: loopEditor.scopeSessionId.trim() } : {}),
+      };
+      const payload = {
+        id,
+        kind: loopEditor.kind,
+        scope,
+        config,
+      };
+      const exists = governanceLoops.some((row) => row.id === id);
+      const endpoint = exists ? `/api/governance/loops/${encodeURIComponent(id)}` : '/api/governance/loops';
+      const res = await fetch(apiUrl(endpoint), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json();
+      if (!data?.success) throw new Error(data?.message || 'loop_save_failed');
+      setGovernanceMessage(`${exists ? 'Updated' : 'Created'} loop ${id}.`);
+      await loadLoops();
+      await loadControlActions();
+    } catch (error: any) {
+      setGovernanceMessage(`Loop save failed: ${String(error?.message || 'unknown')}`);
+    }
+  };
+
+  const toggleLoopEntity = async (loopId: string, currentlyDisabled: boolean) => {
+    try {
+      const res = await fetch(apiUrl(`/api/governance/loops/${encodeURIComponent(loopId)}/disable`), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ disabled: !currentlyDisabled }),
+      });
+      const data = await res.json();
+      if (!data?.success) throw new Error(data?.message || 'loop_toggle_failed');
+      setGovernanceMessage(`Loop ${loopId} ${currentlyDisabled ? 'enabled' : 'disabled'}.`);
+      await loadLoops();
+      await loadControlActions();
+    } catch (error: any) {
+      setGovernanceMessage(`Loop toggle failed: ${String(error?.message || 'unknown')}`);
+    }
+  };
+
+  const forceLoopRun = async (loopId: string) => {
+    try {
+      const res = await fetch(apiUrl('/api/cockpit/governance/loops/force'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ loopId, projectId: governanceProjectId }),
+      });
+      const data = await res.json();
+      if (!data?.success) throw new Error(data?.message || 'loop_force_failed');
+      setGovernanceMessage(`Loop ${loopId} executed: ${JSON.stringify(data.result || {}, null, 0)}`);
+      await loadControlActions();
+    } catch (error: any) {
+      setGovernanceMessage(`Force loop failed: ${String(error?.message || 'unknown')}`);
+    }
+  };
+
   const sectionTitle = currentSection.replace('-', ' ').replace(/\b\w/g, (m) => m.toUpperCase());
   const settingsCardClass = 'mb-3 rounded-xl border border-slate-700 bg-slate-900 p-3.5';
   const settingsNoteClass = 'mb-3 text-sm text-slate-400';
@@ -1092,6 +1510,267 @@ export function CockpitSettingsPage() {
             <div className="mt-3 flex flex-wrap gap-2"><Button variant="secondary" onClick={savePersonalizationSettings}>Save Personalization</Button></div>
             <div className={settingsMetaClass}>{personalizationSavedAt}</div>
           </section>
+        )}
+
+        {currentSection === 'governance' && (
+          <>
+            <section className={settingsCardClass}>
+              <h2><ShieldCheck size={16} />Governance Rule Catalog</h2>
+              <p className={settingsNoteClass}>Project-scoped rule visibility and lifecycle controls.</p>
+              <div className={settingsGridClass}>
+                <label>
+                  Project ID
+                  <input value={governanceProjectId} onChange={(e) => setGovernanceProjectId(e.target.value)} />
+                </label>
+              </div>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <Button variant="secondary" onClick={refreshGovernanceRules}>Refresh Rules</Button>
+              </div>
+              <div className={settingsMetaClass}>
+                {governanceState === 'loading' ? 'Loading...' : `Rules loaded: ${governanceRules.length}`}
+              </div>
+              {governanceMessage && <div className="mt-2 text-xs text-slate-300">{governanceMessage}</div>}
+              <div className="mt-3 flex flex-col gap-2">
+                {governanceRules.map((rule) => (
+                  <div key={rule.id} className="rounded-lg border border-slate-700 bg-slate-950 p-2.5">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div>
+                        <div className="text-sm font-semibold text-slate-100">{rule.metadata?.name || rule.id}</div>
+                        <div className="text-xs text-slate-400">{rule.id} · {rule.enforcementMode} · {rule.evaluationType}</div>
+                      </div>
+                      <button
+                        type="button"
+                        className="rounded-md border border-slate-600 bg-slate-800 px-2.5 py-1.5 text-xs text-slate-100"
+                        onClick={() => toggleRuleForProject(rule.id, Boolean(rule.effectiveEnabled))}
+                      >
+                        {rule.effectiveEnabled ? 'Disable For Project' : 'Enable For Project'}
+                      </button>
+                    </div>
+                    <div className="mt-2 text-xs text-slate-300">
+                      Trigger: {(rule.triggerPhases || []).join(', ') || 'n/a'}<br />
+                      Check: {rule.deterministicCheck || 'n/a'}
+                    </div>
+                    <div className="mt-2">
+                      <button
+                        type="button"
+                        className="rounded-md border border-slate-600 bg-slate-800 px-2 py-1 text-xs text-slate-100"
+                        onClick={() =>
+                          {
+                            setGovernanceEditor({
+                              id: rule.id,
+                              triggerPhases: (rule.triggerPhases || []).join(','),
+                              evidence: (rule.evidence || []).join('\n'),
+                              deterministicCheck: rule.deterministicCheck || '',
+                              thresholdsJson: JSON.stringify(rule.thresholds || {}, null, 2),
+                            });
+                            setHistoryRuleId(rule.id);
+                          }
+                        }
+                      >
+                        Edit
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </section>
+            <section className={settingsCardClass}>
+              <h2><SlidersHorizontal size={16} />Rule Editor (Basic)</h2>
+              <div className={settingsGridClass}>
+                <label>Rule ID<input value={governanceEditor.id} onChange={(e) => setGovernanceEditor((p) => ({ ...p, id: e.target.value }))} /></label>
+                <label>Trigger Phases (comma separated)<input value={governanceEditor.triggerPhases} onChange={(e) => setGovernanceEditor((p) => ({ ...p, triggerPhases: e.target.value }))} /></label>
+                <label>Deterministic Check<input value={governanceEditor.deterministicCheck} onChange={(e) => setGovernanceEditor((p) => ({ ...p, deterministicCheck: e.target.value }))} /></label>
+                <label>Evidence (one per line)<textarea className="min-h-24 rounded-md border border-slate-600 bg-slate-800 px-2.5 py-1.5 text-sm text-slate-100" value={governanceEditor.evidence} onChange={(e) => setGovernanceEditor((p) => ({ ...p, evidence: e.target.value }))} /></label>
+                <label>Thresholds JSON<textarea className="min-h-24 rounded-md border border-slate-600 bg-slate-800 px-2.5 py-1.5 text-sm text-slate-100" value={governanceEditor.thresholdsJson} onChange={(e) => setGovernanceEditor((p) => ({ ...p, thresholdsJson: e.target.value }))} /></label>
+              </div>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <Button variant="secondary" onClick={saveGovernanceRule}>Save Rule</Button>
+              </div>
+            </section>
+            <section className={settingsCardClass}>
+              <h2><ShieldCheck size={16} />Project Policy & Overrides</h2>
+              <div className={settingsMetaClass}>
+                {projectPolicy
+                  ? `Enabled: ${projectPolicy.enabledRules.length} · Disabled: ${projectPolicy.disabledRules.length} · Overrides: ${Object.keys(projectPolicy.ruleOverrides || {}).length}`
+                  : 'Policy not loaded yet.'}
+              </div>
+              <div className={settingsGridClass}>
+                <label>
+                  Override Rule ID
+                  <input
+                    value={overrideEditor.ruleId}
+                    onChange={(e) => setOverrideEditor((p) => ({ ...p, ruleId: e.target.value }))}
+                    placeholder="e.g. cost_guard_light"
+                  />
+                </label>
+                <label>
+                  Override Evidence (one per line)
+                  <textarea
+                    className="min-h-24 rounded-md border border-slate-600 bg-slate-800 px-2.5 py-1.5 text-sm text-slate-100"
+                    value={overrideEditor.evidence}
+                    onChange={(e) => setOverrideEditor((p) => ({ ...p, evidence: e.target.value }))}
+                  />
+                </label>
+                <label>
+                  Override Thresholds JSON
+                  <textarea
+                    className="min-h-24 rounded-md border border-slate-600 bg-slate-800 px-2.5 py-1.5 text-sm text-slate-100"
+                    value={overrideEditor.thresholdsJson}
+                    onChange={(e) => setOverrideEditor((p) => ({ ...p, thresholdsJson: e.target.value }))}
+                  />
+                </label>
+              </div>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <Button variant="secondary" onClick={savePolicyOverride}>Save Project Override</Button>
+              </div>
+            </section>
+            <section className={settingsCardClass}>
+              <h2><ShieldCheck size={16} />Evaluator Registry</h2>
+              <div className={settingsMetaClass}>Total evaluators: {evaluators.length}</div>
+              <div className="mt-2 grid grid-cols-1 gap-2 lg:grid-cols-2">
+                {evaluators.map((row) => (
+                  <div key={row.evaluatorType} className="rounded-lg border border-slate-700 bg-slate-950 p-2 text-xs text-slate-300">
+                    <strong className="text-slate-100">{row.evaluatorType}</strong> · {row.isBuiltin ? 'builtin' : 'plugin'}
+                  </div>
+                ))}
+              </div>
+              <div className={settingsGridClass + ' mt-3'}>
+                <label>
+                  New Evaluator Type
+                  <input
+                    value={evaluatorAlias.evaluatorType}
+                    onChange={(e) => setEvaluatorAlias((p) => ({ ...p, evaluatorType: e.target.value }))}
+                    placeholder="e.g. my_custom_check"
+                  />
+                </label>
+                <label>
+                  Alias To Existing
+                  <input
+                    value={evaluatorAlias.aliasTo}
+                    onChange={(e) => setEvaluatorAlias((p) => ({ ...p, aliasTo: e.target.value }))}
+                    placeholder="e.g. postflight_report"
+                  />
+                </label>
+              </div>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <Button variant="secondary" onClick={registerEvaluatorAlias}>Register Alias</Button>
+                <Button variant="secondary" onClick={loadEvaluators}>Refresh Evaluators</Button>
+              </div>
+            </section>
+            <section className={settingsCardClass}>
+              <h2><ShieldCheck size={16} />Governance Audit Timeline</h2>
+              <p className={settingsNoteClass}>Rule-level history and project control-action feed for traceability.</p>
+              <div className={settingsGridClass}>
+                <label>
+                  Rule ID for History
+                  <input
+                    value={historyRuleId}
+                    onChange={(e) => setHistoryRuleId(e.target.value)}
+                    placeholder="e.g. git_preflight"
+                  />
+                </label>
+              </div>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <Button variant="secondary" onClick={() => loadRuleHistory(historyRuleId.trim())}>Refresh Rule History</Button>
+                <Button variant="secondary" onClick={loadControlActions}>Refresh Control Actions</Button>
+              </div>
+              <div className="mt-3 grid grid-cols-1 gap-2 lg:grid-cols-2">
+                <div className="rounded-lg border border-slate-700 bg-slate-950 p-2.5">
+                  <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-300">Rule History ({ruleHistory.length})</div>
+                  <div className="flex max-h-64 flex-col gap-1 overflow-auto">
+                    {ruleHistory.length === 0 ? (
+                      <div className="text-xs text-slate-500">No rule history loaded.</div>
+                    ) : (
+                      ruleHistory.map((entry) => (
+                        <div key={entry.id} className="rounded border border-slate-800 bg-slate-900 p-2 text-xs text-slate-200">
+                          <div><strong>{entry.action}</strong> · {entry.ruleId}</div>
+                          <div className="text-slate-400">{entry.timestamp} · actor: {entry.actorId || 'n/a'}</div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+                <div className="rounded-lg border border-slate-700 bg-slate-950 p-2.5">
+                  <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-300">Control Actions ({controlActions.length})</div>
+                  <div className="flex max-h-64 flex-col gap-1 overflow-auto">
+                    {controlActions.length === 0 ? (
+                      <div className="text-xs text-slate-500">No control actions loaded.</div>
+                    ) : (
+                      controlActions.map((entry) => (
+                        <div key={entry.id} className="rounded border border-slate-800 bg-slate-900 p-2 text-xs text-slate-200">
+                          <div><strong>{entry.action}</strong> · {entry.projectId || 'n/a'}</div>
+                          <div className="text-slate-400">{entry.timestamp} · actor: {entry.actorId || 'n/a'}</div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              </div>
+            </section>
+            <section className={settingsCardClass}>
+              <h2><ShieldCheck size={16} />Loop Catalog Management</h2>
+              <p className={settingsNoteClass}>First-class loop entities with lifecycle, scope, and manual trigger.</p>
+              <div className="mt-2 grid grid-cols-1 gap-2">
+                {governanceLoops.map((loop) => (
+                  <div key={loop.id} className="rounded-lg border border-slate-700 bg-slate-950 p-2.5">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div>
+                        <div className="text-sm font-semibold text-slate-100">{loop.metadata?.name || loop.id}</div>
+                        <div className="text-xs text-slate-400">
+                          {loop.id} · {loop.kind} · scope={loop.scope?.level || 'global'} · {loop.disabled ? 'disabled' : 'enabled'}
+                        </div>
+                      </div>
+                      <div className="flex gap-1.5">
+                        <button
+                          type="button"
+                          className="rounded-md border border-slate-600 bg-slate-800 px-2 py-1 text-xs text-slate-100"
+                          onClick={() => toggleLoopEntity(loop.id, Boolean(loop.disabled))}
+                        >
+                          {loop.disabled ? 'Enable' : 'Disable'}
+                        </button>
+                        <button
+                          type="button"
+                          className="rounded-md border border-slate-600 bg-slate-800 px-2 py-1 text-xs text-slate-100"
+                          onClick={() => forceLoopRun(loop.id)}
+                        >
+                          Force Run
+                        </button>
+                        <button
+                          type="button"
+                          className="rounded-md border border-slate-600 bg-slate-800 px-2 py-1 text-xs text-slate-100"
+                          onClick={() =>
+                            setLoopEditor({
+                              id: loop.id,
+                              kind: loop.kind,
+                              scopeLevel: loop.scope?.level || 'global',
+                              scopeProjectId: loop.scope?.projectId || '',
+                              scopeSessionId: loop.scope?.sessionId || '',
+                              configJson: JSON.stringify(loop.config || {}, null, 2),
+                            })
+                          }
+                        >
+                          Edit
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div className={settingsMetaClass}>Loop entities loaded: {governanceLoops.length}</div>
+              <div className={settingsGridClass + ' mt-3'}>
+                <label>Loop ID<input value={loopEditor.id} onChange={(e) => setLoopEditor((p) => ({ ...p, id: e.target.value }))} /></label>
+                <label>Kind<select value={loopEditor.kind} onChange={(e) => setLoopEditor((p) => ({ ...p, kind: e.target.value as 'improvement' | 'validation' }))}><option value="improvement">improvement</option><option value="validation">validation</option></select></label>
+                <label>Scope Level<select value={loopEditor.scopeLevel} onChange={(e) => setLoopEditor((p) => ({ ...p, scopeLevel: e.target.value as 'global' | 'project' | 'session' }))}><option value="global">global</option><option value="project">project</option><option value="session">session</option></select></label>
+                <label>Scope Project ID<input value={loopEditor.scopeProjectId} onChange={(e) => setLoopEditor((p) => ({ ...p, scopeProjectId: e.target.value }))} placeholder="optional project id" /></label>
+                <label>Scope Session ID<input value={loopEditor.scopeSessionId} onChange={(e) => setLoopEditor((p) => ({ ...p, scopeSessionId: e.target.value }))} placeholder="optional session/thread id" /></label>
+                <label>Config JSON<textarea className="min-h-24 rounded-md border border-slate-600 bg-slate-800 px-2.5 py-1.5 text-sm text-slate-100" value={loopEditor.configJson} onChange={(e) => setLoopEditor((p) => ({ ...p, configJson: e.target.value }))} /></label>
+              </div>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <Button variant="secondary" onClick={saveLoopEntity}>Save Loop</Button>
+                <Button variant="secondary" onClick={loadLoops}>Refresh Loops</Button>
+              </div>
+            </section>
+          </>
         )}
 
         {currentSection === 'usage' && (

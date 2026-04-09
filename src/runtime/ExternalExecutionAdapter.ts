@@ -7,6 +7,7 @@ export type ExternalExecutorId = 'claude-code' | 'codex-cli' | 'openhands-sdk';
 export interface ExternalExecutionInput {
   executor: ExternalExecutorId;
   prompt: string;
+  runId?: string;
   cwd?: string;
   timeoutMs?: number;
   model?: string;
@@ -101,6 +102,7 @@ export async function runExternalExecutor(input: ExternalExecutionInput): Promis
     const provider = new OpenHandsExecutionProvider(cfg.openhands.serverUrl);
     return await provider.runTask({
       ...input,
+      runId: input.runId,
       model: input.model || cfg.openhands.model,
       cwd
     });
