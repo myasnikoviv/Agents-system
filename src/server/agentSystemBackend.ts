@@ -2840,6 +2840,11 @@ app.post('/api/projects/:projectId/policy', async (req, res) => {
         enabledRules: Array.isArray(payload.enabledRules) ? payload.enabledRules : undefined,
         disabledRules: Array.isArray(payload.disabledRules) ? payload.disabledRules : undefined,
         ruleOverrides: payload.ruleOverrides && typeof payload.ruleOverrides === 'object' ? payload.ruleOverrides : undefined,
+        executionProfile:
+          payload.executionProfile === 'engineering' || payload.executionProfile === 'non_engineering'
+            ? payload.executionProfile
+            : undefined,
+        gitPolicy: payload.gitPolicy && typeof payload.gitPolicy === 'object' ? payload.gitPolicy : undefined,
       },
       process.cwd(),
     );

@@ -12,8 +12,49 @@ interface PolicyConfig {
       enabledRules?: GovernanceRule['id'][];
       disabledRules?: GovernanceRule['id'][];
       ruleOverrides?: Record<string, { evidence?: string[]; thresholds?: Record<string, number> }>;
+      executionProfile?: ProjectExecutionProfile;
+      gitPolicy?: Partial<ProjectGitPolicy>;
     }
   >;
+}
+
+export type ProjectExecutionProfile = 'engineering' | 'non_engineering';
+
+export interface ProjectGitPolicy {
+  enforceMainBranchProtection: boolean;
+  requirePreflightToken: boolean;
+  requireWorktreeIsolation: boolean;
+  allowGitMutations: boolean;
+}
+
+const PROJECT_PROFILE_DEFAULTS: Record<ProjectExecutionProfile, ProjectGitPolicy> = {
+  engineering: {
+    enforceMainBranchProtection: true,
+    requirePreflightToken: true,
+    requireWorktreeIsolation: true,
+    allowGitMutations: true,
+  },
+  non_engineering: {
+    enforceMainBranchProtection: false,
+    requirePreflightToken: false,
+    requireWorktreeIsolation: false,
+    allowGitMutations: false,
+  },
+};
+
+function normalizeExecutionProfile(raw: unknown): ProjectExecutionProfile {
+  const value = String(raw || '').trim().toLowerCase();
+  return value === 'non_engineering' ? 'non_engineering' : 'engineering';
+}
+
+function buildEffectiveGitPolicy(
+  profile: ProjectExecutionProfile,
+  patch?: Partial<ProjectGitPolicy> | null,
+): ProjectGitPolicy {
+  return {
+    ...PROJECT_PROFILE_DEFAULTS[profile],
+    ...(patch || {}),
+  };
 }
 
 export function loadPolicyConfig(workspacePath?: string): PolicyConfig {
@@ -94,16 +135,21 @@ export function getProjectPolicy(projectId: string, workspacePath?: string): {
   enabledRules: GovernanceRule['id'][];
   disabledRules: GovernanceRule['id'][];
   ruleOverrides: Record<string, { evidence?: string[]; thresholds?: Record<string, number> }>;
+  executionProfile: ProjectExecutionProfile;
+  gitPolicy: ProjectGitPolicy;
 } {
   const cfg = loadPolicyConfig(workspacePath);
   const defaults = cfg.defaultEnabledRules || [];
   const projectCfg = cfg.projects?.[projectId] || {};
+  const executionProfile = normalizeExecutionProfile(projectCfg.executionProfile);
   return {
     projectId,
     defaultEnabledRules: defaults,
     enabledRules: projectCfg.enabledRules || defaults,
     disabledRules: projectCfg.disabledRules || [],
     ruleOverrides: projectCfg.ruleOverrides || {},
+    executionProfile,
+    gitPolicy: buildEffectiveGitPolicy(executionProfile, projectCfg.gitPolicy),
   };
 }
 
@@ -113,6 +159,8 @@ export function updateProjectPolicy(
     enabledRules?: GovernanceRule['id'][];
     disabledRules?: GovernanceRule['id'][];
     ruleOverrides?: Record<string, { evidence?: string[]; thresholds?: Record<string, number> }>;
+    executionProfile?: ProjectExecutionProfile;
+    gitPolicy?: Partial<ProjectGitPolicy>;
   },
   workspacePath?: string,
 ): ReturnType<typeof getProjectPolicy> {
@@ -124,7 +172,17 @@ export function updateProjectPolicy(
     ...(patch.enabledRules ? { enabledRules: patch.enabledRules } : {}),
     ...(patch.disabledRules ? { disabledRules: patch.disabledRules } : {}),
     ...(patch.ruleOverrides ? { ruleOverrides: patch.ruleOverrides } : {}),
+    ...(patch.executionProfile ? { executionProfile: normalizeExecutionProfile(patch.executionProfile) } : {}),
+    ...(patch.gitPolicy ? { gitPolicy: patch.gitPolicy } : {}),
   };
   savePolicyConfig(cfg, workspacePath);
   return getProjectPolicy(projectId, workspacePath);
+}
+
+export function resolveProjectExecutionProfile(projectId: string, workspacePath?: string): ProjectExecutionProfile {
+  return getProjectPolicy(projectId, workspacePath).executionProfile;
+}
+
+export function resolveProjectGitPolicy(projectId: string, workspacePath?: string): ProjectGitPolicy {
+  return getProjectPolicy(projectId, workspacePath).gitPolicy;
 }
