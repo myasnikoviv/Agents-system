@@ -1,4 +1,4 @@
-import { executeUnifiedSwarmRun, resumeUnifiedSwarmRun, type PilotState } from './UnifiedSwarmGraph';
+import { resumeUnifiedSwarmRun, type PilotState } from './UnifiedSwarmGraph';
 import { executeMultipleAgentsRun } from './MultipleAgentsRuntime';
 import { runGovernancePhase } from '../governance/GovernanceEngineCore';
 import { collectComplianceActualEvidence } from '../compliance/ComplianceEvidenceCollector';
@@ -35,18 +35,16 @@ import {
 } from '../improvement/ImprovementEngine';
 import { emitEvent, emitGuardBlockEvent } from '../events/EventBus';
 
-export type RuntimeExecutionMode = 'mock' | 'linear' | 'multiple_agents';
+export type RuntimeExecutionMode = 'multiple_agents';
 
 export interface RuntimeExecutionResult {
   finalState: any;
   modeRequested: RuntimeExecutionMode;
   modeApplied: RuntimeExecutionMode;
-  engine: 'mock' | 'pilot-unified-graph' | 'pilot-multiple-agents-runtime';
+  engine: 'pilot-multiple-agents-runtime';
 }
 
 function normalizeMode(modeRaw: unknown): RuntimeExecutionMode {
-  const value = String(modeRaw || '').trim();
-  if (value === 'mock' || value === 'linear' || value === 'multiple_agents') return value;
   return 'multiple_agents';
 }
 
@@ -54,25 +52,6 @@ function hasStrictTicketContext(ticketId: string): boolean {
   const value = String(ticketId || '').trim();
   if (!value || value === 'AGSYS-UNKNOWN' || value.toLowerCase() === 'none') return false;
   return /^[A-Z][A-Z0-9_-]*-\d+$/.test(value);
-}
-
-function buildMockFinalState(initialState: Partial<PilotState>) {
-  const userMessage =
-    [...(initialState.messages || [])]
-      .reverse()
-      .find((m) => m.role === 'user')?.content || '';
-
-  const mockResponse = userMessage
-    ? `Mock mode is enabled. Request captured: "${userMessage.slice(0, 180)}${userMessage.length > 180 ? '…' : ''}".`
-    : 'Mock mode is enabled. Request captured.';
-
-  return {
-    ...initialState,
-    status: 'completed',
-    selected_pipeline: initialState.selected_pipeline || 'unified-task-intake',
-    messages: [...(initialState.messages || []), { role: 'assistant', content: mockResponse }],
-    artifactLogs: [...(initialState.artifactLogs || []), `[stage:mock] [role:System] [status:completed] message=${mockResponse}`],
-  };
 }
 
 /**
@@ -113,10 +92,10 @@ export async function executeRuntimeRun(initialState: Partial<PilotState>): Prom
   // Guardrail defaults must fit full pipeline runs (handoffs + loops), not single LLM calls.
   // They remain overridable via env vars.
   if (!process.env.RUNTIME_MAX_RUN_TIME_MS) {
-    process.env.RUNTIME_MAX_RUN_TIME_MS = modeRequested === 'mock' ? '120000' : '600000'; // 2m mock, 10m real
+    process.env.RUNTIME_MAX_RUN_TIME_MS = '600000';
   }
   if (!process.env.RUNTIME_MAX_TOTAL_LLM_CALLS) {
-    process.env.RUNTIME_MAX_TOTAL_LLM_CALLS = modeRequested === 'mock' ? '40' : '120';
+    process.env.RUNTIME_MAX_TOTAL_LLM_CALLS = '120';
   }
   const userMessage =
     [...(initialState.messages || [])]
@@ -168,7 +147,7 @@ export async function executeRuntimeRun(initialState: Partial<PilotState>): Prom
 
   // Sprint 5.5 — Identify if pipeline involves mutating actions (ENF-001 logic)
   const mutatingPipelines = ['new-feature', 'bug-fix', 'hotfix', 'refactor', 'strategy-tuning', 'release', 'rollback-incident'];
-  const hasMutatingAction = mutatingPipelines.includes(pipeline) && modeRequested !== 'mock';
+  const hasMutatingAction = mutatingPipelines.includes(pipeline);
 
   const executionPlan = {
     runId,
@@ -288,16 +267,7 @@ export async function executeRuntimeRun(initialState: Partial<PilotState>): Prom
     workspacePath: initialState.workspacePath // Pass workspace if needed for token resolution
   } as any);
 
-  if (modeRequested === 'mock') {
-    return {
-      finalState: buildMockFinalState(initialState),
-      modeRequested,
-      modeApplied: 'mock',
-      engine: 'mock',
-    };
-  }
-
-  // Dedicated execution engines by mode.
+  // Dedicated multiple agents execution engine.
   await emitEvent({
     type: 'run.started',
     runId,
@@ -306,10 +276,7 @@ export async function executeRuntimeRun(initialState: Partial<PilotState>): Prom
     actor: { type: 'system', id: 'runtime-router' },
     payload: { modeRequested, pipeline, planner: plannerDecision },
   }).catch(() => undefined);
-  const finalState =
-    modeRequested === 'multiple_agents'
-      ? await executeMultipleAgentsRun({ ...initialState, selected_pipeline: pipeline })
-      : await executeUnifiedSwarmRun({ ...initialState, selected_pipeline: pipeline });
+  const finalState = await executeMultipleAgentsRun({ ...initialState, selected_pipeline: pipeline });
 
   await runGovernancePhase('AFTER_STEP', {
     runId,
@@ -485,7 +452,7 @@ export async function executeRuntimeRun(initialState: Partial<PilotState>): Prom
     finalState,
     modeRequested,
     modeApplied: modeRequested,
-    engine: modeRequested === 'multiple_agents' ? 'pilot-multiple-agents-runtime' : 'pilot-unified-graph',
+    engine: 'pilot-multiple-agents-runtime',
   };
 }
 export async function resumeRuntimeRun(threadId: string, decision: any): Promise<RuntimeExecutionResult> {
@@ -494,6 +461,6 @@ export async function resumeRuntimeRun(threadId: string, decision: any): Promise
     finalState,
     modeRequested: 'multiple_agents',
     modeApplied: 'multiple_agents',
-    engine: 'pilot-unified-graph',
+    engine: 'pilot-multiple-agents-runtime',
   };
 }
