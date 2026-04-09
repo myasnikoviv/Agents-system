@@ -118,6 +118,36 @@ export const fetchRecentEvents = async (count: number = 100): Promise<RuntimeEve
   }
 };
 
+export const fetchEventsByRunId = async (
+  input: { runId: string; projectId?: string; count?: number },
+): Promise<RuntimeEvent[]> => {
+  const runId = String(input.runId || '').trim();
+  if (!runId) return [];
+  const projectId = String(input.projectId || '').trim();
+  const count = Math.max(1, Math.min(5000, Number(input.count || 2000)));
+  const redis = getRedisClient();
+  try {
+    const rawEvents = await redis.xrevrange(EVENT_STREAM_KEY, '+', '-', 'COUNT', count);
+    const parsed = rawEvents
+      .map((raw: any) => {
+        const payloadString = raw?.[1]?.[1];
+        try {
+          return JSON.parse(payloadString) as RuntimeEvent;
+        } catch {
+          return null;
+        }
+      })
+      .filter((e): e is RuntimeEvent => Boolean(e))
+      .filter((e) => String(e.runId || '') === runId)
+      .filter((e) => (projectId ? String(e.projectId || '') === projectId : true))
+      .sort((a, b) => Number(a.timestamp || 0) - Number(b.timestamp || 0));
+    return parsed;
+  } catch (error) {
+    console.error('Failed to fetch run events:', error);
+    return [];
+  }
+};
+
 /**
  * Helper for agent/swarm events ensure consistency with the new schema.
  */

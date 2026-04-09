@@ -17,18 +17,18 @@ type UnifiedTelemetryEvent = {
 
 interface TelemetryRouteDeps {
   fetchRecentEvents: (count?: number) => Promise<any[]>;
-  readControlActionAuditRows: (projectId?: string) => any[];
+  readControlActionAuditRows: (projectId?: string) => Promise<any[]>;
   normalizeAuditRow: (row: any) => UnifiedTelemetryEvent;
-  readRunLedgerEvents: (input: { runId?: string; projectId?: string; limit?: number }) => any[];
+  readRunLedgerEvents: (input: { runId?: string; projectId?: string; limit?: number }) => Promise<any[]>;
   normalizeRuntimeEvent: (row: any) => UnifiedTelemetryEvent;
 }
 
 export function registerTelemetryRoutes(app: express.Express, deps: TelemetryRouteDeps): void {
-  app.get('/api/cockpit/control-actions', (req, res) => {
+  app.get('/api/cockpit/control-actions', async (req, res) => {
     try {
       const projectId = String(req.query?.projectId || '').trim();
       const limit = Math.max(1, Math.min(500, Number(req.query?.limit || 100)));
-      const rows = deps.readControlActionAuditRows(projectId || undefined);
+      const rows = await deps.readControlActionAuditRows(projectId || undefined);
       const sliced = rows.slice(-limit).reverse();
       res.json({ success: true, actions: sliced, total: rows.length, limit });
     } catch (error: any) {
@@ -40,11 +40,11 @@ export function registerTelemetryRoutes(app: express.Express, deps: TelemetryRou
     }
   });
 
-  app.get('/api/cockpit/audit/logs', (req, res) => {
+  app.get('/api/cockpit/audit/logs', async (req, res) => {
     try {
       const projectId = String(req.query?.projectId || '').trim();
       const limit = Math.max(1, Math.min(1000, Number(req.query?.limit || 200)));
-      const rows = deps.readControlActionAuditRows(projectId || undefined);
+      const rows = await deps.readControlActionAuditRows(projectId || undefined);
       const events = rows.slice(-limit).map(deps.normalizeAuditRow).sort((a, b) => b.timestamp - a.timestamp);
       res.json({
         success: true,
@@ -69,12 +69,12 @@ export function registerTelemetryRoutes(app: express.Express, deps: TelemetryRou
       const runId = String(req.query?.runId || '').trim();
       const limit = Math.max(1, Math.min(1000, Number(req.query?.limit || 200)));
       const runtimeEvents = runId
-        ? deps.readRunLedgerEvents({ runId, projectId: projectId || undefined, limit })
+        ? await deps.readRunLedgerEvents({ runId, projectId: projectId || undefined, limit })
         : await deps.fetchRecentEvents(limit);
       const normalizedRuntime = runtimeEvents
         .filter((row: any) => (projectId ? String(row?.projectId || '') === projectId : true))
         .map(deps.normalizeRuntimeEvent);
-      const normalizedAudit = deps.readControlActionAuditRows(projectId || undefined).slice(-limit).map(deps.normalizeAuditRow);
+      const normalizedAudit = (await deps.readControlActionAuditRows(projectId || undefined)).slice(-limit).map(deps.normalizeAuditRow);
       const merged = [...normalizedRuntime, ...normalizedAudit]
         .sort((a, b) => b.timestamp - a.timestamp)
         .slice(0, limit);
@@ -117,11 +117,11 @@ export function registerTelemetryRoutes(app: express.Express, deps: TelemetryRou
     }
   });
 
-  app.get('/api/cockpit/telemetry/runs/:runId/trace', (req, res) => {
+  app.get('/api/cockpit/telemetry/runs/:runId/trace', async (req, res) => {
     try {
       const runId = String(req.params.runId || '').trim();
       if (!runId) return res.status(400).json({ success: false, error: 'run_id_required' });
-      const events = deps.readRunLedgerEvents({ runId, limit: 5000 }).map(deps.normalizeRuntimeEvent);
+      const events = (await deps.readRunLedgerEvents({ runId, limit: 5000 })).map(deps.normalizeRuntimeEvent);
       const stages = events.filter((e) => e.type === 'agent.started' || e.type === 'agent.completed' || e.type === 'swarm.handoff');
       const tools = events.filter((e) => e.type === 'tool.call' || e.type === 'tool.result');
       const guards = events.filter((e) => e.type.startsWith('guard.') || e.type === 'governance.rule_check');
