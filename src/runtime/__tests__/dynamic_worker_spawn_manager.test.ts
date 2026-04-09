@@ -2,8 +2,8 @@ import { DynamicWorkerSpawnManager } from '../workers/DynamicWorkerSpawnManager'
 import { clearIdentityRegistry } from '../identity/AgentIdentity';
 
 describe('DynamicWorkerSpawnManager', () => {
-  beforeEach(() => {
-    DynamicWorkerSpawnManager.clear();
+  beforeEach(async () => {
+    await DynamicWorkerSpawnManager.clearAsync();
     clearIdentityRegistry();
   });
 

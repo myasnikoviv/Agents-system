@@ -21,3 +21,4 @@
 - Slice 2 complete: shared worker-state mirror added in DynamicWorkerSpawnManager (Redis feature-flag).
 - Slice 3 complete: cockpit queue/control endpoints aligned to async shared queue API.
 - Slice 4 complete: distributed worker lock added to ensureWorker for cross-host race prevention.
+- Shared-flag validation complete: queue + worker state paths verified under redis-backed runtime flags.
