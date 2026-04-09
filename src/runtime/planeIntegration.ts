@@ -105,7 +105,7 @@ export async function triggerPipelineFromPlane(issueId: string) {
     artifactLogs: [`Intake initiated for: ${issueData.name}`]
   };
 
-  // Run the quasi-linear graph
+  // Run the unified swarm graph
   const finalState = await executeUnifiedSwarmRun(initialState);
   
   // Sync back to Plane based on result

@@ -1128,7 +1128,7 @@ export const pilotGraph = new StateGraph(PilotStateAnnotation)
  * Explicit user directives can override pipeline/agents, but the runtime
  * always executes through the swarm pipeline loop.
  */
-export async function executeQuasiLinearRun(initialState: Partial<PilotState>) {
+export async function executeUnifiedSwarmRun(initialState: Partial<PilotState>) {
   const thread = initialState.threadId || 'default';
   const threadConfig = { configurable: { thread_id: thread, threadId: thread } };
   const finalState = await pilotGraph.invoke(initialState, threadConfig);
@@ -1138,7 +1138,7 @@ export async function executeQuasiLinearRun(initialState: Partial<PilotState>) {
 /**
  * Resumes an interrupted run.
  */
-export async function resumeQuasiLinearRun(threadId: string, decision: any) {
+export async function resumeUnifiedSwarmRun(threadId: string, decision: any) {
   const threadConfig = { configurable: { thread_id: threadId, threadId } };
   // Use Command({ resume: decision }) to pass value back to interrupt()
   const finalState = await pilotGraph.invoke(new Command({ resume: decision }), threadConfig);

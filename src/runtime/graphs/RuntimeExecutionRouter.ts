@@ -445,7 +445,7 @@ export async function executeRuntimeRun(initialState: Partial<PilotState>): Prom
   }
 
   // 2. ENF-006 — Pipeline Usage Soft Gate (log classification result from router node)
-  // This is best logged inside routerNode in PilotQuasiLinearGraph, 
+  // This is best logged inside routerNode in the unified swarm graph,
   // but we can add a high-level log here as a secondary check.
 
   return {

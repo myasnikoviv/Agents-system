@@ -1,4 +1,4 @@
-import { executeQuasiLinearRun } from '../graphs/PilotQuasiLinearGraph';
+import { executeUnifiedSwarmRun } from '../graphs/UnifiedSwarmGraph';
 import { v4 as uuidv4 } from 'uuid';
 import { getRedisClient } from '../redisClient';
 import { emitEvent } from '../events/EventBus';
@@ -15,7 +15,7 @@ async function runDistributedTest() {
 
   // We will run the graph in the background
   console.log(`[Test] Kicking off graph execution. It should block at researchNode...`);
-  const graphPromise = executeQuasiLinearRun({
+  const graphPromise = executeUnifiedSwarmRun({
     ticketId: mockIssueId,
     runId: runId,
     threadId: threadId,
