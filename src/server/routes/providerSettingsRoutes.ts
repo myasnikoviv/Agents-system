@@ -45,6 +45,10 @@ interface ProviderSettingsRouteDeps {
 
 export function registerProviderSettingsRoutes(app: express.Express, deps: ProviderSettingsRouteDeps): void {
   const WORKSPACE_SETTINGS_SECTIONS = new Set(['general', 'appearance', 'usage', 'configuration']);
+  const normalizeWorkspaceSection = (sectionRaw: string): string => {
+    const section = sectionRaw.trim().toLowerCase();
+    return section === 'configuration' ? 'executor' : section;
+  };
 
   app.get('/api/cockpit/runtime/enforcement', (req, res) => {
     const projectId = String(req.query?.projectId || '').trim();
@@ -254,11 +258,11 @@ export function registerProviderSettingsRoutes(app: express.Express, deps: Provi
     res.json({ success: true, runtimeSelection: nextSelection });
   });
 
-  app.get('/api/cockpit/settings/:section', (req, res) => {
+  app.get('/api/workspace/settings/:section', (req, res) => {
     const auth = deps.getAuthContext(req);
     if (!auth) return res.status(401).json({ success: false, error: 'unauthorized' });
 
-    const section = String(req.params.section || '').trim().toLowerCase();
+    const section = normalizeWorkspaceSection(String(req.params.section || ''));
     if (!WORKSPACE_SETTINGS_SECTIONS.has(section) && section !== 'executor') {
       return res.status(404).json({
         success: false,
@@ -283,11 +287,11 @@ export function registerProviderSettingsRoutes(app: express.Express, deps: Provi
     });
   });
 
-  app.post('/api/cockpit/settings/:section', (req, res) => {
+  app.post('/api/workspace/settings/:section', (req, res) => {
     const auth = deps.requireRole(req, res, 'admin');
     if (!auth) return;
 
-    const section = String(req.params.section || '').trim().toLowerCase();
+    const section = normalizeWorkspaceSection(String(req.params.section || ''));
     if (!WORKSPACE_SETTINGS_SECTIONS.has(section) && section !== 'executor') {
       return res.status(404).json({
         success: false,

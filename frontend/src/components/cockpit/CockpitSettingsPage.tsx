@@ -608,7 +608,7 @@ export function CockpitSettingsPage() {
   useEffect(() => {
     const loadGeneralFromApi = async () => {
       try {
-        const res = await fetch(apiUrl('/api/cockpit/settings/general'));
+        const res = await fetch(apiUrl('/api/workspace/settings/general'));
         const data = await res.json();
         if (!data.success || !data.settings) return;
         setGeneralSettings((prev) => ({ ...prev, ...data.settings }));
@@ -623,7 +623,7 @@ export function CockpitSettingsPage() {
   useEffect(() => {
     const loadAppearanceFromApi = async () => {
       try {
-        const res = await fetch(apiUrl('/api/cockpit/settings/appearance'));
+        const res = await fetch(apiUrl('/api/workspace/settings/appearance'));
         const data = await res.json();
         if (!data.success || !data.settings) return;
         setAppearanceSettings((prev) => ({ ...prev, ...data.settings }));
@@ -638,7 +638,7 @@ export function CockpitSettingsPage() {
   useEffect(() => {
     const loadPersonalizationFromApi = async () => {
       try {
-        const res = await fetch(apiUrl('/api/cockpit/settings/personalization'));
+        const res = await fetch(apiUrl('/api/workspace/settings/personalization'));
         const data = await res.json();
         if (!data.success || !data.settings) return;
         setPersonalizationSettings((prev) => ({ ...prev, ...data.settings }));
@@ -653,7 +653,7 @@ export function CockpitSettingsPage() {
   useEffect(() => {
     const loadUsageFromApi = async () => {
       try {
-        const res = await fetch(apiUrl('/api/cockpit/settings/usage'));
+        const res = await fetch(apiUrl('/api/workspace/settings/usage'));
         const data = await res.json();
         if (!data.success || !data.settings) return;
         setUsageSettings((prev) => ({ ...prev, ...data.settings }));
@@ -690,7 +690,7 @@ export function CockpitSettingsPage() {
   useEffect(() => {
     const loadGitFromApi = async () => {
       try {
-        const res = await fetch(apiUrl('/api/cockpit/settings/git'));
+        const res = await fetch(apiUrl('/api/workspace/settings/git'));
         const data = await res.json();
         if (!data.success || !data.settings) return;
         setGitSettings((prev) => ({ ...prev, ...data.settings }));
@@ -705,7 +705,7 @@ export function CockpitSettingsPage() {
   useEffect(() => {
     const loadEnvironmentFromApi = async () => {
       try {
-        const res = await fetch(apiUrl('/api/cockpit/settings/environment'));
+        const res = await fetch(apiUrl('/api/workspace/settings/environment'));
         const data = await res.json();
         if (!data.success || !data.settings) return;
         setEnvironmentSettings((prev) => ({ ...prev, ...data.settings }));
@@ -720,7 +720,7 @@ export function CockpitSettingsPage() {
   useEffect(() => {
     const loadWorktreesFromApi = async () => {
       try {
-        const res = await fetch(apiUrl('/api/cockpit/settings/worktrees'));
+        const res = await fetch(apiUrl('/api/workspace/settings/worktrees'));
         const data = await res.json();
         if (!data.success || !data.settings) return;
         setWorktreeSettings((prev) => ({ ...prev, ...data.settings }));
@@ -735,7 +735,7 @@ export function CockpitSettingsPage() {
   useEffect(() => {
     const loadArchivedThreadsFromApi = async () => {
       try {
-        const res = await fetch(apiUrl('/api/cockpit/settings/archived-threads'));
+        const res = await fetch(apiUrl('/api/workspace/settings/archived-threads'));
         const data = await res.json();
         if (!data.success || !data.settings) return;
         setArchivedThreadsSettings((prev) => ({ ...prev, ...data.settings }));
@@ -750,7 +750,7 @@ export function CockpitSettingsPage() {
   useEffect(() => {
     const loadExecutorFromApi = async () => {
       try {
-        const res = await fetch(apiUrl('/api/cockpit/settings/executor'));
+        const res = await fetch(apiUrl('/api/workspace/settings/executor'));
         const data = await res.json();
         if (!data.success || !data.settings) return;
         setExecutorSettings((prev) => ({
@@ -853,7 +853,7 @@ export function CockpitSettingsPage() {
 
   const saveExecutorSettings = async () => {
     try {
-      const res = await fetch(apiUrl('/api/cockpit/settings/executor'), {
+      const res = await fetch(apiUrl('/api/workspace/settings/executor'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(executorSettings),
@@ -985,7 +985,7 @@ export function CockpitSettingsPage() {
 
   const saveGeneralSettings = async () => {
     try {
-      const res = await fetch(apiUrl('/api/cockpit/settings/general'), {
+      const res = await fetch(apiUrl('/api/workspace/settings/general'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(generalSettings),
@@ -1007,7 +1007,7 @@ export function CockpitSettingsPage() {
 
   const saveAppearanceSettings = async () => {
     try {
-      const res = await fetch(apiUrl('/api/cockpit/settings/appearance'), {
+      const res = await fetch(apiUrl('/api/workspace/settings/appearance'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(appearanceSettings),
@@ -1029,7 +1029,7 @@ export function CockpitSettingsPage() {
 
   const savePersonalizationSettings = async () => {
     try {
-      const res = await fetch(apiUrl('/api/cockpit/settings/personalization'), {
+      const res = await fetch(apiUrl('/api/workspace/settings/personalization'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(personalizationSettings),
@@ -1051,7 +1051,7 @@ export function CockpitSettingsPage() {
 
   const saveUsageSettings = async () => {
     try {
-      const res = await fetch(apiUrl('/api/cockpit/settings/usage'), {
+      const res = await fetch(apiUrl('/api/workspace/settings/usage'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(usageSettings),
@@ -1073,7 +1073,7 @@ export function CockpitSettingsPage() {
 
   const saveGitSettings = async () => {
     try {
-      const res = await fetch(apiUrl('/api/cockpit/settings/git'), {
+      const res = await fetch(apiUrl('/api/workspace/settings/git'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(gitSettings),
@@ -1095,7 +1095,7 @@ export function CockpitSettingsPage() {
 
   const saveEnvironmentSettings = async () => {
     try {
-      const res = await fetch(apiUrl('/api/cockpit/settings/environment'), {
+      const res = await fetch(apiUrl('/api/workspace/settings/environment'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(environmentSettings),
@@ -1117,7 +1117,7 @@ export function CockpitSettingsPage() {
 
   const saveWorktreeSettings = async () => {
     try {
-      const res = await fetch(apiUrl('/api/cockpit/settings/worktrees'), {
+      const res = await fetch(apiUrl('/api/workspace/settings/worktrees'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(worktreeSettings),
@@ -1139,7 +1139,7 @@ export function CockpitSettingsPage() {
 
   const saveArchivedSettings = async () => {
     try {
-      const res = await fetch(apiUrl('/api/cockpit/settings/archived-threads'), {
+      const res = await fetch(apiUrl('/api/workspace/settings/archived-threads'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(archivedThreadsSettings),

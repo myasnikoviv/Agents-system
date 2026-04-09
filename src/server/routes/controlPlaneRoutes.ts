@@ -42,17 +42,17 @@ export function registerControlPlaneRoutes(app: express.Express, deps: ControlPl
     }
   };
 
-  app.get('/api/cockpit/control-plane/services/:serviceId/status', (req, res) => {
+  app.get('/api/system/control-plane/services/:serviceId/status', (req, res) => {
     if (!withMember(req, res)) return;
     readServiceStatus(req, res);
   });
 
-  app.get('/api/cockpit/control-plane/services', (req, res) => {
+  app.get('/api/system/control-plane/services', (req, res) => {
     if (!withMember(req, res)) return;
     readServices(req, res);
   });
 
-  app.post('/api/cockpit/control-plane/services/:serviceId/start', async (req, res) => {
+  app.post('/api/system/control-plane/services/:serviceId/start', async (req, res) => {
     const auth = deps.requireRole(req, res, 'admin');
     if (!auth) return;
     const serviceId = String(req.params?.serviceId || '').trim();
@@ -74,7 +74,7 @@ export function registerControlPlaneRoutes(app: express.Express, deps: ControlPl
     }
   });
 
-  app.post('/api/cockpit/control-plane/services/:serviceId/stop', async (req, res) => {
+  app.post('/api/system/control-plane/services/:serviceId/stop', async (req, res) => {
     const auth = deps.requireRole(req, res, 'admin');
     if (!auth) return;
     const serviceId = String(req.params?.serviceId || '').trim();
@@ -96,7 +96,7 @@ export function registerControlPlaneRoutes(app: express.Express, deps: ControlPl
     }
   });
 
-  app.post('/api/cockpit/control-plane/services/:serviceId/restart', async (req, res) => {
+  app.post('/api/system/control-plane/services/:serviceId/restart', async (req, res) => {
     const auth = deps.requireRole(req, res, 'admin');
     if (!auth) return;
     const serviceId = String(req.params?.serviceId || '').trim();
@@ -118,16 +118,7 @@ export function registerControlPlaneRoutes(app: express.Express, deps: ControlPl
     }
   });
 
-  // Gateway facade endpoints reuse the same control-plane routing handlers.
-  app.get('/api/cockpit/gateway/control-plane/services', (req, res) => {
-    if (!withMember(req, res)) return;
-    readServices(req, res);
-  });
-  app.get('/api/cockpit/gateway/control-plane/services/:serviceId/status', (req, res) => {
-    if (!withMember(req, res)) return;
-    readServiceStatus(req, res);
-  });
-  app.get('/api/cockpit/gateway/control-plane/health', (req, res) => {
+  app.get('/api/system/control-plane/health', (req, res) => {
     if (!withMember(req, res)) return;
     const serviceIds = deps.manager.listServices();
     const items = serviceIds.map((serviceId) => deps.manager.getStatus(serviceId));
@@ -138,15 +129,15 @@ export function registerControlPlaneRoutes(app: express.Express, deps: ControlPl
       items,
     });
   });
-  app.get('/api/cockpit/control-plane/events', (req, res) => {
+  app.get('/api/system/control-plane/events', (req, res) => {
     if (!withMember(req, res)) return;
     res.json({ success: true, items: deps.manager.listLifecycleEvents() });
   });
-  app.get('/api/cockpit/control-plane/dashboard-data', (req, res) => {
+  app.get('/api/system/control-plane/dashboard-data', (req, res) => {
     if (!withMember(req, res)) return;
     res.json({ success: true, snapshot: buildServiceStatusDashboardSnapshot(deps.manager) });
   });
-  app.post('/api/cockpit/control-plane/boot/start', async (req, res) => {
+  app.post('/api/system/control-plane/boot/start', async (req, res) => {
     if (!withAdmin(req, res)) return;
     try {
       const result = await bootOrchestrator.bootAll();
