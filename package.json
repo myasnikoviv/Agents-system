@@ -22,7 +22,9 @@
     "dev:standalone": "bash scripts/infra/start_all.sh --standalone",
     "infra:start": "bash scripts/infra/start_all.sh",
     "infra:restart": "bash scripts/infra/start_all.sh --restart",
-    "db:migrate:postgres": "bash scripts/db/migrate_postgres.sh"
+    "db:migrate:postgres": "bash scripts/db/migrate_postgres.sh",
+    "infra:start:profile": "bash scripts/infra/start_with_profile.sh",
+    "infra:compose:up": "bash scripts/infra/container_compose_up.sh"
   },
   "repository": {
     "type": "git",

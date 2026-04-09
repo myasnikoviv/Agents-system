@@ -38,6 +38,22 @@ describe('DynamicWorkerSpawnManager', () => {
     expect(two.worker.memoryNamespace).toBe('memory:proj-b:developer');
   });
 
+  it('creates isolated workers per environment in same project/agent', async () => {
+    const envA = await DynamicWorkerSpawnManager.ensureWorker(
+      { runId: 're1', projectId: 'proj-a', environmentId: 'env-a', chainId: 'ce1', agentSlug: 'developer' },
+      { emitEvents: false },
+    );
+    const envB = await DynamicWorkerSpawnManager.ensureWorker(
+      { runId: 're2', projectId: 'proj-a', environmentId: 'env-b', chainId: 'ce2', agentSlug: 'developer' },
+      { emitEvents: false },
+    );
+
+    expect(envA.worker.environmentId).toBe('env-a');
+    expect(envB.worker.environmentId).toBe('env-b');
+    const projWorkers = DynamicWorkerSpawnManager.snapshot().filter((w) => w.projectId === 'proj-a' && w.agentSlug === 'developer');
+    expect(projWorkers.length).toBe(2);
+  });
+
   it('creates dedicated worker per agent within same project and reuses only agent-owned worker', async () => {
     const devFirst = await DynamicWorkerSpawnManager.ensureWorker(
       { runId: 'r1', projectId: 'proj-a', chainId: 'c1', agentSlug: 'developer' },
@@ -57,6 +73,19 @@ describe('DynamicWorkerSpawnManager', () => {
     expect(qaFirst.worker.memoryNamespace).toBe('memory:proj-a:tdd-qa');
     expect(devSecond.worker.workerId).toBe(devFirst.worker.workerId);
     expect(devSecond.worker.workerId).not.toBe(qaFirst.worker.workerId);
+  });
+
+  it('assigns heat mode according to hot/cold policy', async () => {
+    const pm = await DynamicWorkerSpawnManager.ensureWorker(
+      { runId: 'rh1', projectId: 'proj-a', chainId: 'ch1', agentSlug: 'pm-orchestrator' },
+      { emitEvents: false },
+    );
+    const dev = await DynamicWorkerSpawnManager.ensureWorker(
+      { runId: 'rh2', projectId: 'proj-a', chainId: 'ch2', agentSlug: 'developer' },
+      { emitEvents: false },
+    );
+    expect(pm.worker.heatMode).toBe('hot');
+    expect(dev.worker.heatMode).toBe('cold');
   });
 
   it('tracks task-level memory namespace per assigned task', async () => {
@@ -144,6 +173,36 @@ describe('DynamicWorkerSpawnManager', () => {
       idleTimeoutMs: 1000,
     });
     expect(removed.removed).toBeGreaterThanOrEqual(1);
+    expect(DynamicWorkerSpawnManager.snapshot().filter((w) => w.projectId === 'proj-a').length).toBe(0);
+  });
+
+  it('demotes hot idle workers to cold and evicts deterministically by timeout', async () => {
+    await DynamicWorkerSpawnManager.ensureWorker(
+      { runId: 'rd1', projectId: 'proj-a', chainId: 'cd1', agentSlug: 'pm-orchestrator' },
+      { emitEvents: false },
+    );
+    await DynamicWorkerSpawnManager.releaseToStandby(
+      { runId: 'rd1', projectId: 'proj-a', chainId: 'cd1', agentSlug: 'pm-orchestrator' },
+      { emitEvents: false },
+    );
+    const now = Date.now() + 120000;
+    const pass1 = DynamicWorkerSpawnManager.applyIdleDemotionPolicy({
+      projectId: 'proj-a',
+      now,
+      demotionTimeoutMs: 1000,
+      evictionTimeoutMs: 9999999,
+    });
+    expect(pass1.demoted).toBeGreaterThanOrEqual(1);
+    const afterDemotion = DynamicWorkerSpawnManager.snapshot().find((w) => w.projectId === 'proj-a' && w.agentSlug === 'pm-orchestrator');
+    expect(afterDemotion?.state).toBe('cold');
+
+    const pass2 = DynamicWorkerSpawnManager.applyIdleDemotionPolicy({
+      projectId: 'proj-a',
+      now: now + 120000,
+      demotionTimeoutMs: 1000,
+      evictionTimeoutMs: 1000,
+    });
+    expect(pass2.evicted).toBeGreaterThanOrEqual(1);
     expect(DynamicWorkerSpawnManager.snapshot().filter((w) => w.projectId === 'proj-a').length).toBe(0);
   });
 
