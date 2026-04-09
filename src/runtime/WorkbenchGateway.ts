@@ -8,8 +8,7 @@ import {
   type WorkbenchToolMode,
 } from './AgentWorkbenchScheduler';
 import {
-  getWorkbenchToolPolicy,
-  isAgentAllowedForTool,
+  resolveWorkbenchToolPolicy,
 } from './WorkbenchToolRegistry';
 import { appendWorkbenchTelemetry } from './WorkbenchTelemetryCollector';
 import { logGovernance } from './governance/GovernanceLogger';
@@ -45,7 +44,11 @@ export async function executeViaWorkbench(
 ): Promise<WorkbenchExecutionResult> {
   const agentId = context.agent.slug || 'unknown-agent';
   const executionStartedAt = Date.now();
-  const policy = getWorkbenchToolPolicy(toolId);
+  const policy = resolveWorkbenchToolPolicy(toolId, {
+    tenantId: context.tenantId,
+    workspaceId: context.workspaceId,
+    sessionId: context.chainId,
+  });
 
   appendWorkbenchTelemetry({
     runId: context.runId,
@@ -78,7 +81,8 @@ export async function executeViaWorkbench(
     return { status: 'blocked', content: null, summary: `Tool ${toolId} is not registered in Workbench.` };
   }
 
-  if (!isAgentAllowedForTool(toolId, agentId)) {
+  const allowed = policy.allowedAgents.includes('*') || policy.allowedAgents.includes(agentId);
+  if (!allowed) {
     logGovernance({
       rule: 'workbench_access_control',
       status: 'fail',
@@ -98,6 +102,50 @@ export async function executeViaWorkbench(
       detail: 'unauthorized_agent',
     });
     return { status: 'blocked', content: null, summary: `Agent ${agentId} is not allowed to use ${toolId}.` };
+  }
+
+  const risk = policy.risk || 'safe';
+  if (risk === 'unsafe' && policy.type !== 'isolated') {
+    logGovernance({
+      rule: 'workbench_scope_policy',
+      status: 'fail',
+      action: 'block',
+      ticket: context.activeTicketId,
+      runId: context.runId,
+      chainId: context.chainId,
+      detail: `unsafe_requires_isolated:${toolId}:${policy.type}`,
+    });
+    appendWorkbenchTelemetry({
+      runId: context.runId,
+      projectId: context.projectId,
+      agentId,
+      toolId,
+      action: 'blocked',
+      status: 'failed',
+      detail: 'unsafe_requires_isolated',
+    });
+    return { status: 'blocked', content: null, summary: `Tool ${toolId} policy violation: unsafe tool must be isolated.` };
+  }
+  if (risk === 'mutable' && policy.type === 'parallel') {
+    logGovernance({
+      rule: 'workbench_scope_policy',
+      status: 'fail',
+      action: 'block',
+      ticket: context.activeTicketId,
+      runId: context.runId,
+      chainId: context.chainId,
+      detail: `mutable_parallel_forbidden:${toolId}`,
+    });
+    appendWorkbenchTelemetry({
+      runId: context.runId,
+      projectId: context.projectId,
+      agentId,
+      toolId,
+      action: 'blocked',
+      status: 'failed',
+      detail: 'mutable_parallel_forbidden',
+    });
+    return { status: 'blocked', content: null, summary: `Tool ${toolId} policy violation: mutable tool cannot be parallel.` };
   }
 
   upsertWorkbenchTool({
@@ -148,9 +196,20 @@ export async function executeViaWorkbench(
     detail: lease.status,
   });
 
+  const scopeLevel = policy.scope?.level || 'global';
   const isolatedWorkspacePath =
     policy.type === 'isolated'
-      ? path.join(context.workspacePath, '.workbench', 'isolated', context.runId, agentId, toolId)
+      ? path.join(
+        context.workspacePath,
+        '.workbench',
+        'isolated',
+        scopeLevel,
+        context.tenantId || 'tenant:default',
+        context.workspaceId || 'workspace:default',
+        context.chainId || context.runId,
+        agentId,
+        toolId,
+      )
       : undefined;
 
   try {
