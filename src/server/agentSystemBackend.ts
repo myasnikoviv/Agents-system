@@ -172,6 +172,118 @@ const defaultContractRegistry = {
 };
 
 const CONTROL_ACTION_AUDIT_FILE = path.resolve(process.cwd(), 'docs/runtime/governance/logs/control-actions.jsonl');
+const RUN_LEDGER_DIR = path.resolve(process.cwd(), 'docs/process/runs/ledger');
+
+type UnifiedTelemetryEvent = {
+  id: string;
+  timestamp: number;
+  isoTime: string;
+  source: 'runtime' | 'audit';
+  category: 'run' | 'agent' | 'tool' | 'guard' | 'governance' | 'worker' | 'queue' | 'control' | 'other';
+  type: string;
+  runId?: string;
+  projectId?: string;
+  chainId?: string;
+  actorId?: string;
+  actorType?: string;
+  payload: Record<string, any>;
+};
+
+const inferTelemetryCategory = (type: string): UnifiedTelemetryEvent['category'] => {
+  if (type.startsWith('run.')) return 'run';
+  if (type.startsWith('agent.')) return 'agent';
+  if (type.startsWith('tool.')) return 'tool';
+  if (type.startsWith('guard.')) return 'guard';
+  if (type.startsWith('governance.')) return 'governance';
+  if (type.startsWith('worker.')) return 'worker';
+  if (type.startsWith('task.')) return 'queue';
+  if (type.startsWith('control.')) return 'control';
+  return 'other';
+};
+
+const readControlActionAuditRows = (projectId?: string): any[] => {
+  if (!fs.existsSync(CONTROL_ACTION_AUDIT_FILE)) return [];
+  return fs
+    .readFileSync(CONTROL_ACTION_AUDIT_FILE, 'utf-8')
+    .split('\n')
+    .filter(Boolean)
+    .map((line) => {
+      try {
+        return JSON.parse(line);
+      } catch {
+        return null;
+      }
+    })
+    .filter((v) => Boolean(v))
+    .filter((row: any) => (projectId ? String(row.projectId || '') === projectId : true));
+};
+
+const readRunLedgerEvents = (input: { runId?: string; projectId?: string; limit?: number }): any[] => {
+  if (!fs.existsSync(RUN_LEDGER_DIR)) return [];
+  const files = input.runId
+    ? [`${input.runId}.jsonl`]
+    : fs.readdirSync(RUN_LEDGER_DIR).filter((n) => n.endsWith('.jsonl')).sort().slice(-50);
+  const out: any[] = [];
+  for (const fileName of files) {
+    const filePath = path.join(RUN_LEDGER_DIR, fileName);
+    if (!fs.existsSync(filePath)) continue;
+    const lines = fs.readFileSync(filePath, 'utf-8').split('\n').filter(Boolean);
+    for (const line of lines) {
+      try {
+        const ev = JSON.parse(line);
+        if (input.projectId && String(ev?.projectId || '') !== input.projectId) continue;
+        out.push(ev);
+      } catch {
+        // ignore malformed lines
+      }
+    }
+  }
+  return out.slice(-(Math.max(1, Math.min(1000, Number(input.limit || 200)))));
+};
+
+const normalizeRuntimeEvent = (row: any): UnifiedTelemetryEvent => {
+  const ts = Number(row?.timestamp || Date.now());
+  const type = String(row?.type || 'runtime.unknown');
+  return {
+    id: String(row?.id || `runtime-${ts}`),
+    timestamp: ts,
+    isoTime: new Date(ts).toISOString(),
+    source: 'runtime',
+    category: inferTelemetryCategory(type),
+    type,
+    runId: row?.runId ? String(row.runId) : undefined,
+    projectId: row?.projectId ? String(row.projectId) : undefined,
+    chainId: row?.chainId ? String(row.chainId) : undefined,
+    actorId: row?.actor?.id ? String(row.actor.id) : undefined,
+    actorType: row?.actor?.type ? String(row.actor.type) : undefined,
+    payload: row?.payload && typeof row.payload === 'object' ? row.payload : {},
+  };
+};
+
+const normalizeAuditRow = (row: any): UnifiedTelemetryEvent => {
+  const ts = new Date(String(row?.timestamp || Date.now())).getTime();
+  const action = String(row?.action || 'control.unknown');
+  const normalizedType = action.startsWith('control.') ? action : `control.${action}`;
+  return {
+    id: String(row?.id || `audit-${ts}`),
+    timestamp: ts,
+    isoTime: new Date(ts).toISOString(),
+    source: 'audit',
+    category: 'control',
+    type: normalizedType,
+    runId: row?.target?.runId ? String(row.target.runId) : undefined,
+    projectId: row?.projectId ? String(row.projectId) : undefined,
+    chainId: row?.target?.threadId ? String(row.target.threadId) : undefined,
+    actorId: row?.actorId ? String(row.actorId) : undefined,
+    actorType: 'system',
+    payload: {
+      reason: row?.reason || '',
+      target: row?.target || {},
+      result: row?.result || {},
+      rawAction: action,
+    },
+  };
+};
 
 const appendControlActionAudit = (input: {
   action: string;
@@ -2440,23 +2552,7 @@ app.get('/api/cockpit/control-actions', (req, res) => {
   try {
     const projectId = String(req.query?.projectId || '').trim();
     const limit = Math.max(1, Math.min(500, Number(req.query?.limit || 100)));
-    if (!fs.existsSync(CONTROL_ACTION_AUDIT_FILE)) {
-      res.json({ success: true, actions: [], total: 0 });
-      return;
-    }
-    const rows = fs
-      .readFileSync(CONTROL_ACTION_AUDIT_FILE, 'utf-8')
-      .split('\n')
-      .filter(Boolean)
-      .map((line) => {
-        try {
-          return JSON.parse(line);
-        } catch {
-          return null;
-        }
-      })
-      .filter((v) => Boolean(v))
-      .filter((row: any) => (projectId ? String(row.projectId || '') === projectId : true));
+    const rows = readControlActionAuditRows(projectId || undefined);
     const sliced = rows.slice(-limit).reverse();
     res.json({ success: true, actions: sliced, total: rows.length, limit });
   } catch (error: any) {
@@ -2464,6 +2560,115 @@ app.get('/api/cockpit/control-actions', (req, res) => {
       success: false,
       error: 'control_actions_fetch_failed',
       message: error?.message || 'Failed to read control action audit',
+    });
+  }
+});
+
+app.get('/api/cockpit/audit/logs', (req, res) => {
+  try {
+    const projectId = String(req.query?.projectId || '').trim();
+    const limit = Math.max(1, Math.min(1000, Number(req.query?.limit || 200)));
+    const rows = readControlActionAuditRows(projectId || undefined);
+    const events = rows.slice(-limit).map(normalizeAuditRow).sort((a, b) => b.timestamp - a.timestamp);
+    res.json({
+      success: true,
+      source: 'control-actions.jsonl',
+      projectId: projectId || null,
+      total: rows.length,
+      count: events.length,
+      events,
+    });
+  } catch (error: any) {
+    res.status(500).json({
+      success: false,
+      error: 'audit_logs_fetch_failed',
+      message: error?.message || 'Failed to read audit logs',
+    });
+  }
+});
+
+app.get('/api/cockpit/telemetry/unified', async (req, res) => {
+  try {
+    const projectId = String(req.query?.projectId || '').trim();
+    const runId = String(req.query?.runId || '').trim();
+    const limit = Math.max(1, Math.min(1000, Number(req.query?.limit || 200)));
+    const runtimeEvents = runId
+      ? readRunLedgerEvents({ runId, projectId: projectId || undefined, limit })
+      : await fetchRecentEvents(limit);
+    const normalizedRuntime = runtimeEvents
+      .filter((row: any) => (projectId ? String(row?.projectId || '') === projectId : true))
+      .map(normalizeRuntimeEvent);
+    const normalizedAudit = readControlActionAuditRows(projectId || undefined).slice(-limit).map(normalizeAuditRow);
+    const merged = [...normalizedRuntime, ...normalizedAudit]
+      .sort((a, b) => b.timestamp - a.timestamp)
+      .slice(0, limit);
+
+    const summary = merged.reduce(
+      (acc, row) => {
+        acc.total += 1;
+        acc.bySource[row.source] = (acc.bySource[row.source] || 0) + 1;
+        acc.byCategory[row.category] = (acc.byCategory[row.category] || 0) + 1;
+        if (row.runId) acc.runIds.add(row.runId);
+        return acc;
+      },
+      {
+        total: 0,
+        bySource: {} as Record<string, number>,
+        byCategory: {} as Record<string, number>,
+        runIds: new Set<string>(),
+      },
+    );
+
+    res.json({
+      success: true,
+      projectId: projectId || null,
+      runId: runId || null,
+      events: merged,
+      summary: {
+        total: summary.total,
+        bySource: summary.bySource,
+        byCategory: summary.byCategory,
+        uniqueRuns: summary.runIds.size,
+      },
+      serverNow: new Date().toISOString(),
+    });
+  } catch (error: any) {
+    res.status(500).json({
+      success: false,
+      error: 'unified_telemetry_fetch_failed',
+      message: error?.message || 'Failed to build unified telemetry feed',
+    });
+  }
+});
+
+app.get('/api/cockpit/telemetry/runs/:runId/trace', (req, res) => {
+  try {
+    const runId = String(req.params.runId || '').trim();
+    if (!runId) return res.status(400).json({ success: false, error: 'run_id_required' });
+    const events = readRunLedgerEvents({ runId, limit: 5000 }).map(normalizeRuntimeEvent);
+    const stages = events.filter((e) => e.type === 'agent.started' || e.type === 'agent.completed' || e.type === 'swarm.handoff');
+    const tools = events.filter((e) => e.type === 'tool.call' || e.type === 'tool.result');
+    const guards = events.filter((e) => e.type.startsWith('guard.') || e.type === 'governance.rule_check');
+    const startedAt = events.length > 0 ? events.reduce((m, e) => Math.min(m, e.timestamp), Number.MAX_SAFE_INTEGER) : null;
+    const finishedAt = events.length > 0 ? events.reduce((m, e) => Math.max(m, e.timestamp), 0) : null;
+    res.json({
+      success: true,
+      runId,
+      trace: {
+        startedAt: startedAt ? new Date(startedAt).toISOString() : null,
+        finishedAt: finishedAt ? new Date(finishedAt).toISOString() : null,
+        durationMs: startedAt && finishedAt ? finishedAt - startedAt : 0,
+        eventsTotal: events.length,
+        stages,
+        tools,
+        guards,
+      },
+    });
+  } catch (error: any) {
+    res.status(500).json({
+      success: false,
+      error: 'run_trace_fetch_failed',
+      message: error?.message || 'Failed to build run trace',
     });
   }
 });
