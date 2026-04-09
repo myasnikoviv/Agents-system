@@ -193,19 +193,23 @@ const getRuntimeSelectionFromExecutorSettings = (): { provider: RuntimeProvider;
   const raw = settingsStore.get('executor');
   if (!raw || typeof raw !== 'object') return null;
   const executor = raw as {
+    provider?: string;
+    model?: string;
     backend?: string;
     claude?: { model?: string };
     codex?: { model?: string };
     openhands?: { model?: string };
   };
-  if (!executor.backend || !isRuntimeProvider(executor.backend)) return null;
-  const provider = executor.backend;
+  const providerCandidate = String(executor.provider || executor.backend || '').trim();
+  if (!providerCandidate || !isRuntimeProvider(providerCandidate)) return null;
+  const provider = providerCandidate;
   const modelFromSettings =
-    provider === 'claude-cli'
+    executor.model ||
+    (provider === 'claude-cli'
       ? executor.claude?.model
       : provider === 'codex-cli'
         ? executor.codex?.model
-        : executor.openhands?.model;
+        : executor.openhands?.model);
   return {
     provider,
     model: modelFromSettings || providerModelCatalog[provider][0],

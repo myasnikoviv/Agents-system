@@ -45,9 +45,39 @@ interface ProviderSettingsRouteDeps {
 
 export function registerProviderSettingsRoutes(app: express.Express, deps: ProviderSettingsRouteDeps): void {
   const WORKSPACE_SETTINGS_SECTIONS = new Set(['general', 'appearance', 'usage', 'configuration']);
+  type WorkspaceConfiguration = {
+    provider: 'claude-cli' | 'codex-cli' | 'openhands-sdk';
+    model: string;
+    apiKeys: Record<string, string>;
+  };
   const normalizeWorkspaceSection = (sectionRaw: string): string => {
     const section = sectionRaw.trim().toLowerCase();
     return section === 'configuration' ? 'executor' : section;
+  };
+  const normalizeWorkspaceConfiguration = (raw: unknown): WorkspaceConfiguration => {
+    const currentRuntime = deps.getRuntimeSelection();
+    const source = (raw && typeof raw === 'object') ? (raw as Record<string, any>) : {};
+    const providerCandidate =
+      String(source.provider || source.backend || currentRuntime.provider || 'codex-cli').trim();
+    const provider: WorkspaceConfiguration['provider'] =
+      providerCandidate === 'claude-cli' || providerCandidate === 'openhands-sdk' || providerCandidate === 'codex-cli'
+        ? providerCandidate
+        : 'codex-cli';
+    const model = String(
+      source.model ||
+        source?.[provider === 'claude-cli' ? 'claude' : provider === 'codex-cli' ? 'codex' : 'openhands']?.model ||
+        currentRuntime.model ||
+        '',
+    ).trim() || currentRuntime.model;
+    const apiKeysSource = source.apiKeys && typeof source.apiKeys === 'object'
+      ? source.apiKeys as Record<string, any>
+      : source?.openhands?.apiKeys && typeof source.openhands.apiKeys === 'object'
+        ? source.openhands.apiKeys as Record<string, any>
+        : {};
+    const apiKeys = Object.fromEntries(
+      Object.entries(apiKeysSource).map(([k, v]) => [String(k), String(v ?? '')]),
+    );
+    return { provider, model, apiKeys };
   };
 
   app.get('/api/cockpit/runtime/enforcement', (req, res) => {
@@ -131,10 +161,7 @@ export function registerProviderSettingsRoutes(app: express.Express, deps: Provi
   });
 
   app.get('/api/cockpit/providers/openhands/health', (_req, res) => {
-    const raw = deps.settingsStoreGet('executor');
-    const executor = (raw && typeof raw === 'object') ? raw as { openhands?: { serverUrl?: string } } : {};
-    const configuredUrl = String(executor.openhands?.serverUrl || '').trim();
-    const serverUrl = (configuredUrl || process.env.OPENHANDS_SERVER_URL || 'http://127.0.0.1:8000').replace(/\/$/, '');
+    const serverUrl = String(process.env.OPENHANDS_SERVER_URL || 'http://127.0.0.1:8000').replace(/\/$/, '');
     fetch(`${serverUrl}/health`)
       .then(async (response) => {
         if (!response.ok) {
@@ -245,15 +272,14 @@ export function registerProviderSettingsRoutes(app: express.Express, deps: Provi
     deps.setRuntimeSelection(nextSelection);
     deps.saveRuntimeState('runtime_selection', nextSelection);
 
-    const raw = deps.settingsStoreGet('executor');
-    const executor = (raw && typeof raw === 'object' ? raw : {}) as Record<string, any>;
-    executor.backend = provider;
-    if (provider === 'claude-cli') executor.claude = { ...(executor.claude || {}), model };
-    if (provider === 'codex-cli') executor.codex = { ...(executor.codex || {}), model };
-    if (provider === 'openhands-sdk') executor.openhands = { ...(executor.openhands || {}), model };
-    deps.settingsStoreSet('executor', executor);
+    const currentConfig = normalizeWorkspaceConfiguration(deps.settingsStoreGet('executor'));
+    const nextConfig: WorkspaceConfiguration = { ...currentConfig, provider, model };
+    deps.settingsStoreSet('executor', nextConfig);
     deps.persistSettingsStore();
-    deps.syncExecutorSettingsToRuntimeConfig(executor, auth);
+    deps.syncExecutorSettingsToRuntimeConfig({
+      backend: provider,
+      [provider === 'claude-cli' ? 'claude' : provider === 'codex-cli' ? 'codex' : 'openhands']: { model },
+    }, auth);
 
     res.json({ success: true, runtimeSelection: nextSelection });
   });
@@ -271,14 +297,18 @@ export function registerProviderSettingsRoutes(app: express.Express, deps: Provi
       });
     }
     const current = deps.settingsStoreGet(section) || {};
-    if (section === 'executor' && current && typeof current === 'object') {
-      const cloned = JSON.parse(JSON.stringify(current));
-      if (cloned?.openhands?.apiKeys && typeof cloned.openhands.apiKeys === 'object') {
-        const masked: Record<string, string> = {};
-        for (const provider of Object.keys(cloned.openhands.apiKeys)) masked[provider] = '***';
-        cloned.openhands.apiKeys = masked;
-      }
-      return res.json({ success: true, settings: cloned });
+    if (section === 'executor') {
+      const normalized = normalizeWorkspaceConfiguration(current);
+      const masked: Record<string, string> = {};
+      for (const provider of Object.keys(normalized.apiKeys || {})) masked[provider] = '***';
+      return res.json({
+        success: true,
+        settings: {
+          provider: normalized.provider,
+          model: normalized.model,
+          apiKeys: masked,
+        },
+      });
     }
 
     res.json({
@@ -300,9 +330,10 @@ export function registerProviderSettingsRoutes(app: express.Express, deps: Provi
       });
     }
     const settings = (req.body && typeof req.body === 'object') ? req.body : {};
-    if (section === 'executor' && settings.openhands && typeof settings.openhands === 'object') {
-      const providedApiKeys = settings.openhands.apiKeys && typeof settings.openhands.apiKeys === 'object'
-        ? settings.openhands.apiKeys
+    if (section === 'executor') {
+      const normalized = normalizeWorkspaceConfiguration(settings);
+      const providedApiKeys = normalized.apiKeys && typeof normalized.apiKeys === 'object'
+        ? normalized.apiKeys
         : {};
       for (const [provider, rawKey] of Object.entries(providedApiKeys)) {
         const value = String(rawKey || '').trim();
@@ -315,25 +346,28 @@ export function registerProviderSettingsRoutes(app: express.Express, deps: Provi
           createdBy: auth.userId,
         });
       }
-      settings.openhands = {
-        ...settings.openhands,
-        apiKeys: Object.fromEntries(Object.keys(providedApiKeys).map((provider) => [provider, '***'])),
+      const masked = Object.fromEntries(Object.keys(providedApiKeys).map((provider) => [provider, '***']));
+      const sanitized: WorkspaceConfiguration = {
+        provider: normalized.provider,
+        model: normalized.model,
+        apiKeys: masked,
       };
+      deps.settingsStoreSet(section, sanitized);
+      deps.persistSettingsStore();
+
+      deps.setRuntimeSelection({ provider: normalized.provider, model: normalized.model });
+      deps.saveRuntimeState('runtime_selection', { provider: normalized.provider, model: normalized.model });
+      deps.syncExecutorSettingsToRuntimeConfig({
+        backend: normalized.provider,
+        [normalized.provider === 'claude-cli' ? 'claude' : normalized.provider === 'codex-cli' ? 'codex' : 'openhands']: {
+          model: normalized.model,
+        },
+      }, auth);
+      return res.json({ success: true, settings: sanitized });
     }
 
     deps.settingsStoreSet(section, settings);
     deps.persistSettingsStore();
-
-    if (section === 'executor') {
-      const runtimeFromSettings = deps.getRuntimeSelectionFromExecutorSettings();
-      if (runtimeFromSettings) {
-        deps.setRuntimeSelection(runtimeFromSettings);
-        deps.saveRuntimeState('runtime_selection', runtimeFromSettings);
-      }
-      if (settings && typeof settings === 'object') {
-        deps.syncExecutorSettingsToRuntimeConfig(settings as Record<string, any>, auth);
-      }
-    }
 
     res.json({ success: true, settings });
   });
