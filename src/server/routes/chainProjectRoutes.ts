@@ -1,7 +1,25 @@
 import type express from 'express';
+import fs from 'fs';
+import path from 'path';
 
 type ThreadItem = { id: string; label: string; updatedAt: string };
-type ProjectItem = { id: string; label: string; worktreePath?: string; agentContextPath?: string };
+type ProjectItem = {
+  id: string;
+  label: string;
+  worktreePath?: string;
+  agentContextPath?: string;
+  repositoryUrl?: string;
+  onboardingMode?: 'local' | 'repository';
+  onboardingAuthMode?: 'none' | 'oauth' | 'pat';
+  onboardingBootstrapMode?: 'none' | 'auto-template' | 'read-only';
+  onboardingReadOnly?: boolean;
+};
+
+export function isRepositoryUrlValid(raw: string): boolean {
+  const value = String(raw || '').trim();
+  if (!value) return false;
+  return /^https?:\/\/.+/i.test(value) || /^git@[^:]+:.+/i.test(value);
+}
 
 interface ChainProjectRouteDeps {
   requireRole: (req: express.Request, res: express.Response, role?: 'member' | 'admin') => any;
@@ -57,6 +75,15 @@ export function registerChainProjectRoutes(app: express.Express, deps: ChainProj
     const projectLabel = String(req.body?.projectLabel || '').trim();
     const worktreePath = String(req.body?.worktreePath || '').trim();
     const agentContextPath = String(req.body?.agentContextPath || '').trim();
+    const onboardingMode = String(req.body?.onboardingMode || '').trim().toLowerCase() === 'repository' ? 'repository' : 'local';
+    const repositoryUrl = String(req.body?.repositoryUrl || '').trim();
+    const onboardingAuthMode = String(req.body?.onboardingAuthMode || '').trim().toLowerCase();
+    const onboardingBootstrapMode = String(req.body?.onboardingBootstrapMode || '').trim().toLowerCase();
+    const normalizedAuthMode: ProjectItem['onboardingAuthMode'] =
+      onboardingAuthMode === 'oauth' || onboardingAuthMode === 'pat' ? onboardingAuthMode : 'none';
+    const normalizedBootstrapMode: ProjectItem['onboardingBootstrapMode'] =
+      onboardingBootstrapMode === 'auto-template' || onboardingBootstrapMode === 'read-only' ? onboardingBootstrapMode : 'none';
+    const onboardingReadOnly = req.body?.onboardingReadOnly === true || normalizedBootstrapMode === 'read-only';
     const selectedPlaneProjectId = String(req.body?.planeProjectId || '').trim();
     const createPlaneProject = Boolean(req.body?.createPlaneProject);
     const label = String(req.body?.label || '').trim() || `New chat ${new Date().toLocaleTimeString()}`;
@@ -68,14 +95,23 @@ export function registerChainProjectRoutes(app: express.Express, deps: ChainProj
     const creatingProject = !deps.projectStore.has(projectId);
     if (creatingProject) {
       if (projectId !== '__unbound__') {
-        const validation = deps.validateProjectWorktree(worktreePath || undefined);
-        if ('error' in validation) {
-          res.status(400).json({ success: false, error: validation.error, message: validation.message });
-          return;
-        }
-        const agentPathValidation = deps.validateAgentContextPath(agentContextPath || undefined);
-        if ('error' in agentPathValidation) {
-          res.status(400).json({ success: false, error: agentPathValidation.error, message: agentPathValidation.message });
+        if (onboardingMode === 'local') {
+          const validation = deps.validateProjectWorktree(worktreePath || undefined);
+          if ('error' in validation) {
+            res.status(400).json({ success: false, error: validation.error, message: validation.message });
+            return;
+          }
+          const agentPathValidation = deps.validateAgentContextPath(agentContextPath || undefined);
+          if ('error' in agentPathValidation) {
+            res.status(400).json({ success: false, error: agentPathValidation.error, message: agentPathValidation.message });
+            return;
+          }
+        } else if (!isRepositoryUrlValid(repositoryUrl)) {
+          res.status(400).json({
+            success: false,
+            error: 'repository_url_invalid',
+            message: 'Repository URL is required for repository onboarding mode.',
+          });
           return;
         }
 
@@ -89,29 +125,77 @@ export function registerChainProjectRoutes(app: express.Express, deps: ChainProj
         }
       }
       const derivedLabel = projectId === '__unbound__' ? 'Unbound' : (projectLabel || projectId);
-      deps.ensureProject(projectId, derivedLabel, worktreePath || undefined, agentContextPath || undefined);
-    } else if (projectLabel || worktreePath || agentContextPath) {
-      if (worktreePath) {
+      deps.ensureProject(
+        projectId,
+        derivedLabel,
+        onboardingMode === 'local' ? (worktreePath || undefined) : undefined,
+        onboardingMode === 'local' ? (agentContextPath || undefined) : undefined,
+      );
+    } else if (projectLabel || worktreePath || agentContextPath || repositoryUrl || onboardingMode) {
+      if (onboardingMode === 'local' && worktreePath) {
         const validation = deps.validateProjectWorktree(worktreePath);
         if ('error' in validation) {
           res.status(400).json({ success: false, error: validation.error, message: validation.message });
           return;
         }
       }
-      if (agentContextPath) {
+      if (onboardingMode === 'local' && agentContextPath) {
         const agentPathValidation = deps.validateAgentContextPath(agentContextPath);
         if ('error' in agentPathValidation) {
           res.status(400).json({ success: false, error: agentPathValidation.error, message: agentPathValidation.message });
           return;
         }
       }
+      if (onboardingMode === 'repository' && repositoryUrl && !isRepositoryUrlValid(repositoryUrl)) {
+        res.status(400).json({ success: false, error: 'repository_url_invalid', message: 'Repository URL is invalid.' });
+        return;
+      }
       const existing = deps.projectStore.get(projectId)!;
       deps.ensureProject(
         projectId,
         projectLabel || existing.label,
-        worktreePath || existing.worktreePath,
-        agentContextPath || existing.agentContextPath,
+        onboardingMode === 'local' ? (worktreePath || existing.worktreePath) : existing.worktreePath,
+        onboardingMode === 'local' ? (agentContextPath || existing.agentContextPath) : existing.agentContextPath,
       );
+    }
+
+    const projectRecord = deps.projectStore.get(projectId);
+    if (projectRecord && projectId !== '__unbound__') {
+      projectRecord.onboardingMode = onboardingMode;
+      projectRecord.onboardingAuthMode = normalizedAuthMode;
+      projectRecord.onboardingBootstrapMode = normalizedBootstrapMode;
+      projectRecord.onboardingReadOnly = onboardingReadOnly;
+      if (onboardingMode === 'repository') {
+        projectRecord.repositoryUrl = repositoryUrl || projectRecord.repositoryUrl;
+      }
+      if (onboardingMode === 'repository' && normalizedBootstrapMode === 'auto-template') {
+        const bootstrapPath = path.resolve(
+          process.cwd(),
+          'docs/runtime/onboarding/bootstrap',
+          `${projectId}.md`,
+        );
+        fs.mkdirSync(path.dirname(bootstrapPath), { recursive: true });
+        fs.writeFileSync(
+          bootstrapPath,
+          [
+            `# Bootstrap Template: ${projectId}`,
+            '',
+            `- mode: repository`,
+            `- repositoryUrl: ${projectRecord.repositoryUrl || repositoryUrl || 'n/a'}`,
+            `- authMode: ${normalizedAuthMode}`,
+            `- readOnly: ${String(onboardingReadOnly)}`,
+            '',
+            '## Next Steps',
+            '- Connect repository credentials (OAuth or PAT).',
+            '- Confirm agent files location or enable generated defaults.',
+            '- Run first read-only discovery pass.',
+            '',
+          ].join('\n'),
+          'utf-8',
+        );
+      }
+      deps.projectStore.set(projectId, projectRecord);
+      deps.persistRuntimeStore();
     }
 
     const project = deps.projectStore.get(projectId);
