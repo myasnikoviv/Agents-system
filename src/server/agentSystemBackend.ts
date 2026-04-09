@@ -59,7 +59,17 @@ process.on('unhandledRejection', (reason) => {
 });
 
 const settingsStore = new Map<string, unknown>();
-const projectStore = new Map<string, { id: string; label: string; worktreePath?: string; agentContextPath?: string }>();
+const projectStore = new Map<string, {
+  id: string;
+  label: string;
+  worktreePath?: string;
+  agentContextPath?: string;
+  repositoryUrl?: string;
+  onboardingMode?: 'local' | 'repository';
+  onboardingAuthMode?: 'none' | 'oauth' | 'pat';
+  onboardingBootstrapMode?: 'none' | 'auto-template' | 'read-only';
+  onboardingReadOnly?: boolean;
+}>();
 const threadStore = new Map<string, Array<{ id: string; label: string; updatedAt: string }>>();
 type PersistedChatMessage = {
   id: string;
@@ -427,7 +437,12 @@ runtimeDb.exec(`
     id TEXT PRIMARY KEY,
     label TEXT NOT NULL,
     worktree_path TEXT,
-    agent_context_path TEXT
+    agent_context_path TEXT,
+    repository_url TEXT,
+    onboarding_mode TEXT,
+    onboarding_auth_mode TEXT,
+    onboarding_bootstrap_mode TEXT,
+    onboarding_read_only INTEGER
   );
   CREATE TABLE IF NOT EXISTS cockpit_threads (
     id TEXT PRIMARY KEY,
@@ -489,6 +504,21 @@ try {
 } catch {
   // Column already exists on upgraded instances.
 }
+try {
+  runtimeDb.exec(`ALTER TABLE cockpit_projects ADD COLUMN repository_url TEXT`);
+} catch {}
+try {
+  runtimeDb.exec(`ALTER TABLE cockpit_projects ADD COLUMN onboarding_mode TEXT`);
+} catch {}
+try {
+  runtimeDb.exec(`ALTER TABLE cockpit_projects ADD COLUMN onboarding_auth_mode TEXT`);
+} catch {}
+try {
+  runtimeDb.exec(`ALTER TABLE cockpit_projects ADD COLUMN onboarding_bootstrap_mode TEXT`);
+} catch {}
+try {
+  runtimeDb.exec(`ALTER TABLE cockpit_projects ADD COLUMN onboarding_read_only INTEGER`);
+} catch {}
 
 const toPlaneIdentifier = (value: string): string =>
   value
@@ -813,7 +843,17 @@ const persistRuntimeStore = () => {
       runtimeDb.prepare('DELETE FROM cockpit_messages').run();
 
       const insertProject = runtimeDb.prepare(
-        'INSERT INTO cockpit_projects (id, label, worktree_path, agent_context_path) VALUES (?, ?, ?, ?)',
+        `INSERT INTO cockpit_projects (
+          id,
+          label,
+          worktree_path,
+          agent_context_path,
+          repository_url,
+          onboarding_mode,
+          onboarding_auth_mode,
+          onboarding_bootstrap_mode,
+          onboarding_read_only
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       );
       const insertThread = runtimeDb.prepare(
         'INSERT INTO cockpit_threads (id, project_id, label, updated_at) VALUES (?, ?, ?, ?)',
@@ -823,7 +863,17 @@ const persistRuntimeStore = () => {
       );
 
       for (const project of projectStore.values()) {
-        insertProject.run(project.id, project.label, project.worktreePath || null, project.agentContextPath || null);
+        insertProject.run(
+          project.id,
+          project.label,
+          project.worktreePath || null,
+          project.agentContextPath || null,
+          project.repositoryUrl || null,
+          project.onboardingMode || null,
+          project.onboardingAuthMode || null,
+          project.onboardingBootstrapMode || null,
+          project.onboardingReadOnly ? 1 : 0,
+        );
       }
       for (const [projectId, threads] of threadStore.entries()) {
         for (const thread of threads) {
@@ -856,8 +906,28 @@ const restoreRuntimeStore = () => {
     threadMessageStore.clear();
 
     const projects = runtimeDb.prepare(
-      'SELECT id, label, worktree_path, agent_context_path FROM cockpit_projects ORDER BY id',
-    ).all() as Array<{ id: string; label: string; worktree_path: string | null; agent_context_path: string | null }>;
+      `SELECT
+        id,
+        label,
+        worktree_path,
+        agent_context_path,
+        repository_url,
+        onboarding_mode,
+        onboarding_auth_mode,
+        onboarding_bootstrap_mode,
+        onboarding_read_only
+      FROM cockpit_projects ORDER BY id`,
+    ).all() as Array<{
+      id: string;
+      label: string;
+      worktree_path: string | null;
+      agent_context_path: string | null;
+      repository_url: string | null;
+      onboarding_mode: string | null;
+      onboarding_auth_mode: string | null;
+      onboarding_bootstrap_mode: string | null;
+      onboarding_read_only: number | null;
+    }>;
     const threads = runtimeDb.prepare(
       'SELECT id, project_id, label, updated_at FROM cockpit_threads ORDER BY updated_at DESC',
     ).all() as Array<{ id: string; project_id: string; label: string; updated_at: string }>;
@@ -871,6 +941,11 @@ const restoreRuntimeStore = () => {
         label: project.label || project.id,
         ...(project.worktree_path ? { worktreePath: project.worktree_path } : {}),
         ...(project.agent_context_path ? { agentContextPath: project.agent_context_path } : {}),
+        ...(project.repository_url ? { repositoryUrl: project.repository_url } : {}),
+        ...(project.onboarding_mode ? { onboardingMode: project.onboarding_mode as 'local' | 'repository' } : {}),
+        ...(project.onboarding_auth_mode ? { onboardingAuthMode: project.onboarding_auth_mode as 'none' | 'oauth' | 'pat' } : {}),
+        ...(project.onboarding_bootstrap_mode ? { onboardingBootstrapMode: project.onboarding_bootstrap_mode as 'none' | 'auto-template' | 'read-only' } : {}),
+        ...(project.onboarding_read_only !== null ? { onboardingReadOnly: Boolean(project.onboarding_read_only) } : {}),
       });
     }
     for (const thread of threads) {
@@ -901,7 +976,17 @@ const restoreRuntimeStore = () => {
       const raw = fs.readFileSync(RUNTIME_STORE_LEGACY_FILE_PATH, 'utf-8');
       if (raw.trim()) {
         const parsed = JSON.parse(raw) as {
-          projects?: Array<{ id: string; label: string; worktreePath?: string; agentContextPath?: string }>;
+          projects?: Array<{
+            id: string;
+            label: string;
+            worktreePath?: string;
+            agentContextPath?: string;
+            repositoryUrl?: string;
+            onboardingMode?: 'local' | 'repository';
+            onboardingAuthMode?: 'none' | 'oauth' | 'pat';
+            onboardingBootstrapMode?: 'none' | 'auto-template' | 'read-only';
+            onboardingReadOnly?: boolean;
+          }>;
           threadsByProject?: Record<string, Array<{ id: string; label: string; updatedAt: string }>>;
           messagesByThread?: Record<string, PersistedChatMessage[]>;
         };
@@ -912,6 +997,11 @@ const restoreRuntimeStore = () => {
             label: project.label || project.id,
             ...(project.worktreePath ? { worktreePath: project.worktreePath } : {}),
             ...(project.agentContextPath ? { agentContextPath: project.agentContextPath } : {}),
+            ...(project.repositoryUrl ? { repositoryUrl: project.repositoryUrl } : {}),
+            ...(project.onboardingMode ? { onboardingMode: project.onboardingMode } : {}),
+            ...(project.onboardingAuthMode ? { onboardingAuthMode: project.onboardingAuthMode } : {}),
+            ...(project.onboardingBootstrapMode ? { onboardingBootstrapMode: project.onboardingBootstrapMode } : {}),
+            ...(typeof project.onboardingReadOnly === 'boolean' ? { onboardingReadOnly: project.onboardingReadOnly } : {}),
           });
         });
         Object.entries(parsed.threadsByProject || {}).forEach(([projectId, projectThreads]) => {

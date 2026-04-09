@@ -59,6 +59,11 @@ interface RailProject {
     label: string;
     worktreePath?: string;
     agentContextPath?: string;
+    repositoryUrl?: string;
+    onboardingMode?: 'local' | 'repository';
+    onboardingAuthMode?: 'none' | 'oauth' | 'pat';
+    onboardingBootstrapMode?: 'none' | 'auto-template' | 'read-only';
+    onboardingReadOnly?: boolean;
 }
 interface RailThread {
     id: string;
@@ -319,6 +324,10 @@ export function CockpitPage() {
     const [isProjectModalOpen, setIsProjectModalOpen] = useState(false);
     const [projectDirectory, setProjectDirectory] = useState('');
     const [projectAgentContextDirectory, setProjectAgentContextDirectory] = useState('');
+    const [projectOnboardingMode, setProjectOnboardingMode] = useState<'local' | 'repository'>('local');
+    const [projectRepositoryUrl, setProjectRepositoryUrl] = useState('');
+    const [projectRepositoryAuthMode, setProjectRepositoryAuthMode] = useState<'none' | 'oauth' | 'pat'>('oauth');
+    const [projectBootstrapMode, setProjectBootstrapMode] = useState<'none' | 'auto-template' | 'read-only'>('read-only');
     const [planeProjectOptions, setPlaneProjectOptions] = useState<PlaneProjectOption[]>([]);
     const [selectedPlaneProjectId, setSelectedPlaneProjectId] = useState('');
     const [createPlaneProject, setCreatePlaneProject] = useState(false);
@@ -1747,7 +1756,18 @@ export function CockpitPage() {
     const handleCreateChain = async (
         projectIdArg?: string,
         labelArg?: string,
-        options?: { projectLabel?: string; worktreePath?: string; agentContextPath?: string; planeProjectId?: string; createPlaneProject?: boolean },
+        options?: {
+            projectLabel?: string;
+            worktreePath?: string;
+            agentContextPath?: string;
+            planeProjectId?: string;
+            createPlaneProject?: boolean;
+            onboardingMode?: 'local' | 'repository';
+            repositoryUrl?: string;
+            onboardingAuthMode?: 'none' | 'oauth' | 'pat';
+            onboardingBootstrapMode?: 'none' | 'auto-template' | 'read-only';
+            onboardingReadOnly?: boolean;
+        },
     ): Promise<boolean> => {
         const projectId = projectIdArg || selectedProject;
         if (!projectId) return false;
@@ -1762,6 +1782,11 @@ export function CockpitPage() {
                 agentContextPath: options?.agentContextPath,
                 planeProjectId: options?.planeProjectId,
                 createPlaneProject: options?.createPlaneProject,
+                onboardingMode: options?.onboardingMode,
+                repositoryUrl: options?.repositoryUrl,
+                onboardingAuthMode: options?.onboardingAuthMode,
+                onboardingBootstrapMode: options?.onboardingBootstrapMode,
+                onboardingReadOnly: options?.onboardingReadOnly,
             }),
         });
         let data: any = null;
@@ -1904,6 +1929,10 @@ export function CockpitPage() {
     const openProjectModal = () => {
         setProjectDirectory('');
         setProjectAgentContextDirectory('');
+        setProjectOnboardingMode('local');
+        setProjectRepositoryUrl('');
+        setProjectRepositoryAuthMode('oauth');
+        setProjectBootstrapMode('read-only');
         setSelectedPlaneProjectId('');
         setCreatePlaneProject(false);
         setPlaneProjectOptions([]);
@@ -1916,6 +1945,10 @@ export function CockpitPage() {
         setIsProjectModalOpen(false);
         setProjectDirectory('');
         setProjectAgentContextDirectory('');
+        setProjectOnboardingMode('local');
+        setProjectRepositoryUrl('');
+        setProjectRepositoryAuthMode('oauth');
+        setProjectBootstrapMode('read-only');
         setSelectedPlaneProjectId('');
         setCreatePlaneProject(false);
         setPlaneProjectOptions([]);
@@ -1926,19 +1959,33 @@ export function CockpitPage() {
     const handleAddNewProject = async () => {
         const absoluteDirectory = projectDirectory.trim();
         const absoluteAgentContextDirectory = projectAgentContextDirectory.trim();
-        if (!isAbsolutePath(absoluteDirectory)) {
-            setProviderMessage('Project directory must be an absolute path.');
-            return;
-        }
-        if (!isAbsolutePath(absoluteAgentContextDirectory)) {
-            setProviderMessage('Agent files directory must be an absolute path.');
+        const repositoryUrl = projectRepositoryUrl.trim();
+        if (projectOnboardingMode === 'local') {
+            if (!isAbsolutePath(absoluteDirectory)) {
+                setProviderMessage('Project directory must be an absolute path.');
+                return;
+            }
+            if (!isAbsolutePath(absoluteAgentContextDirectory)) {
+                setProviderMessage('Agent files directory must be an absolute path.');
+                return;
+            }
+        } else if (!repositoryUrl) {
+            setProviderMessage('Repository URL is required for repository onboarding.');
             return;
         }
         if (!selectedPlaneProjectId && !createPlaneProject) {
             setProviderMessage('Select an existing Plane project or enable "Create new Plane project".');
             return;
         }
-        const folderName = getFolderNameFromPath(absoluteDirectory);
+        const repoDerivedName = repositoryUrl
+            .split('/')
+            .filter(Boolean)
+            .pop()
+            ?.replace(/\.git$/i, '')
+            || '';
+        const folderName = projectOnboardingMode === 'local'
+            ? getFolderNameFromPath(absoluteDirectory)
+            : repoDerivedName;
         if (!folderName) return;
         const projectId = getUniqueProjectId(slugifyProjectId(folderName));
         const created = await handleCreateChain(projectId, 'New chat', {
@@ -1947,6 +1994,11 @@ export function CockpitPage() {
             agentContextPath: absoluteAgentContextDirectory || undefined,
             planeProjectId: selectedPlaneProjectId || undefined,
             createPlaneProject,
+            onboardingMode: projectOnboardingMode,
+            repositoryUrl: repositoryUrl || undefined,
+            onboardingAuthMode: projectRepositoryAuthMode,
+            onboardingBootstrapMode: projectBootstrapMode,
+            onboardingReadOnly: projectBootstrapMode === 'read-only',
         });
         if (!created) return;
         setSelectedProject(projectId);
@@ -3092,10 +3144,56 @@ export function CockpitPage() {
                 <div className="cockpit-modal-overlay" role="dialog" aria-modal="true" aria-labelledby="project-modal-title">
                     <div className="cockpit-modal-panel">
                         <div>
-                            <h3 id="project-modal-title" className="cockpit-modal-title">Add Project Directory</h3>
-                            <p className="cockpit-modal-subtitle">Select a working folder. Project name is generated from the folder name.</p>
+                            <h3 id="project-modal-title" className="cockpit-modal-title">Add Project</h3>
+                            <p className="cockpit-modal-subtitle">Choose local folder onboarding or repository-first onboarding.</p>
                         </div>
                         <div className="cockpit-modal-form">
+                            <label htmlFor="project-onboarding-mode" className="cockpit-modal-label">Onboarding Mode</label>
+                            <select
+                                id="project-onboarding-mode"
+                                value={projectOnboardingMode}
+                                onChange={(e) => setProjectOnboardingMode(e.target.value as 'local' | 'repository')}
+                                className="cockpit-modal-input"
+                            >
+                                <option value="local">Local directory</option>
+                                <option value="repository">Repository-first</option>
+                            </select>
+                            {projectOnboardingMode === 'repository' && (
+                                <>
+                                    <label htmlFor="project-repository-url" className="cockpit-modal-label">Repository URL</label>
+                                    <input
+                                        id="project-repository-url"
+                                        value={projectRepositoryUrl}
+                                        onChange={(e) => setProjectRepositoryUrl(e.target.value)}
+                                        placeholder="https://github.com/org/repo.git"
+                                        className="cockpit-modal-input"
+                                    />
+                                    <label htmlFor="project-repo-auth-mode" className="cockpit-modal-label">Repository Auth</label>
+                                    <select
+                                        id="project-repo-auth-mode"
+                                        value={projectRepositoryAuthMode}
+                                        onChange={(e) => setProjectRepositoryAuthMode(e.target.value as 'none' | 'oauth' | 'pat')}
+                                        className="cockpit-modal-input"
+                                    >
+                                        <option value="oauth">OAuth</option>
+                                        <option value="pat">PAT</option>
+                                        <option value="none">None (read-only)</option>
+                                    </select>
+                                    <label htmlFor="project-bootstrap-mode" className="cockpit-modal-label">Bootstrap Mode</label>
+                                    <select
+                                        id="project-bootstrap-mode"
+                                        value={projectBootstrapMode}
+                                        onChange={(e) => setProjectBootstrapMode(e.target.value as 'none' | 'auto-template' | 'read-only')}
+                                        className="cockpit-modal-input"
+                                    >
+                                        <option value="read-only">Read-only fallback</option>
+                                        <option value="auto-template">Auto template</option>
+                                        <option value="none">None</option>
+                                    </select>
+                                </>
+                            )}
+                            {projectOnboardingMode === 'local' && (
+                                <>
                             <label htmlFor="project-directory-input" className="cockpit-modal-label">Directory Path</label>
                             <div className="cockpit-modal-row">
                                 <input
@@ -3123,6 +3221,8 @@ export function CockpitPage() {
                             <div className="cockpit-modal-hint">
                                 Absolute path to directory containing <code>AGENTS.md</code> and agent/pipeline docs.
                             </div>
+                                </>
+                            )}
                             <label htmlFor="plane-project-select" className="cockpit-modal-label">Plane Project</label>
                             <select
                                 id="plane-project-select"
@@ -3170,7 +3270,13 @@ export function CockpitPage() {
                             <button
                                 type="button"
                                 className="cockpit-modal-primary"
-                                disabled={!isAbsolutePath(projectDirectory) || !isAbsolutePath(projectAgentContextDirectory) || (!selectedPlaneProjectId && !createPlaneProject)}
+                                disabled={
+                                    (
+                                        projectOnboardingMode === 'local'
+                                            ? (!isAbsolutePath(projectDirectory) || !isAbsolutePath(projectAgentContextDirectory))
+                                            : projectRepositoryUrl.trim().length === 0
+                                    ) || (!selectedPlaneProjectId && !createPlaneProject)
+                                }
                                 onClick={() => { void handleAddNewProject(); }}
                             >
                                 Create Project
