@@ -50,3 +50,9 @@ This lowers duplicate-spawn risk across multi-host runtime nodes while preservin
 2. Lock key namespace: `runtime:worker:lock:<projectId>:<agentSlug>`.
 3. Added ownership-safe unlock (Lua compare-and-delete by lock token).
 4. Purpose: avoid concurrent worker spawn/reuse races across multi-host nodes.
+
+## Slice 5 (Shared-Mode Validation)
+1. Executed targeted regressions with runtime flags enabled:
+   - `RUNTIME_SHARED_DISPATCH_QUEUE_BACKEND=redis`
+   - `RUNTIME_SHARED_WORKER_STATE_BACKEND=redis`
+2. Added async test cleanup for worker manager (`clearAsync`) to prevent shared-state residue in redis mode.

@@ -188,6 +188,12 @@ async function sharedPoolSet(key: string, record: RuntimeWorkerRecord): Promise<
   await redis.hset(SHARED_WORKER_POOL_HASH, key, JSON.stringify(record));
 }
 
+async function sharedPoolDelete(key: string): Promise<void> {
+  if (!useSharedWorkerState()) return;
+  const redis = getRedisClient();
+  await redis.hdel(SHARED_WORKER_POOL_HASH, key);
+}
+
 async function acquireWorkerLock(key: string): Promise<{ acquired: boolean; token: string }> {
   if (!useSharedWorkerState()) return { acquired: true, token: 'local' };
   const redis = getRedisClient();
@@ -738,6 +744,22 @@ export class DynamicWorkerSpawnManager {
     pausedProjectsClear();
   }
 
+  static async clearAsync(): Promise<void> {
+    this.clear();
+    if (!useSharedWorkerState()) return;
+    const redis = getRedisClient();
+    await redis.del(SHARED_WORKER_POOL_HASH);
+    let cursor = '0';
+    do {
+      const reply = await redis.scan(cursor, 'MATCH', `${SHARED_WORKER_LOCK_PREFIX}:*`, 'COUNT', 200);
+      cursor = String(reply[0] || '0');
+      const keys = Array.isArray(reply[1]) ? (reply[1] as string[]) : [];
+      if (keys.length > 0) {
+        await redis.del(...keys);
+      }
+    } while (cursor !== '0');
+  }
+
   static setProjectPaused(projectId: string, paused: boolean): void {
     const id = String(projectId || '').trim();
     if (!id) return;
@@ -787,6 +809,7 @@ export class DynamicWorkerSpawnManager {
         record.lastUsedAt = Date.now();
         record.lastHeartbeatAt = Date.now();
         poolSet(key, record);
+        await sharedPoolSet(key, record);
         return { ok: true, worker: { ...record } };
       }
 
@@ -804,6 +827,7 @@ export class DynamicWorkerSpawnManager {
         record.lastHeartbeatAt = Date.now();
         record.heartbeatCount += 1;
         poolSet(key, record);
+        await sharedPoolSet(key, record);
         return { ok: true, worker: { ...record } };
       }
 
@@ -818,6 +842,7 @@ export class DynamicWorkerSpawnManager {
           return { ok: false, reason: `restart_not_allowed_from_${record.state}` };
         }
         poolDelete(key);
+        await sharedPoolDelete(key);
         const restarted = await this.ensureWorker(
           {
             ...controlEnvelope,
@@ -848,6 +873,7 @@ export class DynamicWorkerSpawnManager {
           return { ok: false, reason: `kill_not_allowed_from_${record.state}` };
         }
         poolDelete(key);
+        await sharedPoolDelete(key);
         return { ok: true, removed: true };
       }
 
