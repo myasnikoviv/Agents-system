@@ -12,7 +12,7 @@ import { SqliteObjectStorageService } from './storage/ObjectStorageService';
 import { SqliteSecretsStore } from './storage/SecretsStore';
 import { executeRuntimeRun, resumeRuntimeRun } from '../runtime/graphs/RuntimeExecutionRouter';
 import { detectLanguage } from '../runtime/LanguageDetection';
-import { fetchRecentEvents } from '../runtime/events/EventBus';
+import { fetchRecentEvents, fetchEventsByRunId } from '../runtime/events/EventBus';
 import { updateCockpitExecutorConfig, getCockpitExecutorConfig } from '../runtime/CockpitExecutorConfig';
 import { DynamicDiscoveryService, AgentRegistry, PipelineRegistry, SkillRegistry } from '../runtime/DynamicDiscoveryService';
 import { runExternalExecutor } from '../runtime/ExternalExecutionAdapter';
@@ -206,7 +206,12 @@ const inferTelemetryCategory = (type: string): UnifiedTelemetryEvent['category']
   return 'other';
 };
 
-const readControlActionAuditRows = (projectId?: string): any[] => {
+const readControlActionAuditRows = async (projectId?: string): Promise<any[]> => {
+  const pgRows = await postgresStore.listAuditActions({
+    projectId: projectId || undefined,
+    limit: 5000,
+  });
+  if (pgRows.length > 0) return pgRows;
   if (!fs.existsSync(CONTROL_ACTION_AUDIT_FILE)) return [];
   return fs
     .readFileSync(CONTROL_ACTION_AUDIT_FILE, 'utf-8')
@@ -223,7 +228,26 @@ const readControlActionAuditRows = (projectId?: string): any[] => {
     .filter((row: any) => (projectId ? String(row.projectId || '') === projectId : true));
 };
 
-const readRunLedgerEvents = (input: { runId?: string; projectId?: string; limit?: number }): any[] => {
+const readRunLedgerEvents = async (input: { runId?: string; projectId?: string; limit?: number }): Promise<any[]> => {
+  const limit = Math.max(1, Math.min(1000, Number(input.limit || 200)));
+  if (input.runId) {
+    const runEvents = await fetchEventsByRunId({
+      runId: input.runId,
+      projectId: input.projectId,
+      count: Math.max(2000, limit),
+    });
+    if (runEvents.length > 0) {
+      return runEvents.slice(-limit);
+    }
+  } else {
+    const recent = await fetchRecentEvents(Math.max(2000, limit));
+    const filtered = recent
+      .filter((row: any) => (input.projectId ? String(row?.projectId || '') === input.projectId : true))
+      .sort((a: any, b: any) => Number(a?.timestamp || 0) - Number(b?.timestamp || 0));
+    if (filtered.length > 0) {
+      return filtered.slice(-limit);
+    }
+  }
   if (!fs.existsSync(RUN_LEDGER_DIR)) return [];
   const files = input.runId
     ? [`${input.runId}.jsonl`]
@@ -243,7 +267,7 @@ const readRunLedgerEvents = (input: { runId?: string; projectId?: string; limit?
       }
     }
   }
-  return out.slice(-(Math.max(1, Math.min(1000, Number(input.limit || 200)))));
+  return out.slice(-limit);
 };
 
 const normalizeRuntimeEvent = (row: any): UnifiedTelemetryEvent => {

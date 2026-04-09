@@ -165,4 +165,49 @@ export class PostgresControlPlaneStore {
     );
     return true;
   }
+
+  async listAuditActions(input?: {
+    projectId?: string;
+    limit?: number;
+  }): Promise<
+    Array<{
+      id?: string;
+      timestamp: string;
+      action: string;
+      projectId?: string | null;
+      actorId?: string | null;
+      reason?: string | null;
+      target?: Record<string, any>;
+      result?: Record<string, any>;
+    }>
+  > {
+    if (!(await this.ensureReady())) return [];
+    const limit = Math.max(1, Math.min(5000, Number(input?.limit || 1000)));
+    const projectId = String(input?.projectId || '').trim();
+    const sql = projectId
+      ? `SELECT id, action, project_id, actor_id, reason, target_json, result_json, created_at
+         FROM cockpit_audit_meta_pg
+         WHERE project_id = $1
+         ORDER BY id DESC
+         LIMIT $2`
+      : `SELECT id, action, project_id, actor_id, reason, target_json, result_json, created_at
+         FROM cockpit_audit_meta_pg
+         ORDER BY id DESC
+         LIMIT $1`;
+    const params = projectId ? [projectId, limit] : [limit];
+    const result = await this.client!.query(sql, params);
+    const rows = Array.isArray(result?.rows) ? result.rows : [];
+    return rows
+      .map((row: any) => ({
+        id: row?.id ? String(row.id) : undefined,
+        timestamp: String(row?.created_at || new Date().toISOString()),
+        action: String(row?.action || 'control.unknown'),
+        projectId: row?.project_id ? String(row.project_id) : null,
+        actorId: row?.actor_id ? String(row.actor_id) : null,
+        reason: row?.reason ? String(row.reason) : null,
+        target: (row?.target_json && typeof row.target_json === 'object') ? row.target_json : {},
+        result: (row?.result_json && typeof row.result_json === 'object') ? row.result_json : {},
+      }))
+      .reverse();
+  }
 }

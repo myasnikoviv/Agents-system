@@ -17,3 +17,4 @@
 ## Notes
 - Ticket moved to In Progress in Plane.
 - Starting FS-to-centralized persistence cutover slice 1.
+- Slice 1 complete: telemetry/audit read paths switched to centralized-first (Postgres/Redis) with FS fallback.
