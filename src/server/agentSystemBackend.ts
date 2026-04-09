@@ -26,6 +26,13 @@ import { registerProviderSettingsRoutes } from './routes/providerSettingsRoutes'
 import { registerChainProjectRoutes } from './routes/chainProjectRoutes';
 import { registerSecretsRoutes } from './routes/secretsRoutes';
 import { registerAttachmentStorageRoutes } from './routes/attachmentStorageRoutes';
+import { loadServiceRegistry } from '../runtime/control-plane/ServiceRegistryLoader';
+import { LocalProcessAdapter } from '../runtime/control-plane/LocalProcessAdapter';
+import { DockerAdapter } from '../runtime/control-plane/DockerAdapter';
+import { ServiceExecutionAdapterRegistry } from '../runtime/control-plane/adapters/ServiceExecutionAdapter';
+import { ControlPlaneRuntimeManager } from '../runtime/control-plane/ControlPlaneRuntimeManager';
+import { registerControlPlaneRoutes } from './routes/controlPlaneRoutes';
+import { ServiceLifecycleEventBus } from '../runtime/control-plane/ServiceLifecycleEvents';
 
 dotenv.config();
 
@@ -35,6 +42,14 @@ const HOST = process.env.AGENT_SYSTEM_BACKEND_HOST || '127.0.0.1';
 const app = express();
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
+
+const controlPlaneRegistrySource = path.resolve(process.cwd(), 'config/control-plane/service-registry.yaml');
+const loadedControlPlaneRegistry = loadServiceRegistry(controlPlaneRegistrySource).registry;
+const controlPlaneAdapterRegistry = new ServiceExecutionAdapterRegistry();
+const controlPlaneEventBus = new ServiceLifecycleEventBus();
+controlPlaneAdapterRegistry.register(new LocalProcessAdapter());
+controlPlaneAdapterRegistry.register(new DockerAdapter());
+const controlPlaneRuntimeManager = new ControlPlaneRuntimeManager(loadedControlPlaneRegistry, controlPlaneAdapterRegistry, controlPlaneEventBus);
 
 process.on('uncaughtException', (error) => {
   console.error('[agent-system-backend] uncaughtException:', error);
@@ -2882,6 +2897,12 @@ registerProviderSettingsRoutes(app, {
     runtimeFooter = next;
   },
   runExternalExecutor,
+});
+
+registerControlPlaneRoutes(app, {
+  requireRole,
+  manager: controlPlaneRuntimeManager,
+  appendControlActionAudit,
 });
 
 app.get('/api/cockpit/storage/postgres/health', async (_req, res) => {

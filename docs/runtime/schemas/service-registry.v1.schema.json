@@ -1,0 +1,135 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://agent-system.local/schemas/service-registry.v1.schema.json",
+  "title": "Service Registry v1",
+  "type": "object",
+  "required": ["schemaVersion", "services"],
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": {
+      "type": "string",
+      "const": "service-registry.v1"
+    },
+    "services": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "$ref": "#/$defs/serviceDescriptor"
+      }
+    }
+  },
+  "$defs": {
+    "serviceDescriptor": {
+      "type": "object",
+      "required": ["type", "runtime", "desired"],
+      "additionalProperties": true,
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["api", "worker", "infra"]
+        },
+        "runtime": {
+          "type": "string",
+          "enum": ["node", "docker", "external"]
+        },
+        "desired": {
+          "oneOf": [
+            {
+              "type": "string",
+              "enum": ["running", "stopped"]
+            },
+            {
+              "type": "object",
+              "required": ["state"],
+              "additionalProperties": true,
+              "properties": {
+                "state": {
+                  "type": "string",
+                  "enum": ["running", "stopped"]
+                },
+                "restartPolicy": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "properties": {
+                    "mode": {
+                      "type": "string",
+                      "enum": ["never", "on-failure", "always"]
+                    },
+                    "maxRetries": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "backoffMs": {
+                      "type": "integer",
+                      "minimum": 0
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        },
+        "entrypoint": {
+          "type": "string",
+          "minLength": 1
+        },
+        "args": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "env": {
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        },
+        "health": {
+          "type": "object",
+          "additionalProperties": true,
+          "properties": {
+            "protocol": {
+              "type": "string",
+              "enum": ["http", "heartbeat", "process", "none"]
+            },
+            "endpoint": {
+              "type": "string"
+            },
+            "intervalMs": {
+              "type": "integer",
+              "minimum": 100
+            },
+            "timeoutMs": {
+              "type": "integer",
+              "minimum": 100
+            },
+            "expectedStatus": {
+              "type": "integer",
+              "minimum": 100,
+              "maximum": 599
+            }
+          }
+        },
+        "restartPolicy": {
+          "type": "object",
+          "additionalProperties": true,
+          "properties": {
+            "mode": {
+              "type": "string",
+              "enum": ["never", "on-failure", "always"]
+            },
+            "maxRetries": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "backoffMs": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        },
+        "metadata": {
+          "type": "object",
+          "additionalProperties": true
+        }
+      }
+    }
+  }
+}
