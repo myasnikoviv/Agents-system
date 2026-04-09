@@ -58,6 +58,7 @@ export type WorkerControlAction = 'pause' | 'resume' | 'restart' | 'kill';
 let db: Database.Database | null = null;
 const SHARED_WORKER_BACKEND = String(process.env.RUNTIME_SHARED_WORKER_STATE_BACKEND || '').trim().toLowerCase();
 const SHARED_WORKER_POOL_HASH = 'runtime:worker:pool';
+const SHARED_WORKER_LOCK_PREFIX = 'runtime:worker:lock';
 
 function getDb(): Database.Database {
   if (db) return db;
@@ -185,6 +186,33 @@ async function sharedPoolSet(key: string, record: RuntimeWorkerRecord): Promise<
   if (!useSharedWorkerState()) return;
   const redis = getRedisClient();
   await redis.hset(SHARED_WORKER_POOL_HASH, key, JSON.stringify(record));
+}
+
+async function acquireWorkerLock(key: string): Promise<{ acquired: boolean; token: string }> {
+  if (!useSharedWorkerState()) return { acquired: true, token: 'local' };
+  const redis = getRedisClient();
+  const token = `${Date.now().toString(36)}:${Math.random().toString(36).slice(2, 10)}`;
+  const lockKey = `${SHARED_WORKER_LOCK_PREFIX}:${key}`;
+  const ttlMs = Math.max(1000, Number(process.env.RUNTIME_SHARED_WORKER_LOCK_TTL_MS || 5000));
+  const result = await redis.set(lockKey, token, 'PX', ttlMs, 'NX');
+  return { acquired: result === 'OK', token };
+}
+
+async function releaseWorkerLock(key: string, token: string): Promise<void> {
+  if (!useSharedWorkerState()) return;
+  const redis = getRedisClient();
+  const lockKey = `${SHARED_WORKER_LOCK_PREFIX}:${key}`;
+  await redis.eval(
+    `
+    if redis.call('GET', KEYS[1]) == ARGV[1] then
+      return redis.call('DEL', KEYS[1])
+    end
+    return 0
+    `,
+    1,
+    lockKey,
+    token,
+  );
 }
 
 function pausedProjectHas(projectId: string): boolean {
@@ -356,97 +384,102 @@ export class DynamicWorkerSpawnManager {
     }
     const agentSlug = String(input.agentSlug || 'system-core').trim() || 'system-core';
     const key = keyOf(projectId, agentSlug);
-    const sharedExisting = await sharedPoolGet(key);
-    if (sharedExisting) {
-      poolSet(key, sharedExisting);
+    const lock = await acquireWorkerLock(key);
+    if (!lock.acquired) {
+      throw new Error(`worker_lock_busy:${key}`);
     }
-    const existing = sharedExisting || poolGet(key);
+    try {
+      const sharedExisting = await sharedPoolGet(key);
+      if (sharedExisting) {
+        poolSet(key, sharedExisting);
+      }
+      const existing = sharedExisting || poolGet(key);
 
-    if (existing) {
-      if (existing.manuallyPaused) {
-        throw new Error(`worker_paused:${existing.workerId}`);
+      if (existing) {
+        if (existing.manuallyPaused) {
+          throw new Error(`worker_paused:${existing.workerId}`);
+        }
+        existing.lastUsedAt = Date.now();
+        existing.lastHeartbeatAt = Date.now();
+        existing.heartbeatCount += 1;
+        existing.runCount += 1;
+        existing.assignedTask = {
+          taskId: String(input.taskId || `${input.projectId}:${input.agentSlug}:${input.runId}`),
+          stageId: input.stageId,
+          pipelineId: input.pipelineId,
+          runId: input.runId,
+          taskMemoryNamespace: taskMemoryNamespace(
+            projectId,
+            agentSlug,
+            String(input.taskId || `${input.projectId}:${input.agentSlug}:${input.runId}`),
+          ),
+        };
+        if (Number(input.retryCount || 0) > 0) {
+          existing.retryTaskCount += Number(input.retryCount || 0);
+        }
+        if (existing.state === 'failed') {
+          await this.transitionState(existing, 'cold', input, emitEvents);
+          await this.transitionState(existing, 'starting', input, emitEvents);
+          await this.transitionState(existing, 'hot', input, emitEvents);
+        }
+        await this.transitionState(existing, 'active', input, emitEvents);
+        if (emitEvents) {
+          await emitRuntimeEvent({
+            type: 'worker.reused',
+            runId: input.runId,
+            projectId,
+            chainId: input.chainId,
+            payload: {
+              agentSlug,
+              workerId: existing.workerId,
+              identityKey: existing.identityKey,
+              memoryNamespace: existing.memoryNamespace,
+            },
+          });
+        }
+        poolSet(key, existing);
+        await sharedPoolSet(key, existing);
+        return { worker: { ...existing }, spawned: false };
       }
-      existing.lastUsedAt = Date.now();
-      existing.lastHeartbeatAt = Date.now();
-      existing.heartbeatCount += 1;
-      existing.runCount += 1;
-      existing.assignedTask = {
-        taskId: String(input.taskId || `${input.projectId}:${input.agentSlug}:${input.runId}`),
-        stageId: input.stageId,
-        pipelineId: input.pipelineId,
-        runId: input.runId,
-        taskMemoryNamespace: taskMemoryNamespace(
-          projectId,
-          agentSlug,
-          String(input.taskId || `${input.projectId}:${input.agentSlug}:${input.runId}`),
-        ),
-      };
-      if (Number(input.retryCount || 0) > 0) {
-        existing.retryTaskCount += Number(input.retryCount || 0);
+
+      const cap = this.enforcePoolCaps(projectId);
+      if (!cap.ok) {
+        throw new Error(`DynamicWorkerSpawnManager cap enforcement failed: ${cap.reason || 'capacity_exhausted'}`);
       }
-      if (existing.state === 'failed') {
-        await this.transitionState(existing, 'cold', input, emitEvents);
-        await this.transitionState(existing, 'starting', input, emitEvents);
-        await this.transitionState(existing, 'hot', input, emitEvents);
+
+      const identity = buildAgentIdentity({ projectId, agentSlug, ...(input.workerId ? { workerId: input.workerId } : {}) });
+      const isolation = assertWorkerProjectIsolation(identity);
+      if (!isolation.ok) {
+        if (emitEvents) {
+          await emitRuntimeEvent({
+            type: 'worker.failed',
+            runId: input.runId,
+            projectId,
+            chainId: input.chainId,
+            payload: {
+              agentSlug,
+              reason: isolation.reason || 'worker_identity_isolation_failed',
+            },
+          });
+        }
+        throw new Error(`DynamicWorkerSpawnManager isolation failed: ${isolation.reason || 'unknown'}`);
       }
-      await this.transitionState(existing, 'active', input, emitEvents);
+
       if (emitEvents) {
         await emitRuntimeEvent({
-          type: 'worker.reused',
+          type: 'worker.starting',
           runId: input.runId,
           projectId,
           chainId: input.chainId,
           payload: {
             agentSlug,
-            workerId: existing.workerId,
-            identityKey: existing.identityKey,
-            memoryNamespace: existing.memoryNamespace,
+            workerId: identity.workerId,
+            identityKey: identity.identityKey,
           },
         });
       }
-      poolSet(key, existing);
-      await sharedPoolSet(key, existing);
-      return { worker: { ...existing }, spawned: false };
-    }
 
-    const cap = this.enforcePoolCaps(projectId);
-    if (!cap.ok) {
-      throw new Error(`DynamicWorkerSpawnManager cap enforcement failed: ${cap.reason || 'capacity_exhausted'}`);
-    }
-
-    const identity = buildAgentIdentity({ projectId, agentSlug, ...(input.workerId ? { workerId: input.workerId } : {}) });
-    const isolation = assertWorkerProjectIsolation(identity);
-    if (!isolation.ok) {
-      if (emitEvents) {
-        await emitRuntimeEvent({
-          type: 'worker.failed',
-          runId: input.runId,
-          projectId,
-          chainId: input.chainId,
-          payload: {
-            agentSlug,
-            reason: isolation.reason || 'worker_identity_isolation_failed',
-          },
-        });
-      }
-      throw new Error(`DynamicWorkerSpawnManager isolation failed: ${isolation.reason || 'unknown'}`);
-    }
-
-    if (emitEvents) {
-      await emitRuntimeEvent({
-        type: 'worker.starting',
-        runId: input.runId,
-        projectId,
-        chainId: input.chainId,
-        payload: {
-          agentSlug,
-          workerId: identity.workerId,
-          identityKey: identity.identityKey,
-        },
-      });
-    }
-
-    const record: RuntimeWorkerRecord = {
+      const record: RuntimeWorkerRecord = {
       projectId,
       agentSlug,
       workerId: identity.workerId,
@@ -478,29 +511,32 @@ export class DynamicWorkerSpawnManager {
       },
       manuallyPaused: false,
     };
-    poolSet(key, record);
-    await sharedPoolSet(key, record);
-    await this.transitionState(record, 'starting', input, emitEvents);
-    await this.transitionState(record, 'hot', input, emitEvents);
-    await this.transitionState(record, 'active', input, emitEvents);
+      poolSet(key, record);
+      await sharedPoolSet(key, record);
+      await this.transitionState(record, 'starting', input, emitEvents);
+      await this.transitionState(record, 'hot', input, emitEvents);
+      await this.transitionState(record, 'active', input, emitEvents);
 
-    if (emitEvents) {
-      await emitRuntimeEvent({
-        type: 'worker.spawned',
-        runId: input.runId,
-        projectId,
-        chainId: input.chainId,
-        payload: {
-          agentSlug,
-          workerId: record.workerId,
-          identityKey: record.identityKey,
-          memoryNamespace: record.memoryNamespace,
-          poolSize: poolSize(),
-        },
-      });
+      if (emitEvents) {
+        await emitRuntimeEvent({
+          type: 'worker.spawned',
+          runId: input.runId,
+          projectId,
+          chainId: input.chainId,
+          payload: {
+            agentSlug,
+            workerId: record.workerId,
+            identityKey: record.identityKey,
+            memoryNamespace: record.memoryNamespace,
+            poolSize: poolSize(),
+          },
+        });
+      }
+
+      return { worker: { ...record }, spawned: true };
+    } finally {
+      await releaseWorkerLock(key, lock.token);
     }
-
-    return { worker: { ...record }, spawned: true };
   }
 
   static async releaseToStandby(input: EnsureWorkerInput, options?: { emitEvents?: boolean }): Promise<void> {

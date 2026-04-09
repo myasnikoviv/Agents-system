@@ -44,3 +44,9 @@ This lowers duplicate-spawn risk across multi-host runtime nodes while preservin
    - `setTaskPriorityAsync`, `clearProjectAsync`, `clearAsync`
 2. Updated cockpit queue endpoints to use async queue operations, including control actions and telemetry reads.
 3. Kept legacy sync APIs for compatibility with still-migrating call sites.
+
+## Slice 4 (Distributed Worker Locking)
+1. Added shared-worker distributed lock in `DynamicWorkerSpawnManager.ensureWorker` (Redis-backed).
+2. Lock key namespace: `runtime:worker:lock:<projectId>:<agentSlug>`.
+3. Added ownership-safe unlock (Lua compare-and-delete by lock token).
+4. Purpose: avoid concurrent worker spawn/reuse races across multi-host nodes.
