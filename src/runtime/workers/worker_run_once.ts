@@ -14,6 +14,31 @@ async function main() {
   const payload = JSON.parse(raw || '{}');
   const runContext = payload?.runContext;
 
+  // Probe mode for worker-process model tests:
+  // verifies process identity and confirms no shared in-process memory across runs.
+  if (runContext?.__processProbe) {
+    const beforeSharedMarker = Boolean((globalThis as any).__AGSYS_WORKER_SHARED_MARKER);
+    if (runContext?.__processProbe?.setSharedMarker) {
+      (globalThis as any).__AGSYS_WORKER_SHARED_MARKER = true;
+    }
+    const afterSharedMarker = Boolean((globalThis as any).__AGSYS_WORKER_SHARED_MARKER);
+    fs.writeFileSync(
+      path.resolve(outputPath),
+      JSON.stringify({
+        ok: true,
+        content: JSON.stringify({
+          pid: process.pid,
+          agentSlug: String(runContext?.agent?.slug || ''),
+          workerId: String(runContext?.memory?.workerId || ''),
+          beforeSharedMarker,
+          afterSharedMarker,
+        }),
+      }),
+      'utf8',
+    );
+    return;
+  }
+
   try {
     const executor = new AgentExecutor();
     const result = await executor.run(runContext);
