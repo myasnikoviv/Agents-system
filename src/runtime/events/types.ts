@@ -33,7 +33,12 @@ export type RuntimeEventType =
   | 'worker.heartbeat'
   | 'worker.unhealthy'
   | 'task.queued'
-  | 'task.dispatched';
+  | 'task.dispatched'
+  | 'usage.token_usage'
+  | 'usage.tool_execution'
+  | 'usage.runtime_time'
+  | 'usage.storage_usage'
+  | 'usage.mcp_usage';
 
 export interface RuntimeEvent {
   id: string;

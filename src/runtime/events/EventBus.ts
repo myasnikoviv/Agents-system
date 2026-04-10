@@ -4,58 +4,12 @@ import { appendRunLedger } from '../RunLedger';
 import { syncPlaneLifecycleForEvent } from '../PlaneLifecycleOrchestrator';
 import { RunContext } from '../context/RunContext';
 import { RuntimeEvent, RuntimeEventType } from './types';
+import { validateCanonicalEventInput } from './EventValidation';
+import { usageMeteringPipeline } from '../billing/UsageMeteringPipeline';
 
 export { RuntimeEvent, RuntimeEventType };
 
 const EVENT_STREAM_KEY = 'events:runtime_hub';
-const KNOWN_EVENT_TYPES = new Set<string>([
-  'run.started',
-  'run.completed',
-  'run.cancelled',
-  'agent.started',
-  'agent.completed',
-  'agent.message',
-  'research.completed',
-  'system.thought',
-  'swarm.handoff',
-  'tool.call',
-  'tool.result',
-  'guard.triggered',
-  'guard.block',
-  'guard.retry',
-  'guard.escalate',
-  'llm.request',
-  'llm.response',
-  'agent.failed',
-  'agent.waiting_for_approval',
-  'governance.rule_check',
-  'run.failed',
-  'worker.starting',
-  'worker.spawned',
-  'worker.reused',
-  'worker.failed',
-  'worker.state_changed',
-  'worker.heartbeat',
-  'worker.unhealthy',
-  'task.queued',
-  'task.dispatched',
-]);
-
-function validateCanonicalEventInput(event: Omit<RuntimeEvent, 'id' | 'timestamp'>): void {
-  if (!event.type || typeof event.type !== 'string') {
-    throw new Error('RuntimeEvent validation failed: missing type');
-  }
-  if (!KNOWN_EVENT_TYPES.has(event.type)) {
-    throw new Error(`RuntimeEvent validation failed: unknown type "${event.type}"`);
-  }
-  if (!event.runId || !event.projectId || !event.chainId) {
-    throw new Error('RuntimeEvent validation failed: runId/projectId/chainId are required');
-  }
-  if (!event.payload || typeof event.payload !== 'object') {
-    throw new Error('RuntimeEvent validation failed: payload must be an object');
-  }
-}
-
 /**
  * Emits an event to the global Redis stream.
  * Sole authoritative source of truth for runtime activity.
@@ -87,6 +41,9 @@ export const emitEvent = async (
 
     // Persist to local ledger
     await appendRunLedger(fullEvent);
+
+    // Event-driven usage metering collection (idempotent by event id).
+    usageMeteringPipeline.process(fullEvent);
     
     // Best-effort sync hooks (Plane, etc.)
     await syncPlaneLifecycleForEvent(fullEvent).catch(err => {

@@ -25,6 +25,7 @@ import { registerProviderSettingsRoutes } from './routes/providerSettingsRoutes'
 import { registerChainProjectRoutes } from './routes/chainProjectRoutes';
 import { registerSecretsRoutes } from './routes/secretsRoutes';
 import { registerAttachmentStorageRoutes } from './routes/attachmentStorageRoutes';
+import { registerBillingRoutes } from './routes/billingRoutes';
 import { loadServiceRegistry } from '../runtime/control-plane/ServiceRegistryLoader';
 import { LocalProcessAdapter } from '../runtime/control-plane/LocalProcessAdapter';
 import { DockerAdapter } from '../runtime/control-plane/DockerAdapter';
@@ -32,6 +33,9 @@ import { ServiceExecutionAdapterRegistry } from '../runtime/control-plane/adapte
 import { ControlPlaneRuntimeManager } from '../runtime/control-plane/ControlPlaneRuntimeManager';
 import { registerControlPlaneRoutes } from './routes/controlPlaneRoutes';
 import { ServiceLifecycleEventBus } from '../runtime/control-plane/ServiceLifecycleEvents';
+import { BillingService } from '../runtime/billing/BillingService';
+import { BillingPaymentService } from '../runtime/billing/BillingPaymentService';
+import { StripeMvpProvider } from '../runtime/billing/PaymentProvider';
 
 dotenv.config();
 
@@ -49,6 +53,8 @@ const controlPlaneEventBus = new ServiceLifecycleEventBus();
 controlPlaneAdapterRegistry.register(new LocalProcessAdapter());
 controlPlaneAdapterRegistry.register(new DockerAdapter());
 const controlPlaneRuntimeManager = new ControlPlaneRuntimeManager(loadedControlPlaneRegistry, controlPlaneAdapterRegistry, controlPlaneEventBus);
+const billingService = new BillingService();
+const billingPaymentService = new BillingPaymentService(new StripeMvpProvider());
 
 process.on('uncaughtException', (error) => {
   console.error('[agent-system-backend] uncaughtException:', error);
@@ -2425,6 +2431,12 @@ registerControlPlaneRoutes(app, {
   requireRole,
   manager: controlPlaneRuntimeManager,
   appendControlActionAudit,
+});
+
+registerBillingRoutes(app, {
+  requireRole,
+  billingService,
+  paymentService: billingPaymentService,
 });
 
 app.get('/api/cockpit/storage/postgres/health', async (_req, res) => {

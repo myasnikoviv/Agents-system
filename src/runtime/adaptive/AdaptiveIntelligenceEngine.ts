@@ -32,6 +32,7 @@ interface ModelRoutingPolicy {
   defaultTier?: ModelTier;
   taskTypeToTier?: Record<string, ModelTier>;
   tierToModel?: Record<ModelTier, string>;
+  planTierCaps?: Record<string, ModelTier>;
 }
 
 function readJson<T>(filePath: string, defaultValue: T): T {
@@ -71,7 +72,42 @@ function loadModelRoutingPolicy(workspacePath: string): ModelRoutingPolicy {
       medium: process.env.RUNTIME_MODEL_MEDIUM || 'gpt-4o',
       expensive: process.env.RUNTIME_MODEL_EXPENSIVE || 'gpt-4.1',
     },
+    planTierCaps: {
+      free: 'cheap',
+      pro: 'medium',
+      team: 'expensive',
+      enterprise: 'expensive',
+    },
   });
+}
+
+function tierRank(tier: ModelTier): number {
+  if (tier === 'cheap') return 1;
+  if (tier === 'medium') return 2;
+  return 3;
+}
+
+export function applyCostAwareTierPolicy(input: {
+  workspacePath: string;
+  planName?: string;
+  decision: ModelRouteDecision;
+}): ModelRouteDecision {
+  const policy = loadModelRoutingPolicy(input.workspacePath);
+  const planName = String(input.planName || '').trim().toLowerCase();
+  const defaultCaps: Record<string, ModelTier> = {
+    free: 'cheap',
+    pro: 'medium',
+    team: 'expensive',
+    enterprise: 'expensive',
+  };
+  const cap = (policy.planTierCaps?.[planName] || defaultCaps[planName] || null) as ModelTier | null;
+  if (!cap) return input.decision;
+  if (tierRank(input.decision.modelTier) <= tierRank(cap)) return input.decision;
+  return {
+    ...input.decision,
+    modelTier: cap,
+    reason: `${input.decision.reason};cost_cap_by_plan:${planName}:${cap}`,
+  };
 }
 
 export function routeModelForTask(input: {
