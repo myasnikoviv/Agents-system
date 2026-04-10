@@ -5,6 +5,7 @@ import { buildAgentIdentity, assertWorkerProjectIsolation } from '../identity/Ag
 import { WorkerLifecycleState, applyLifecycleTransition } from './WorkerLifecycleStateMachine';
 import { resolveWorkerHeatMode } from './EnvironmentWorkerHeatPolicy';
 import { resolveWorkerTypeForAgent } from './AgentWorkerMapping';
+import { decideWorkerScaling } from './WorkerScalingStrategy';
 import { resolveRuntimeInfrastructureProfile } from '../infrastructure/RuntimeInfrastructureProfile';
 import { getRedisClient } from '../redisClient';
 import { resolveTenantScope, tenantNamespace } from '../tenancy/TenantContext';
@@ -16,6 +17,7 @@ export interface RuntimeWorkerRecord {
   environmentId?: string;
   agentSlug: string;
   workerType: string;
+  workerSlot?: string;
   workerId: string;
   identityKey: string;
   memoryNamespace: string;
@@ -58,6 +60,8 @@ export interface EnsureWorkerInput {
   stageId?: string;
   pipelineId?: string;
   retryCount?: number;
+  workerSlot?: string;
+  allowReplica?: boolean;
 }
 
 export interface EnsureWorkerResult {
@@ -74,6 +78,7 @@ export interface RegisterWorkerInput {
   tenantId?: string;
   workspaceId?: string;
   environmentId?: string;
+  workerSlot?: string;
 }
 
 export type WorkerControlAction = 'pause' | 'resume' | 'restart' | 'kill';
@@ -134,11 +139,13 @@ function keyOf(input: {
   projectId: string;
   agentSlug: string;
   environmentId?: string;
+  workerSlot?: string;
 }): string {
   const projectId = normalizeScopeId(input.projectId, 'default');
   const tenantId = normalizeScopeId(input.tenantId, `tenant:${projectId}`);
   const workspaceId = normalizeScopeId(input.workspaceId, `workspace:${projectId}`);
-  return `${tenantId}:${workspaceId}:${projectId}:${normalizeEnvironmentId(input.environmentId)}:${input.agentSlug}`;
+  const workerSlot = normalizeScopeId(input.workerSlot, 'primary');
+  return `${tenantId}:${workspaceId}:${projectId}:${normalizeEnvironmentId(input.environmentId)}:${input.agentSlug}:${workerSlot}`;
 }
 
 function safeJsonParse(raw: string): any {
@@ -337,6 +344,30 @@ async function emitRuntimeEvent(event: {
 }
 
 export class DynamicWorkerSpawnManager {
+  private static scaleTimestamps = new Map<string, number>();
+
+  private static matchingWorkers(input: {
+    projectId: string;
+    agentSlug: string;
+    tenantId?: string;
+    workspaceId?: string;
+    environmentId?: string;
+  }): Array<{ key: string; record: RuntimeWorkerRecord }> {
+    const tenantId = String(input.tenantId || '').trim() || undefined;
+    const workspaceId = String(input.workspaceId || '').trim() || undefined;
+    const environmentId = normalizeEnvironmentId(input.environmentId);
+    return poolEntries()
+      .filter(([, record]) => {
+        if (record.projectId !== input.projectId) return false;
+        if (record.agentSlug !== input.agentSlug) return false;
+        if (normalizeEnvironmentId(record.environmentId) !== environmentId) return false;
+        if (String(record.tenantId || '').trim() !== String(tenantId || '').trim()) return false;
+        if (String(record.workspaceId || '').trim() !== String(workspaceId || '').trim()) return false;
+        return true;
+      })
+      .map(([key, record]) => ({ key, record }));
+  }
+
   private static findWorker(
     projectId: string,
     agentSlug?: string,
@@ -346,11 +377,20 @@ export class DynamicWorkerSpawnManager {
     environmentId?: string,
   ): { key: string; record: RuntimeWorkerRecord } | null {
     if (agentSlug) {
-      const directKey = keyOf({ projectId, tenantId, workspaceId, agentSlug, environmentId });
-      const direct = poolGet(directKey);
-      if (!direct) return null;
-      if (workerId && direct.workerId !== workerId) return null;
-      return { key: directKey, record: direct };
+      const scoped = this.matchingWorkers({ projectId, agentSlug, tenantId, workspaceId, environmentId });
+      if (!scoped.length) return null;
+      if (workerId) {
+        const exact = scoped.find((row) => row.record.workerId === workerId);
+        return exact || null;
+      }
+      const sorted = [...scoped].sort((a, b) => {
+        const slotA = String(a.record.workerSlot || 'primary');
+        const slotB = String(b.record.workerSlot || 'primary');
+        if (slotA === 'primary' && slotB !== 'primary') return -1;
+        if (slotA !== 'primary' && slotB === 'primary') return 1;
+        return Number(b.record.lastUsedAt || 0) - Number(a.record.lastUsedAt || 0);
+      });
+      return sorted[0] || null;
     }
     if (!workerId) return null;
     for (const [key, record] of poolEntries()) {
@@ -443,6 +483,7 @@ export class DynamicWorkerSpawnManager {
         workspaceId: record.workspaceId,
         agentSlug: record.agentSlug,
         environmentId: record.environmentId,
+        workerSlot: record.workerSlot,
       }),
       record,
     );
@@ -453,6 +494,7 @@ export class DynamicWorkerSpawnManager {
         workspaceId: record.workspaceId,
         agentSlug: record.agentSlug,
         environmentId: record.environmentId,
+        workerSlot: record.workerSlot,
       }),
       record,
     );
@@ -481,7 +523,27 @@ export class DynamicWorkerSpawnManager {
       throw new Error(`project_paused:${projectId}`);
     }
     const agentSlug = String(input.agentSlug || 'system-core').trim() || 'system-core';
-    const key = keyOf({ projectId, tenantId, workspaceId, agentSlug, environmentId: input.environmentId });
+    const requestedSlot = String(input.workerSlot || '').trim();
+    const existingScopedWorkers = this.matchingWorkers({
+      projectId,
+      tenantId,
+      workspaceId,
+      agentSlug,
+      environmentId: input.environmentId,
+    });
+    const autoReplicaSlot = input.allowReplica
+      ? `replica-${Math.max(
+          1,
+          existingScopedWorkers
+            .map((row) => String(row.record.workerSlot || ''))
+            .filter((slot) => slot.startsWith('replica-'))
+            .map((slot) => Number(slot.replace('replica-', '')))
+            .filter((n) => Number.isFinite(n) && n > 0)
+            .reduce((max, n) => Math.max(max, n), 0) + 1,
+        )}`
+      : '';
+    const workerSlot = requestedSlot || autoReplicaSlot || 'primary';
+    const key = keyOf({ projectId, tenantId, workspaceId, agentSlug, environmentId: input.environmentId, workerSlot });
     const lock = await acquireWorkerLock(key);
     if (!lock.acquired) {
       throw new Error(`worker_lock_busy:${key}`);
@@ -599,6 +661,7 @@ export class DynamicWorkerSpawnManager {
       ...(input.environmentId ? { environmentId: String(input.environmentId) } : {}),
       agentSlug,
       workerType: resolveWorkerTypeForAgent(agentSlug),
+      workerSlot,
       workerId: identity.workerId,
       identityKey: identity.identityKey,
       memoryNamespace: identity.memoryNamespace,
@@ -675,7 +738,14 @@ export class DynamicWorkerSpawnManager {
     const tenantId = String(input.tenantId || '').trim() || undefined;
     const workspaceId = String(input.workspaceId || '').trim() || undefined;
     const agentSlug = String(input.agentSlug || 'system-core').trim() || 'system-core';
-    const key = keyOf({ projectId, tenantId, workspaceId, agentSlug, environmentId: input.environmentId });
+    const key = keyOf({
+      projectId,
+      tenantId,
+      workspaceId,
+      agentSlug,
+      environmentId: input.environmentId,
+      workerSlot: input.workerSlot,
+    });
     const lock = await acquireWorkerLock(key);
     if (!lock.acquired) {
       throw new Error(`worker_lock_busy:${key}`);
@@ -728,6 +798,7 @@ export class DynamicWorkerSpawnManager {
         ...(input.environmentId ? { environmentId: String(input.environmentId) } : {}),
         agentSlug,
         workerType: resolveWorkerTypeForAgent(agentSlug),
+        workerSlot: String(input.workerSlot || '').trim() || 'primary',
         workerId: identity.workerId,
         identityKey: identity.identityKey,
         memoryNamespace: identity.memoryNamespace,
@@ -786,7 +857,14 @@ export class DynamicWorkerSpawnManager {
     const tenantId = String(input.tenantId || '').trim() || undefined;
     const workspaceId = String(input.workspaceId || '').trim() || undefined;
     const agentSlug = String(input.agentSlug || 'system-core').trim() || 'system-core';
-    const key = keyOf({ projectId, tenantId, workspaceId, agentSlug, environmentId: input.environmentId });
+    const key = keyOf({
+      projectId,
+      tenantId,
+      workspaceId,
+      agentSlug,
+      environmentId: input.environmentId,
+      workerSlot: input.workerSlot,
+    });
     const record = poolGet(key);
     if (!record) return;
     await this.transitionState(record, 'idle', input, emitEvents);
@@ -803,7 +881,14 @@ export class DynamicWorkerSpawnManager {
     const tenantId = String(input.tenantId || '').trim() || undefined;
     const workspaceId = String(input.workspaceId || '').trim() || undefined;
     const agentSlug = String(input.agentSlug || 'system-core').trim() || 'system-core';
-    const key = keyOf({ projectId, tenantId, workspaceId, agentSlug, environmentId: input.environmentId });
+    const key = keyOf({
+      projectId,
+      tenantId,
+      workspaceId,
+      agentSlug,
+      environmentId: input.environmentId,
+      workerSlot: input.workerSlot,
+    });
     const record = poolGet(key);
     if (!record) return;
     record.lastHeartbeatAt = Date.now();
@@ -832,7 +917,14 @@ export class DynamicWorkerSpawnManager {
     const tenantId = String(input.tenantId || '').trim() || undefined;
     const workspaceId = String(input.workspaceId || '').trim() || undefined;
     const agentSlug = String(input.agentSlug || 'system-core').trim() || 'system-core';
-    const key = keyOf({ projectId, tenantId, workspaceId, agentSlug, environmentId: input.environmentId });
+    const key = keyOf({
+      projectId,
+      tenantId,
+      workspaceId,
+      agentSlug,
+      environmentId: input.environmentId,
+      workerSlot: input.workerSlot,
+    });
     const record = poolGet(key);
     if (!record) return;
     await this.transitionState(record, 'failed', input, emitEvents);
@@ -1064,9 +1156,169 @@ export class DynamicWorkerSpawnManager {
     }));
   }
 
+  static recommendScaling(input: {
+    projectId: string;
+    agentSlug: string;
+    tenantId?: string;
+    workspaceId?: string;
+    environmentId?: string;
+    queueDepth: number;
+    now?: number;
+  }): ReturnType<typeof decideWorkerScaling> {
+    const workers = this.matchingWorkers({
+      projectId: input.projectId,
+      agentSlug: input.agentSlug,
+      tenantId: input.tenantId,
+      workspaceId: input.workspaceId,
+      environmentId: input.environmentId,
+    }).map((row) => row.record);
+    const currentWorkers = workers.length;
+    const activeWorkers = workers.filter((w) => w.state === 'active' || w.state === 'starting').length;
+    const scaleKey = keyOf({
+      projectId: input.projectId,
+      tenantId: input.tenantId,
+      workspaceId: input.workspaceId,
+      environmentId: input.environmentId,
+      agentSlug: input.agentSlug,
+      workerSlot: '__scale__',
+    });
+    return decideWorkerScaling({
+      queueDepth: input.queueDepth,
+      currentWorkers,
+      activeWorkers,
+      now: input.now,
+      lastScaledAt: this.scaleTimestamps.get(scaleKey),
+    });
+  }
+
+  static async autoscaleWorkers(input: {
+    runId: string;
+    chainId: string;
+    projectId: string;
+    agentSlug: string;
+    tenantId?: string;
+    workspaceId?: string;
+    environmentId?: string;
+    queueDepth: number;
+  }): Promise<{
+    action: 'scale_up' | 'scale_down' | 'hold';
+    desiredWorkers: number;
+    beforeWorkers: number;
+    afterWorkers: number;
+    created: number;
+    removed: number;
+    reason: string;
+  }> {
+    const decision = this.recommendScaling(input);
+    const scopeRows = this.matchingWorkers({
+      projectId: input.projectId,
+      agentSlug: input.agentSlug,
+      tenantId: input.tenantId,
+      workspaceId: input.workspaceId,
+      environmentId: input.environmentId,
+    });
+    const beforeWorkers = scopeRows.length;
+    let created = 0;
+    let removed = 0;
+
+    if (decision.action === 'scale_up') {
+      const toCreate = Math.max(0, decision.desiredWorkers - beforeWorkers);
+      for (let i = 0; i < toCreate; i += 1) {
+        const lease = await this.ensureWorker(
+          {
+            runId: input.runId,
+            chainId: input.chainId,
+            projectId: input.projectId,
+            tenantId: input.tenantId,
+            workspaceId: input.workspaceId,
+            environmentId: input.environmentId,
+            agentSlug: input.agentSlug,
+            taskId: `autoscale:warmup:${input.agentSlug}:${Date.now().toString(36)}:${i}`,
+            allowReplica: true,
+          },
+          { emitEvents: false },
+        );
+        await this.releaseToStandby(
+          {
+            runId: input.runId,
+            chainId: input.chainId,
+            projectId: input.projectId,
+            tenantId: input.tenantId,
+            workspaceId: input.workspaceId,
+            environmentId: input.environmentId,
+            agentSlug: lease.worker.agentSlug,
+            workerSlot: lease.worker.workerSlot,
+          },
+          { emitEvents: false },
+        );
+        created += 1;
+      }
+    } else if (decision.action === 'scale_down') {
+      const toRemove = Math.max(0, beforeWorkers - decision.desiredWorkers);
+      if (toRemove > 0) {
+        const removable = scopeRows
+          .map((row) => row.record)
+          .filter((record) => record.state !== 'active' && record.state !== 'starting')
+          .sort((a, b) => {
+            const slotA = String(a.workerSlot || 'primary');
+            const slotB = String(b.workerSlot || 'primary');
+            if (slotA === 'primary' && slotB !== 'primary') return 1;
+            if (slotA !== 'primary' && slotB === 'primary') return -1;
+            return Number(a.lastUsedAt || 0) - Number(b.lastUsedAt || 0);
+          });
+        for (const victim of removable.slice(0, toRemove)) {
+          const killed = await this.controlWorker({
+            projectId: victim.projectId,
+            tenantId: victim.tenantId,
+            workspaceId: victim.workspaceId,
+            environmentId: victim.environmentId,
+            agentSlug: victim.agentSlug,
+            workerId: victim.workerId,
+            action: 'kill',
+            runId: input.runId,
+            chainId: input.chainId,
+            emitEvents: false,
+          });
+          if (killed.ok) removed += 1;
+        }
+      }
+    }
+
+    const afterWorkers = this.matchingWorkers({
+      projectId: input.projectId,
+      agentSlug: input.agentSlug,
+      tenantId: input.tenantId,
+      workspaceId: input.workspaceId,
+      environmentId: input.environmentId,
+    }).length;
+
+    if (decision.action !== 'hold') {
+      const scaleKey = keyOf({
+        projectId: input.projectId,
+        tenantId: input.tenantId,
+        workspaceId: input.workspaceId,
+        environmentId: input.environmentId,
+        agentSlug: input.agentSlug,
+        workerSlot: '__scale__',
+      });
+      this.scaleTimestamps.set(scaleKey, Date.now());
+    }
+
+    return {
+      action: decision.action,
+      desiredWorkers: decision.desiredWorkers,
+      beforeWorkers,
+      afterWorkers,
+      created,
+      removed,
+      reason: decision.reason,
+    };
+  }
+
   static clear(): void {
     poolClear();
     pausedProjectsClear();
+    this.scaleTimestamps.clear();
   }
 
   static async clearAsync(): Promise<void> {
