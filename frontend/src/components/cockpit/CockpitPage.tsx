@@ -323,7 +323,7 @@ export function CockpitPage() {
     const [isProjectModalOpen, setIsProjectModalOpen] = useState(false);
     const [projectDirectory, setProjectDirectory] = useState('');
     const [projectAgentContextDirectory, setProjectAgentContextDirectory] = useState('');
-    const [projectOnboardingMode, setProjectOnboardingMode] = useState<'local' | 'repository'>('local');
+    const [projectOnboardingMode, setProjectOnboardingMode] = useState<'local' | 'repository'>('repository');
     const [projectRepositoryUrl, setProjectRepositoryUrl] = useState('');
     const [projectRepositoryAuthMode, setProjectRepositoryAuthMode] = useState<'none' | 'oauth' | 'pat'>('oauth');
     const [projectBootstrapMode, setProjectBootstrapMode] = useState<'none' | 'auto-template' | 'read-only'>('read-only');
@@ -1804,7 +1804,7 @@ export function CockpitPage() {
     const openProjectModal = () => {
         setProjectDirectory('');
         setProjectAgentContextDirectory('');
-        setProjectOnboardingMode('local');
+        setProjectOnboardingMode('repository');
         setProjectRepositoryUrl('');
         setProjectRepositoryAuthMode('oauth');
         setProjectBootstrapMode('read-only');
@@ -1820,7 +1820,7 @@ export function CockpitPage() {
         setIsProjectModalOpen(false);
         setProjectDirectory('');
         setProjectAgentContextDirectory('');
-        setProjectOnboardingMode('local');
+        setProjectOnboardingMode('repository');
         setProjectRepositoryUrl('');
         setProjectRepositoryAuthMode('oauth');
         setProjectBootstrapMode('read-only');
@@ -3033,8 +3033,8 @@ export function CockpitPage() {
                                 onChange={(e) => setProjectOnboardingMode(e.target.value as 'local' | 'repository')}
                                 className="cockpit-modal-input"
                             >
-                                <option value="local">Local directory</option>
                                 <option value="repository">Repository-first</option>
+                                <option value="local">Local directory</option>
                             </select>
                             {projectOnboardingMode === 'repository' && (
                                 <>
