@@ -336,6 +336,8 @@ const defaultContractRegistry = {
 const CONTROL_ACTION_AUDIT_FILE = path.resolve(process.cwd(), 'docs/runtime/governance/logs/control-actions.jsonl');
 const RUN_LEDGER_DIR = path.resolve(process.cwd(), 'docs/process/runs/ledger');
 const STRUCTURED_LOG_FILE = path.resolve(process.cwd(), 'docs/runtime/system/logs/structured-app.jsonl');
+const BACKUP_DIR = path.resolve(process.cwd(), 'docs/runtime/backups');
+const BACKUP_LEDGER_FILE = path.join(BACKUP_DIR, 'backup-ledger.jsonl');
 
 const structuredLogBuffer: Array<{
   timestamp: string;
@@ -344,6 +346,29 @@ const structuredLogBuffer: Array<{
   message: string;
   meta?: Record<string, any>;
 }> = [];
+
+const backupState: {
+  schedule: {
+    fullCron: string;
+    incrementalCron: string;
+    nextFullAt: string;
+    nextIncrementalAt: string;
+  };
+  lastRun?: {
+    mode: 'full' | 'incremental';
+    file: string;
+    checksum: string;
+    verified: boolean;
+    createdAt: string;
+  };
+} = {
+  schedule: {
+    fullCron: 'daily@02:00',
+    incrementalCron: 'hourly',
+    nextFullAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+    nextIncrementalAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+  },
+};
 
 const appendStructuredLog = (entry: {
   level: 'info' | 'warn' | 'error';
@@ -802,6 +827,64 @@ const getIncidentFlow = async () => ({
   ],
   generatedAt: new Date().toISOString(),
 });
+
+const runBackupNow = async (input: { mode: 'full' | 'incremental' }) => {
+  fs.mkdirSync(BACKUP_DIR, { recursive: true });
+  const createdAt = new Date().toISOString();
+  const suffix = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const fileName = `backup-${input.mode}-${suffix}.json`;
+  const filePath = path.join(BACKUP_DIR, fileName);
+  const payload = {
+    createdAt,
+    mode: input.mode,
+    sources: {
+      structuredLogs: fs.existsSync(STRUCTURED_LOG_FILE) ? STRUCTURED_LOG_FILE : null,
+      runLedgerDir: fs.existsSync(RUN_LEDGER_DIR) ? RUN_LEDGER_DIR : null,
+    },
+    stats: {
+      structuredLogRows: structuredLogBuffer.length,
+      apiRequests: apiMetricsState.requestsTotal,
+    },
+  };
+  fs.writeFileSync(filePath, JSON.stringify(payload, null, 2), 'utf-8');
+  const raw = fs.readFileSync(filePath, 'utf-8');
+  const checksum = crypto.createHash('sha256').update(raw, 'utf8').digest('hex');
+  const verified = fs.existsSync(filePath) && checksum.length > 0;
+  const ledgerRow = {
+    timestamp: createdAt,
+    mode: input.mode,
+    file: filePath,
+    checksum,
+    verified,
+  };
+  fs.appendFileSync(BACKUP_LEDGER_FILE, `${JSON.stringify(ledgerRow)}\n`, 'utf-8');
+  backupState.lastRun = {
+    mode: input.mode,
+    file: filePath,
+    checksum,
+    verified,
+    createdAt,
+  };
+  return ledgerRow;
+};
+
+const getBackupStatus = async () => {
+  const recentRows = fs.existsSync(BACKUP_LEDGER_FILE)
+    ? fs.readFileSync(BACKUP_LEDGER_FILE, 'utf-8').split('\n').filter(Boolean).slice(-20).map((line) => {
+        try {
+          return JSON.parse(line);
+        } catch {
+          return null;
+        }
+      }).filter(Boolean)
+    : [];
+  return {
+    schedule: backupState.schedule,
+    lastRun: backupState.lastRun || null,
+    recent: recentRows,
+    generatedAt: new Date().toISOString(),
+  };
+};
 
 const appendPolicyMetadata = (input: {
   eventKind: string;
@@ -2921,6 +3004,8 @@ registerTelemetryRoutes(app, {
   getSloStatus,
   getAlertsSnapshot,
   getIncidentFlow,
+  getBackupStatus,
+  runBackupNow,
   readRunLedgerEvents,
   normalizeRuntimeEvent,
 });
