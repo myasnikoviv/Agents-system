@@ -9,6 +9,8 @@ import { getRedisClient } from '../redisClient';
 import { resolveTenantScope, tenantNamespace } from '../tenancy/TenantContext';
 
 export interface RuntimeWorkerRecord {
+  tenantId?: string;
+  workspaceId?: string;
   projectId: string;
   environmentId?: string;
   agentSlug: string;
@@ -108,8 +110,22 @@ function normalizeEnvironmentId(value?: string): string {
   return normalized || 'env:global';
 }
 
-function keyOf(projectId: string, agentSlug: string, environmentId?: string): string {
-  return `${projectId}:${normalizeEnvironmentId(environmentId)}:${agentSlug}`;
+function normalizeScopeId(value: string | undefined, fallback: string): string {
+  const normalized = String(value || '').trim();
+  return normalized || fallback;
+}
+
+function keyOf(input: {
+  tenantId?: string;
+  workspaceId?: string;
+  projectId: string;
+  agentSlug: string;
+  environmentId?: string;
+}): string {
+  const projectId = normalizeScopeId(input.projectId, 'default');
+  const tenantId = normalizeScopeId(input.tenantId, `tenant:${projectId}`);
+  const workspaceId = normalizeScopeId(input.workspaceId, `workspace:${projectId}`);
+  return `${tenantId}:${workspaceId}:${projectId}:${normalizeEnvironmentId(input.environmentId)}:${input.agentSlug}`;
 }
 
 function safeJsonParse(raw: string): any {
@@ -326,10 +342,12 @@ export class DynamicWorkerSpawnManager {
     projectId: string,
     agentSlug?: string,
     workerId?: string,
+    tenantId?: string,
+    workspaceId?: string,
     environmentId?: string,
   ): { key: string; record: RuntimeWorkerRecord } | null {
     if (agentSlug) {
-      const directKey = keyOf(projectId, agentSlug, environmentId);
+      const directKey = keyOf({ projectId, tenantId, workspaceId, agentSlug, environmentId });
       const direct = poolGet(directKey);
       if (!direct) return null;
       if (workerId && direct.workerId !== workerId) return null;
@@ -419,8 +437,26 @@ export class DynamicWorkerSpawnManager {
     }
     this.onTransition(record, from, transition.to, Date.now());
     record.state = transition.to;
-    poolSet(keyOf(record.projectId, record.agentSlug, record.environmentId), record);
-    await sharedPoolSet(keyOf(record.projectId, record.agentSlug, record.environmentId), record);
+    poolSet(
+      keyOf({
+        projectId: record.projectId,
+        tenantId: record.tenantId,
+        workspaceId: record.workspaceId,
+        agentSlug: record.agentSlug,
+        environmentId: record.environmentId,
+      }),
+      record,
+    );
+    await sharedPoolSet(
+      keyOf({
+        projectId: record.projectId,
+        tenantId: record.tenantId,
+        workspaceId: record.workspaceId,
+        agentSlug: record.agentSlug,
+        environmentId: record.environmentId,
+      }),
+      record,
+    );
     if (emitEvents) {
       await emitRuntimeEvent({
         type: 'worker.state_changed',
@@ -440,11 +476,13 @@ export class DynamicWorkerSpawnManager {
   static async ensureWorker(input: EnsureWorkerInput, options?: { emitEvents?: boolean }): Promise<EnsureWorkerResult> {
     const emitEvents = options?.emitEvents !== false;
     const projectId = String(input.projectId || 'default').trim() || 'default';
+    const tenantId = String(input.tenantId || '').trim() || undefined;
+    const workspaceId = String(input.workspaceId || '').trim() || undefined;
     if (pausedProjectHas(projectId)) {
       throw new Error(`project_paused:${projectId}`);
     }
     const agentSlug = String(input.agentSlug || 'system-core').trim() || 'system-core';
-    const key = keyOf(projectId, agentSlug, input.environmentId);
+    const key = keyOf({ projectId, tenantId, workspaceId, agentSlug, environmentId: input.environmentId });
     const lock = await acquireWorkerLock(key);
     if (!lock.acquired) {
       throw new Error(`worker_lock_busy:${key}`);
@@ -515,7 +553,14 @@ export class DynamicWorkerSpawnManager {
         throw new Error(`DynamicWorkerSpawnManager cap enforcement failed: ${cap.reason || 'capacity_exhausted'}`);
       }
 
-      const identity = buildAgentIdentity({ projectId, agentSlug, ...(input.workerId ? { workerId: input.workerId } : {}) });
+      const identity = buildAgentIdentity({
+        projectId,
+        agentSlug,
+        tenantId,
+        workspaceId,
+        environmentId: input.environmentId,
+        ...(input.workerId ? { workerId: input.workerId } : {}),
+      });
       const isolation = assertWorkerProjectIsolation(identity);
       if (!isolation.ok) {
         if (emitEvents) {
@@ -548,6 +593,8 @@ export class DynamicWorkerSpawnManager {
       }
 
       const record: RuntimeWorkerRecord = {
+      ...(tenantId ? { tenantId } : {}),
+      ...(workspaceId ? { workspaceId } : {}),
       projectId,
       ...(input.environmentId ? { environmentId: String(input.environmentId) } : {}),
       agentSlug,
@@ -624,8 +671,10 @@ export class DynamicWorkerSpawnManager {
   static async releaseToStandby(input: EnsureWorkerInput, options?: { emitEvents?: boolean }): Promise<void> {
     const emitEvents = options?.emitEvents !== false;
     const projectId = String(input.projectId || 'default').trim() || 'default';
+    const tenantId = String(input.tenantId || '').trim() || undefined;
+    const workspaceId = String(input.workspaceId || '').trim() || undefined;
     const agentSlug = String(input.agentSlug || 'system-core').trim() || 'system-core';
-    const key = keyOf(projectId, agentSlug, input.environmentId);
+    const key = keyOf({ projectId, tenantId, workspaceId, agentSlug, environmentId: input.environmentId });
     const record = poolGet(key);
     if (!record) return;
     await this.transitionState(record, 'idle', input, emitEvents);
@@ -639,8 +688,10 @@ export class DynamicWorkerSpawnManager {
   static async heartbeat(input: EnsureWorkerInput, options?: { emitEvents?: boolean }): Promise<void> {
     const emitEvents = options?.emitEvents !== false;
     const projectId = String(input.projectId || 'default').trim() || 'default';
+    const tenantId = String(input.tenantId || '').trim() || undefined;
+    const workspaceId = String(input.workspaceId || '').trim() || undefined;
     const agentSlug = String(input.agentSlug || 'system-core').trim() || 'system-core';
-    const key = keyOf(projectId, agentSlug, input.environmentId);
+    const key = keyOf({ projectId, tenantId, workspaceId, agentSlug, environmentId: input.environmentId });
     const record = poolGet(key);
     if (!record) return;
     record.lastHeartbeatAt = Date.now();
@@ -666,8 +717,10 @@ export class DynamicWorkerSpawnManager {
   static async markFailed(input: EnsureWorkerInput, reason: string, options?: { emitEvents?: boolean }): Promise<void> {
     const emitEvents = options?.emitEvents !== false;
     const projectId = String(input.projectId || 'default').trim() || 'default';
+    const tenantId = String(input.tenantId || '').trim() || undefined;
+    const workspaceId = String(input.workspaceId || '').trim() || undefined;
     const agentSlug = String(input.agentSlug || 'system-core').trim() || 'system-core';
-    const key = keyOf(projectId, agentSlug, input.environmentId);
+    const key = keyOf({ projectId, tenantId, workspaceId, agentSlug, environmentId: input.environmentId });
     const record = poolGet(key);
     if (!record) return;
     await this.transitionState(record, 'failed', input, emitEvents);
@@ -934,6 +987,9 @@ export class DynamicWorkerSpawnManager {
 
   static async controlWorker(input: {
     projectId: string;
+    tenantId?: string;
+    workspaceId?: string;
+    environmentId?: string;
     agentSlug?: string;
     workerId?: string;
     action: WorkerControlAction;
@@ -943,7 +999,14 @@ export class DynamicWorkerSpawnManager {
   }): Promise<{ ok: true; worker?: RuntimeWorkerRecord; removed?: boolean } | { ok: false; reason: string }> {
     const projectId = String(input.projectId || 'default').trim() || 'default';
     const action = String(input.action || '').trim() as WorkerControlAction;
-    const found = this.findWorker(projectId, input.agentSlug, input.workerId, input.environmentId);
+    const found = this.findWorker(
+      projectId,
+      input.agentSlug,
+      input.workerId,
+      input.tenantId,
+      input.workspaceId,
+      input.environmentId,
+    );
     if (!found) return { ok: false, reason: 'worker_not_found' };
     const { key, record } = found;
 
@@ -951,6 +1014,9 @@ export class DynamicWorkerSpawnManager {
       runId: input.runId || `control-${Date.now()}`,
       chainId: input.chainId || 'cockpit-worker-control',
       projectId,
+      tenantId: input.tenantId,
+      workspaceId: input.workspaceId,
+      environmentId: input.environmentId,
       agentSlug: record.agentSlug,
       taskId: record.assignedTask?.taskId || `control:${record.workerId}`,
       stageId: record.assignedTask?.stageId,

@@ -125,6 +125,41 @@ describe('DynamicWorkerSpawnManager', () => {
     );
   });
 
+  it('isolates worker pool by tenant/workspace even with same project/agent/environment', async () => {
+    const tenantA = await DynamicWorkerSpawnManager.ensureWorker(
+      {
+        runId: 'r-tenant-a',
+        projectId: 'proj-a',
+        tenantId: 'tenant-a',
+        workspaceId: 'workspace-a',
+        environmentId: 'env-shared',
+        chainId: 'c-tenant-a',
+        agentSlug: 'developer',
+      },
+      { emitEvents: false },
+    );
+    const tenantB = await DynamicWorkerSpawnManager.ensureWorker(
+      {
+        runId: 'r-tenant-b',
+        projectId: 'proj-a',
+        tenantId: 'tenant-b',
+        workspaceId: 'workspace-b',
+        environmentId: 'env-shared',
+        chainId: 'c-tenant-b',
+        agentSlug: 'developer',
+      },
+      { emitEvents: false },
+    );
+
+    expect(tenantA.worker.workerId).not.toBe(tenantB.worker.workerId);
+    expect(tenantA.worker.memoryNamespace).toContain('tenant:tenant-a');
+    expect(tenantB.worker.memoryNamespace).toContain('tenant:tenant-b');
+    const scopedWorkers = DynamicWorkerSpawnManager.snapshot().filter(
+      (w) => w.projectId === 'proj-a' && w.agentSlug === 'developer' && w.environmentId === 'env-shared',
+    );
+    expect(scopedWorkers.length).toBe(2);
+  });
+
   it('reports worker health by heartbeat age', async () => {
     await DynamicWorkerSpawnManager.ensureWorker(
       { runId: 'r1', projectId: 'proj-a', chainId: 'c1', agentSlug: 'developer' },

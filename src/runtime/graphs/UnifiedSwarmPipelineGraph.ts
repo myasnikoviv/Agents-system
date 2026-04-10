@@ -786,6 +786,9 @@ async function swarmNode(state: PilotState): Promise<Partial<PilotState>> {
   const heartbeatInput = {
     runId: state.runId,
     projectId: state.projectId,
+    tenantId: String((state as any).tenantId || '').trim() || undefined,
+    workspaceId: String((state as any).workspaceId || '').trim() || undefined,
+    environmentId: String((state as any).environmentId || '').trim() || undefined,
     chainId: state.threadId,
     agentSlug: runContext.agent.slug,
   };
@@ -873,6 +876,9 @@ async function swarmNode(state: PilotState): Promise<Partial<PilotState>> {
         const retryLease = await DynamicWorkerSpawnManager.ensureWorker({
           runId: state.runId,
           projectId: state.projectId,
+          tenantId: String((state as any).tenantId || '').trim() || undefined,
+          workspaceId: String((state as any).workspaceId || '').trim() || undefined,
+          environmentId: String((state as any).environmentId || '').trim() || undefined,
           chainId: state.threadId,
           agentSlug: retryPicked.agentSlug,
           taskId: retryPicked.taskId,
