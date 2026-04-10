@@ -1,3 +1,5 @@
+import { resolveTenantScope, tenantNamespace } from '../tenancy/TenantContext';
+
 export interface RuntimeAgentIdentity {
   projectId: string;
   agentSlug: string;
@@ -23,18 +25,20 @@ export function buildAgentIdentity(input: {
 }): RuntimeAgentIdentity {
   const projectId = normalize(input.projectId, 'default');
   const agentSlug = normalize(input.agentSlug, 'system-core');
-  const tenantId = normalize(input.tenantId || '', '');
-  const workspaceId = normalize(input.workspaceId || '', '');
-  const environmentId = normalize(input.environmentId || '', '');
+  const scope = resolveTenantScope({
+    projectId,
+    tenantId: input.tenantId,
+    workspaceId: input.workspaceId,
+    environmentId: input.environmentId,
+    runId: 'identity',
+    agentSlug,
+  });
   const workerId = normalize(
     input.workerId || `${projectId}-${agentSlug}-pid${process.pid}-${Date.now().toString(36)}`,
     `${agentSlug}-pid${process.pid}`,
   );
   const identityKey = `${projectId}:${agentSlug}:${workerId}`;
-  const memoryNamespace =
-    tenantId || workspaceId || environmentId
-      ? `memory:tenant:${tenantId || `tenant:${projectId}`}:workspace:${workspaceId || `workspace:${projectId}`}:project:${projectId}:environment:${environmentId || `env:tenant:${tenantId || `tenant:${projectId}`}:workspace:${workspaceId || `workspace:${projectId}`}:project:${projectId}`}:agent:${agentSlug}`
-      : `memory:${projectId}:${agentSlug}`;
+  const memoryNamespace = `${tenantNamespace(scope, 'memory')}:agent:${agentSlug}`;
   return { projectId, agentSlug, workerId, identityKey, memoryNamespace };
 }
 

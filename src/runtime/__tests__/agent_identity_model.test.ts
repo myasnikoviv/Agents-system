@@ -17,7 +17,9 @@ describe('agent identity model', () => {
     });
 
     expect(identity.identityKey).toBe('proj-a:developer:worker-1');
-    expect(identity.memoryNamespace).toBe('memory:proj-a:developer');
+    expect(identity.memoryNamespace).toBe(
+      'tenant:tenant:proj-a:workspace:workspace:proj-a:project:proj-a:environment:env:tenant:proj-a:workspace:proj-a:project:proj-a:memory:agent:developer',
+    );
   });
 
   it('builds tenant/workspace/environment-scoped memory namespace when scope is provided', () => {
@@ -32,7 +34,7 @@ describe('agent identity model', () => {
 
     expect(identity.identityKey).toBe('proj-a:developer:worker-1');
     expect(identity.memoryNamespace).toBe(
-      'memory:tenant:tenant-a:workspace:workspace-a:project:proj-a:environment:env-a:agent:developer',
+      'tenant:tenant-a:workspace:workspace-a:project:proj-a:environment:env-a:memory:agent:developer',
     );
   });
 

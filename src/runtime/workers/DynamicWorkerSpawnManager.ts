@@ -275,13 +275,6 @@ function scopedMemoryNamespace(input: {
   runId: string;
   agentSlug: string;
 }): string {
-  const hasExplicitTenantScope =
-    String(input.tenantId || '').trim().length > 0 ||
-    String(input.workspaceId || '').trim().length > 0 ||
-    String(input.environmentId || '').trim().length > 0;
-  if (!hasExplicitTenantScope) {
-    return `memory:${input.projectId}:${input.agentSlug}`;
-  }
   const scope = resolveTenantScope({
     tenantId: input.tenantId,
     workspaceId: input.workspaceId,
@@ -302,13 +295,6 @@ function taskMemoryNamespace(input: {
   agentSlug: string;
   taskId: string;
 }): string {
-  const hasExplicitTenantScope =
-    String(input.tenantId || '').trim().length > 0 ||
-    String(input.workspaceId || '').trim().length > 0 ||
-    String(input.environmentId || '').trim().length > 0;
-  if (!hasExplicitTenantScope) {
-    return `memory:${input.projectId}:${input.agentSlug}:task:${input.taskId}`;
-  }
   return `${scopedMemoryNamespace(input)}:task:${input.taskId}`;
 }
 
