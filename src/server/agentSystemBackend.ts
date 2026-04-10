@@ -381,6 +381,14 @@ const restoreState: {
   };
 } = {};
 
+const gdprState: {
+  deletedSubjects: Set<string>;
+  consentBySubject: Map<string, { consent: boolean; updatedAt: string }>;
+} = {
+  deletedSubjects: new Set<string>(),
+  consentBySubject: new Map<string, { consent: boolean; updatedAt: string }>(),
+};
+
 const appendStructuredLog = (entry: {
   level: 'info' | 'warn' | 'error';
   source: string;
@@ -964,6 +972,29 @@ const getDataClassification = async () => ({
   ],
   generatedAt: new Date().toISOString(),
 });
+
+const gdprDelete = async (input: { subjectId: string }) => {
+  gdprState.deletedSubjects.add(input.subjectId);
+  return { subjectId: input.subjectId, deleted: true, deletedAt: new Date().toISOString() };
+};
+
+const gdprExport = async (input: { subjectId: string }) => {
+  const consent = gdprState.consentBySubject.get(input.subjectId) || null;
+  return {
+    subjectId: input.subjectId,
+    export: {
+      consent,
+      deleted: gdprState.deletedSubjects.has(input.subjectId),
+    },
+    exportedAt: new Date().toISOString(),
+  };
+};
+
+const gdprTrackConsent = async (input: { subjectId: string; consent: boolean }) => {
+  const row = { consent: input.consent, updatedAt: new Date().toISOString() };
+  gdprState.consentBySubject.set(input.subjectId, row);
+  return { subjectId: input.subjectId, ...row };
+};
 
 const appendPolicyMetadata = (input: {
   eventKind: string;
@@ -3088,6 +3119,9 @@ registerTelemetryRoutes(app, {
   runRestoreNow,
   getRestoreStatus,
   getDataClassification,
+  gdprDelete,
+  gdprExport,
+  gdprTrackConsent,
   readRunLedgerEvents,
   normalizeRuntimeEvent,
 });

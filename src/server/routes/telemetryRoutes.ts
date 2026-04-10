@@ -43,6 +43,9 @@ interface TelemetryRouteDeps {
   runRestoreNow?: (input: { backupFile?: string }) => Promise<Record<string, any>>;
   getRestoreStatus?: () => Promise<Record<string, any>>;
   getDataClassification?: () => Promise<Record<string, any>>;
+  gdprDelete?: (input: { subjectId: string }) => Promise<Record<string, any>>;
+  gdprExport?: (input: { subjectId: string }) => Promise<Record<string, any>>;
+  gdprTrackConsent?: (input: { subjectId: string; consent: boolean }) => Promise<Record<string, any>>;
   readRunLedgerEvents: (input: { runId?: string; projectId?: string; limit?: number }) => Promise<any[]>;
   normalizeRuntimeEvent: (row: any) => UnifiedTelemetryEvent;
 }
@@ -473,6 +476,43 @@ export function registerTelemetryRoutes(app: express.Express, deps: TelemetryRou
         error: 'data_classification_fetch_failed',
         message: error?.message || 'Failed to fetch data classification',
       });
+    }
+  });
+
+  app.post('/api/cockpit/gdpr/delete', async (req, res) => {
+    try {
+      if (!deps.gdprDelete) return res.status(501).json({ success: false, error: 'gdpr_delete_not_configured' });
+      const subjectId = String(req.body?.subjectId || '').trim();
+      if (!subjectId) return res.status(400).json({ success: false, error: 'subject_id_required' });
+      const result = await deps.gdprDelete({ subjectId });
+      return res.json({ success: true, ...result });
+    } catch (error: any) {
+      return res.status(500).json({ success: false, error: 'gdpr_delete_failed', message: error?.message || 'Failed GDPR delete' });
+    }
+  });
+
+  app.post('/api/cockpit/gdpr/export', async (req, res) => {
+    try {
+      if (!deps.gdprExport) return res.status(501).json({ success: false, error: 'gdpr_export_not_configured' });
+      const subjectId = String(req.body?.subjectId || '').trim();
+      if (!subjectId) return res.status(400).json({ success: false, error: 'subject_id_required' });
+      const result = await deps.gdprExport({ subjectId });
+      return res.json({ success: true, ...result });
+    } catch (error: any) {
+      return res.status(500).json({ success: false, error: 'gdpr_export_failed', message: error?.message || 'Failed GDPR export' });
+    }
+  });
+
+  app.post('/api/cockpit/gdpr/consent', async (req, res) => {
+    try {
+      if (!deps.gdprTrackConsent) return res.status(501).json({ success: false, error: 'gdpr_consent_not_configured' });
+      const subjectId = String(req.body?.subjectId || '').trim();
+      if (!subjectId) return res.status(400).json({ success: false, error: 'subject_id_required' });
+      const consent = Boolean(req.body?.consent);
+      const result = await deps.gdprTrackConsent({ subjectId, consent });
+      return res.json({ success: true, ...result });
+    } catch (error: any) {
+      return res.status(500).json({ success: false, error: 'gdpr_consent_failed', message: error?.message || 'Failed GDPR consent update' });
     }
   });
 }
