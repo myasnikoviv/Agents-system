@@ -295,7 +295,7 @@ export async function executeRuntimeRun(initialState: Partial<PilotState>): Prom
 
   const actual = await collectComplianceActualEvidence({
     runId,
-    fallbackPipeline: pipeline,
+    defaultPipeline: pipeline,
     workspacePath,
   });
   const compliance = evaluateCompliance(executionPlan, actual);

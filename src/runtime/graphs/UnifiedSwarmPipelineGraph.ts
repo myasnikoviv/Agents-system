@@ -102,17 +102,17 @@ async function ensureDiscovery(projectRoot?: string): Promise<void> {
 function buildArtifactLog(params: {
   stage: string;
   role: string;
-  status: 'completed' | 'fallback' | 'delegated_timeout' | 'blocked';
-  source: 'llm' | 'fallback' | 'worker';
+  status: 'completed' | 'recovered' | 'delegated_timeout' | 'blocked';
+  source: 'llm' | 'system' | 'worker';
   message: string;
-  fallbackCategory?: string;
+  recoveryCategory?: string;
 }): string {
   const parts = [
     `[stage:${params.stage}]`,
     `[role:${params.role}]`,
     `[status:${params.status}]`,
     `[source:${params.source}]`,
-    params.fallbackCategory ? `[fallback:${params.fallbackCategory}]` : '',
+    params.recoveryCategory ? `[recovery:${params.recoveryCategory}]` : '',
     `message=${params.message}`,
   ].filter(Boolean);
   return parts.join(' ');
@@ -152,7 +152,7 @@ function isAgentStatusChainRequest(state: PilotState): boolean {
   return hasChainIntent && hasStatusIntent;
 }
 
-function buildContractFallbackMessage(
+function buildContractRecoveryMessage(
   state: PilotState,
   runContext: any,
   pipelineId: string,
@@ -179,7 +179,7 @@ function buildContractFallbackMessage(
     '',
     'findings',
     ...normalizedErrors.map((err) => `- ${err}`),
-    '- Виконано fallback-форматування для стабільності виводу.',
+    '- Виконано авто-форматування для стабільності виводу.',
     '',
     'original_response_excerpt',
     rawExcerpt || '(empty)',
@@ -328,15 +328,15 @@ function localizeSystemMessage(
   const providerLabel = details?.providerLabel || 'Execution provider';
   const humanized = summarizeExecutionError(language, rawError, providerLabel);
   if (language === 'uk') {
-    return `[System] Етап ${stageId} завершився помилкою; продовжую пайплайн із fallback. ${humanized}`;
+    return `[System] Етап ${stageId} завершився помилкою; продовжую пайплайн із recovery. ${humanized}`;
   }
   if (language === 'ru') {
-    return `[System] Этап ${stageId} завершился с ошибкой; продолжаю пайплайн с fallback. ${humanized}`;
+    return `[System] Этап ${stageId} завершился с ошибкой; продолжаю пайплайн с recovery. ${humanized}`;
   }
   if (language === 'be') {
-    return `[System] Этап ${stageId} завяршыўся з памылкай; працягваю пайплайн з fallback. ${humanized}`;
+    return `[System] Этап ${stageId} завяршыўся з памылкай; працягваю пайплайн з recovery. ${humanized}`;
   }
-  return `[System] Stage ${stageId} failed; continuing pipeline with fallback. ${humanized}`;
+  return `[System] Stage ${stageId} failed; continuing pipeline with recovery. ${humanized}`;
 }
 
 async function runWithStageTimeout<T>(task: Promise<T>, timeoutMs: number, label: string): Promise<T> {
@@ -417,21 +417,21 @@ async function routerNode(state: PilotState): Promise<Partial<PilotState>> {
       ],
     };
   } catch (error: any) {
-    console.warn('[PilotGraph:Router] classifyRequest failed, fallback to intake:', error?.message || error);
+    console.warn('[PilotGraph:Router] classifyRequest failed, recover to intake:', error?.message || error);
     return {
       intent: 'unknown',
       selected_pipeline: 'unified-task-intake',
       customAgents: [],
       preferredLanguage,
-      status: 'routed:fallback:intake',
+      status: 'routed:recovery:intake',
       artifactLogs: [
         buildArtifactLog({
           stage: 'router',
           role: 'Router',
-          status: 'fallback',
-          source: 'fallback',
-          fallbackCategory: 'classification_error',
-          message: '[Router] Classification failed; fallback to unified-task-intake.',
+          status: 'recovered',
+          source: 'system',
+          recoveryCategory: 'classification_error',
+          message: '[Router] Classification failed; recover to unified-task-intake.',
         }),
       ],
     };
@@ -536,7 +536,7 @@ async function swarmNode(state: PilotState): Promise<Partial<PilotState>> {
   const pipelineId = state.selected_pipeline || 'unified-task-intake';
   let pipelineDef = PipelineRegistry.getPipeline(pipelineId);
   if (!pipelineDef || !Array.isArray(pipelineDef.stages) || pipelineDef.stages.length === 0) {
-    const fallbackAgent =
+    const defaultAgent =
       AgentRegistry.getAgent('pm-orchestrator')?.slug ||
       AgentRegistry.getAllAgents()[0]?.slug ||
       'system-core';
@@ -545,21 +545,21 @@ async function swarmNode(state: PilotState): Promise<Partial<PilotState>> {
       slug: pipelineId,
       name: pipelineId,
       title: pipelineId,
-      description: 'Fallback synthesized pipeline',
+      description: 'Default synthesized pipeline',
       stages: [
         {
           id: 'intake',
-          name: 'Fallback Intake',
-          title: 'Fallback Intake',
-          role: fallbackAgent,
-          agent: fallbackAgent,
-          description: 'Fallback stage',
-          instructions: 'Fallback stage',
+          name: 'Default Intake',
+          title: 'Default Intake',
+          role: defaultAgent,
+          agent: defaultAgent,
+          description: 'Default stage',
+          instructions: 'Default stage',
           nextAllowedRoles: [],
           completionCriteria: '',
         },
       ],
-      sourcePath: 'runtime://fallback-pipeline',
+      sourcePath: 'runtime://default-pipeline',
     };
     PipelineRegistry.register(pipelineDef);
   }
@@ -710,14 +710,14 @@ async function swarmNode(state: PilotState): Promise<Partial<PilotState>> {
       title: nextStage.agent || 'System Core',
       callsign: nextStage.agent || 'System Core',
       mission: 'Execute assigned task.',
-      description: 'Fallback synthesized agent profile.',
+      description: 'Default synthesized agent profile.',
       instructions: '',
       owns: [],
       guardrails: [],
       skills: [],
       tools: [],
       fullInstructions: '',
-      sourcePath: 'runtime://fallback-agent',
+      sourcePath: 'runtime://default-agent',
     };
 
   const buildRunContext = async (workerId: string) =>
@@ -891,9 +891,9 @@ async function swarmNode(state: PilotState): Promise<Partial<PilotState>> {
           buildArtifactLog({
             stage: nextStage.id,
             role: runContext.agent.title,
-            status: 'fallback',
-            source: 'fallback',
-            fallbackCategory: 'execution_error',
+            status: 'recovered',
+            source: 'system',
+            recoveryCategory: 'execution_error',
             message: `Stage failed: ${errMsg}`,
           }),
         ],
@@ -961,9 +961,9 @@ async function swarmNode(state: PilotState): Promise<Partial<PilotState>> {
           buildArtifactLog({
             stage: nextStage.id,
             role: runContext.agent.title,
-            status: 'fallback',
-            source: 'fallback',
-            fallbackCategory: 'execution_error',
+            status: 'recovered',
+            source: 'system',
+            recoveryCategory: 'execution_error',
             message: `Reprompt failed: ${errMsg}`,
           }),
         ],
@@ -973,7 +973,7 @@ async function swarmNode(state: PilotState): Promise<Partial<PilotState>> {
     contractValidation = validateAgentResponseContract(result.content);
     result.content = contractValidation.normalizedText;
     if (!contractValidation.ok) {
-      result.content = buildContractFallbackMessage(
+      result.content = buildContractRecoveryMessage(
         state,
         runContext,
         pipelineId,
@@ -1016,7 +1016,7 @@ async function swarmNode(state: PilotState): Promise<Partial<PilotState>> {
         buildArtifactLog({
           stage: nextStage.id,
           role: 'System',
-          status: 'fallback',
+          status: 'recovered',
           source: 'worker',
           message: `Drift detected: ${drift.reason}. Rerouting...`,
         }),
