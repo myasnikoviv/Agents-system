@@ -514,6 +514,7 @@ runtimeDb.exec(`
     workspace_id TEXT NOT NULL,
     client_id TEXT,
     client_secret_hash TEXT,
+    scim_token_hash TEXT,
     active INTEGER NOT NULL DEFAULT 1,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
@@ -560,6 +561,9 @@ try {
 } catch {}
 try {
   runtimeDb.exec(`ALTER TABLE auth_sessions ADD COLUMN ip_address TEXT`);
+} catch {}
+try {
+  runtimeDb.exec(`ALTER TABLE auth_sso_providers ADD COLUMN scim_token_hash TEXT`);
 } catch {}
 
 const toPlaneIdentifier = (value: string): string =>
@@ -631,6 +635,12 @@ const createAuthSession = (input: {
       String(input.ipAddress || '').slice(0, 128),
     );
   return { token, refreshToken, expiresAt };
+};
+
+const parseScimBearerToken = (req: express.Request): string => {
+  const header = String(req.header('authorization') || '').trim();
+  if (!header.toLowerCase().startsWith('bearer ')) return '';
+  return header.slice(7).trim();
 };
 
 const shouldUsePostgresSecrets = async (): Promise<boolean> => {
@@ -2746,6 +2756,7 @@ app.post('/api/auth/sso/providers', (req, res) => {
   const audience = String(req.body?.audience || '').trim();
   const clientId = String(req.body?.clientId || '').trim();
   const clientSecret = String(req.body?.clientSecret || '').trim();
+  const scimToken = String(req.body?.scimToken || '').trim();
   if (!name || !protocol) {
     res.status(400).json({ success: false, error: 'name_and_valid_protocol_required' });
     return;
@@ -2756,8 +2767,8 @@ app.post('/api/auth/sso/providers', (req, res) => {
   runtimeDb
     .prepare(
       `INSERT INTO auth_sso_providers (
-        id, name, protocol, issuer, entrypoint, audience, tenant_id, workspace_id, client_id, client_secret_hash, active, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`,
+        id, name, protocol, issuer, entrypoint, audience, tenant_id, workspace_id, client_id, client_secret_hash, scim_token_hash, active, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`,
     )
     .run(
       id,
@@ -2770,6 +2781,7 @@ app.post('/api/auth/sso/providers', (req, res) => {
       auth.workspaceId,
       clientId || null,
       clientSecret ? hashPassword(clientSecret) : null,
+      scimToken ? hashPassword(`scim:${scimToken}`) : null,
       now,
       now,
     );
@@ -2788,6 +2800,168 @@ app.post('/api/auth/sso/providers', (req, res) => {
       active: true,
     },
   });
+});
+
+const requireScimProvider = (req: express.Request, res: express.Response): {
+  providerId: string;
+  tenantId: string;
+  workspaceId: string;
+  protocol: string;
+} | null => {
+  const providerId = String(req.header('x-scim-provider-id') || req.query?.providerId || req.body?.providerId || '').trim();
+  const token = parseScimBearerToken(req);
+  if (!providerId || !token) {
+    res.status(401).json({ success: false, error: 'scim_provider_and_token_required' });
+    return null;
+  }
+  const row = runtimeDb
+    .prepare(
+      `SELECT id, tenant_id, workspace_id, protocol, active, scim_token_hash
+       FROM auth_sso_providers WHERE id = ?`,
+    )
+    .get(providerId) as
+    | { id: string; tenant_id: string; workspace_id: string; protocol: string; active: number; scim_token_hash: string | null }
+    | undefined;
+  if (!row || !row.active || !row.scim_token_hash) {
+    res.status(401).json({ success: false, error: 'invalid_scim_provider' });
+    return null;
+  }
+  if (row.scim_token_hash !== hashPassword(`scim:${token}`)) {
+    res.status(401).json({ success: false, error: 'invalid_scim_token' });
+    return null;
+  }
+  return {
+    providerId: row.id,
+    tenantId: row.tenant_id,
+    workspaceId: row.workspace_id,
+    protocol: row.protocol,
+  };
+};
+
+app.post('/api/auth/scim/v2/Users', (req, res) => {
+  const scope = requireScimProvider(req, res);
+  if (!scope) return;
+
+  const email = String(req.body?.email || req.body?.userName || '').trim().toLowerCase();
+  const roleRaw = String(req.body?.role || 'member').trim().toLowerCase();
+  const role = roleRaw === 'owner' || roleRaw === 'admin' || roleRaw === 'member' ? roleRaw : 'member';
+  const active = req.body?.active === false ? 0 : 1;
+
+  if (!email) {
+    res.status(400).json({ success: false, error: 'email_required' });
+    return;
+  }
+
+  const existing = runtimeDb
+    .prepare(`SELECT id, email, role, tenant_id, workspace_id, is_active FROM auth_users WHERE email = ? AND tenant_id = ? AND workspace_id = ?`)
+    .get(email, scope.tenantId, scope.workspaceId) as
+    | { id: string; email: string; role: string; tenant_id: string; workspace_id: string; is_active: number }
+    | undefined;
+
+  if (existing) {
+    runtimeDb
+      .prepare(`UPDATE auth_users SET role = ?, is_active = ? WHERE id = ?`)
+      .run(role, active, existing.id);
+    res.status(200).json({
+      success: true,
+      operation: 'upsert',
+      user: {
+        id: existing.id,
+        email: existing.email,
+        role,
+        active: Boolean(active),
+        tenantId: scope.tenantId,
+        workspaceId: scope.workspaceId,
+      },
+    });
+    return;
+  }
+
+  const userId = `user-${crypto.randomUUID()}`;
+  runtimeDb
+    .prepare(
+      `INSERT INTO auth_users (id, email, password_hash, tenant_id, workspace_id, role, is_active, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .run(
+      userId,
+      email,
+      hashPassword(`scim:${scope.providerId}:${crypto.randomUUID()}`),
+      scope.tenantId,
+      scope.workspaceId,
+      role,
+      active,
+      new Date().toISOString(),
+    );
+
+  res.status(201).json({
+    success: true,
+    operation: 'create',
+    user: {
+      id: userId,
+      email,
+      role,
+      active: Boolean(active),
+      tenantId: scope.tenantId,
+      workspaceId: scope.workspaceId,
+    },
+  });
+});
+
+app.patch('/api/auth/scim/v2/Users/:id', (req, res) => {
+  const scope = requireScimProvider(req, res);
+  if (!scope) return;
+  const userId = String(req.params?.id || '').trim();
+  if (!userId) {
+    res.status(400).json({ success: false, error: 'user_id_required' });
+    return;
+  }
+  const row = runtimeDb
+    .prepare(`SELECT id, email, role, is_active FROM auth_users WHERE id = ? AND tenant_id = ? AND workspace_id = ?`)
+    .get(userId, scope.tenantId, scope.workspaceId) as
+    | { id: string; email: string; role: string; is_active: number }
+    | undefined;
+  if (!row) {
+    res.status(404).json({ success: false, error: 'user_not_found' });
+    return;
+  }
+  const nextRoleRaw = String(req.body?.role || row.role).trim().toLowerCase();
+  const nextRole = nextRoleRaw === 'owner' || nextRoleRaw === 'admin' || nextRoleRaw === 'member' ? nextRoleRaw : row.role;
+  const nextActive = typeof req.body?.active === 'boolean' ? (req.body.active ? 1 : 0) : row.is_active;
+  runtimeDb
+    .prepare(`UPDATE auth_users SET role = ?, is_active = ? WHERE id = ?`)
+    .run(nextRole, nextActive, userId);
+  res.json({
+    success: true,
+    user: {
+      id: userId,
+      email: row.email,
+      role: nextRole,
+      active: Boolean(nextActive),
+      tenantId: scope.tenantId,
+      workspaceId: scope.workspaceId,
+    },
+  });
+});
+
+app.delete('/api/auth/scim/v2/Users/:id', (req, res) => {
+  const scope = requireScimProvider(req, res);
+  if (!scope) return;
+  const userId = String(req.params?.id || '').trim();
+  if (!userId) {
+    res.status(400).json({ success: false, error: 'user_id_required' });
+    return;
+  }
+  const row = runtimeDb
+    .prepare(`SELECT id FROM auth_users WHERE id = ? AND tenant_id = ? AND workspace_id = ?`)
+    .get(userId, scope.tenantId, scope.workspaceId) as { id: string } | undefined;
+  if (!row) {
+    res.status(404).json({ success: false, error: 'user_not_found' });
+    return;
+  }
+  runtimeDb.prepare(`UPDATE auth_users SET is_active = 0 WHERE id = ?`).run(userId);
+  runtimeDb.prepare(`DELETE FROM auth_sessions WHERE user_id = ?`).run(userId);
+  res.json({ success: true, deactivated: true, userId });
 });
 
 app.post('/api/auth/sso/login', (req, res) => {
