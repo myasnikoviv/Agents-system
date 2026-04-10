@@ -1177,20 +1177,21 @@ const restoreRuntimeStore = () => {
 
 const syncExecutorSettingsToRuntimeConfig = (
   executorSettings: Record<string, any>,
-  auth?: { tenantId: string; workspaceId: string },
+  auth?: { tenantId: string; workspaceId: string; userId?: string },
 ) => {
   try {
     const current = getCockpitExecutorConfig();
     const backend = String(executorSettings.backend || current.backend) as 'claude-cli' | 'codex-cli' | 'openhands-sdk';
     const scopedOpenhandsApiKeys: Record<string, string> = {};
     if (auth?.tenantId && auth?.workspaceId) {
-      for (const row of secretsStore.listMeta({ tenantId: auth.tenantId, workspaceId: auth.workspaceId })) {
+      for (const row of secretsStore.listMeta({ tenantId: auth.tenantId, workspaceId: auth.workspaceId, userId: auth.userId })) {
         if (!row.key.startsWith('openhands.apiKeys.')) continue;
         const provider = row.key.replace('openhands.apiKeys.', '').trim();
         if (!provider) continue;
         const value = secretsStore.getValue({
           tenantId: auth.tenantId,
           workspaceId: auth.workspaceId,
+          userId: auth.userId,
           key: row.key,
         });
         if (value) scopedOpenhandsApiKeys[provider] = value;

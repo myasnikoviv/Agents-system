@@ -5,6 +5,7 @@ export interface SecretMeta {
   key: string;
   tenantId: string;
   workspaceId: string;
+  userId: string;
   createdAt: string;
   updatedAt: string;
   createdBy?: string;
@@ -43,13 +44,33 @@ export interface SecretsStore {
   upsert(input: {
     tenantId: string;
     workspaceId: string;
+    userId?: string;
     key: string;
     value: string;
     createdBy?: string;
   }): Promise<SecretMeta>;
-  getValue(input: { tenantId: string; workspaceId: string; key: string }): Promise<string | null>;
-  listMeta(input: { tenantId: string; workspaceId: string }): Promise<SecretMeta[]>;
-  delete(input: { tenantId: string; workspaceId: string; key: string }): Promise<boolean>;
+  getValue(input: { tenantId: string; workspaceId: string; userId?: string; key: string }): Promise<string | null>;
+  listMeta(input: { tenantId: string; workspaceId: string; userId?: string }): Promise<SecretMeta[]>;
+  delete(input: { tenantId: string; workspaceId: string; userId?: string; key: string }): Promise<boolean>;
+}
+
+function normalizeUserScope(userId?: string): string {
+  const normalized = String(userId || '').trim();
+  return normalized || '__workspace__';
+}
+
+function encodeScopedSecretKey(userId: string | undefined, key: string): string {
+  return `${normalizeUserScope(userId)}::${String(key || '').trim()}`;
+}
+
+function decodeScopedSecretKey(storedKey: string): { userId: string; key: string } | null {
+  const raw = String(storedKey || '');
+  const idx = raw.indexOf('::');
+  if (idx <= 0) return null;
+  const userId = raw.slice(0, idx).trim();
+  const key = raw.slice(idx + 2).trim();
+  if (!userId || !key) return null;
+  return { userId, key };
 }
 
 export class SqliteSecretsStore {
@@ -73,6 +94,7 @@ export class SqliteSecretsStore {
   upsert(input: {
     tenantId: string;
     workspaceId: string;
+    userId?: string;
     key: string;
     value: string;
     createdBy?: string;
@@ -81,6 +103,8 @@ export class SqliteSecretsStore {
     const tenantId = String(input.tenantId || '').trim();
     const workspaceId = String(input.workspaceId || '').trim();
     const key = String(input.key || '').trim();
+    const userId = normalizeUserScope(input.userId || input.createdBy);
+    const scopedKey = encodeScopedSecretKey(userId, key);
     const cipherText = encrypt(input.value, this.encryptionSecret);
     this.db.prepare(`
       INSERT INTO cockpit_secrets(tenant_id, workspace_id, key, cipher_text, created_at, updated_at, created_by)
@@ -92,7 +116,7 @@ export class SqliteSecretsStore {
     `).run({
       tenant_id: tenantId,
       workspace_id: workspaceId,
-      key,
+      key: scopedKey,
       cipher_text: cipherText,
       created_at: now,
       updated_at: now,
@@ -103,24 +127,26 @@ export class SqliteSecretsStore {
       FROM cockpit_secrets
       WHERE tenant_id = ? AND workspace_id = ? AND key = ?
       LIMIT 1
-    `).get(tenantId, workspaceId, key) as any;
+    `).get(tenantId, workspaceId, scopedKey) as any;
     return {
       key,
       tenantId,
       workspaceId,
+      userId,
       createdAt: row?.created_at || now,
       updatedAt: row?.updated_at || now,
       createdBy: row?.created_by || undefined,
     };
   }
 
-  getValue(input: { tenantId: string; workspaceId: string; key: string }): string | null {
+  getValue(input: { tenantId: string; workspaceId: string; userId?: string; key: string }): string | null {
+    const scopedKey = encodeScopedSecretKey(input.userId, input.key);
     const row = this.db.prepare(`
       SELECT cipher_text
       FROM cockpit_secrets
       WHERE tenant_id = ? AND workspace_id = ? AND key = ?
       LIMIT 1
-    `).get(input.tenantId, input.workspaceId, input.key) as { cipher_text?: string } | undefined;
+    `).get(input.tenantId, input.workspaceId, scopedKey) as { cipher_text?: string } | undefined;
     if (!row?.cipher_text) return null;
     try {
       return decrypt(row.cipher_text, this.encryptionSecret);
@@ -129,28 +155,37 @@ export class SqliteSecretsStore {
     }
   }
 
-  listMeta(input: { tenantId: string; workspaceId: string }): SecretMeta[] {
+  listMeta(input: { tenantId: string; workspaceId: string; userId?: string }): SecretMeta[] {
+    const userPrefix = `${normalizeUserScope(input.userId)}::`;
     const rows = this.db.prepare(`
       SELECT tenant_id, workspace_id, key, created_at, updated_at, created_by
       FROM cockpit_secrets
-      WHERE tenant_id = ? AND workspace_id = ?
+      WHERE tenant_id = ? AND workspace_id = ? AND key LIKE ?
       ORDER BY updated_at DESC
-    `).all(input.tenantId, input.workspaceId) as any[];
-    return rows.map((row) => ({
-      key: row.key,
-      tenantId: row.tenant_id,
-      workspaceId: row.workspace_id,
-      createdAt: row.created_at,
-      updatedAt: row.updated_at,
-      createdBy: row.created_by || undefined,
-    }));
+    `).all(input.tenantId, input.workspaceId, `${userPrefix}%`) as any[];
+    return rows
+      .map((row) => {
+        const decoded = decodeScopedSecretKey(row.key);
+        if (!decoded) return null;
+        return {
+          key: decoded.key,
+          tenantId: row.tenant_id,
+          workspaceId: row.workspace_id,
+          userId: decoded.userId,
+          createdAt: row.created_at,
+          updatedAt: row.updated_at,
+          createdBy: row.created_by || undefined,
+        } as SecretMeta;
+      })
+      .filter((row): row is SecretMeta => Boolean(row));
   }
 
-  delete(input: { tenantId: string; workspaceId: string; key: string }): boolean {
+  delete(input: { tenantId: string; workspaceId: string; userId?: string; key: string }): boolean {
+    const scopedKey = encodeScopedSecretKey(input.userId, input.key);
     const out = this.db.prepare(`
       DELETE FROM cockpit_secrets
       WHERE tenant_id = ? AND workspace_id = ? AND key = ?
-    `).run(input.tenantId, input.workspaceId, input.key);
+    `).run(input.tenantId, input.workspaceId, scopedKey);
     return Number(out.changes || 0) > 0;
   }
 }
@@ -223,6 +258,7 @@ export class PostgresSecretsStore implements SecretsStore {
   async upsert(input: {
     tenantId: string;
     workspaceId: string;
+    userId?: string;
     key: string;
     value: string;
     createdBy?: string;
@@ -231,11 +267,14 @@ export class PostgresSecretsStore implements SecretsStore {
     const tenantId = String(input.tenantId || '').trim();
     const workspaceId = String(input.workspaceId || '').trim();
     const key = String(input.key || '').trim();
+    const userId = normalizeUserScope(input.userId || input.createdBy);
+    const scopedKey = encodeScopedSecretKey(userId, key);
     if (!(await this.ensureReady())) {
       return {
         key,
         tenantId,
         workspaceId,
+        userId,
         createdAt: now,
         updatedAt: now,
         createdBy: input.createdBy || undefined,
@@ -249,33 +288,35 @@ export class PostgresSecretsStore implements SecretsStore {
          cipher_text = EXCLUDED.cipher_text,
          updated_at = NOW(),
          created_by = COALESCE(cockpit_secrets_pg.created_by, EXCLUDED.created_by)`,
-      [tenantId, workspaceId, key, cipherText, input.createdBy || null],
+      [tenantId, workspaceId, scopedKey, cipherText, input.createdBy || null],
     );
     const row = (await this.client!.query(
       `SELECT tenant_id, workspace_id, key, created_at, updated_at, created_by
        FROM cockpit_secrets_pg
        WHERE tenant_id = $1 AND workspace_id = $2 AND key = $3
        LIMIT 1`,
-      [tenantId, workspaceId, key],
+      [tenantId, workspaceId, scopedKey],
     ))?.rows?.[0] as any;
     return {
       key,
-      tenantId,
-      workspaceId,
+      tenantId: String(row?.tenant_id || tenantId),
+      workspaceId: String(row?.workspace_id || workspaceId),
+      userId,
       createdAt: String(row?.created_at || now),
       updatedAt: String(row?.updated_at || now),
       createdBy: row?.created_by ? String(row.created_by) : undefined,
     };
   }
 
-  async getValue(input: { tenantId: string; workspaceId: string; key: string }): Promise<string | null> {
+  async getValue(input: { tenantId: string; workspaceId: string; userId?: string; key: string }): Promise<string | null> {
     if (!(await this.ensureReady())) return null;
+    const scopedKey = encodeScopedSecretKey(input.userId, input.key);
     const row = (await this.client!.query(
       `SELECT cipher_text
        FROM cockpit_secrets_pg
        WHERE tenant_id = $1 AND workspace_id = $2 AND key = $3
        LIMIT 1`,
-      [input.tenantId, input.workspaceId, input.key],
+      [input.tenantId, input.workspaceId, scopedKey],
     ))?.rows?.[0] as any;
     if (!row?.cipher_text) return null;
     try {
@@ -285,31 +326,40 @@ export class PostgresSecretsStore implements SecretsStore {
     }
   }
 
-  async listMeta(input: { tenantId: string; workspaceId: string }): Promise<SecretMeta[]> {
+  async listMeta(input: { tenantId: string; workspaceId: string; userId?: string }): Promise<SecretMeta[]> {
     if (!(await this.ensureReady())) return [];
+    const userPrefix = `${normalizeUserScope(input.userId)}::`;
     const rows = (await this.client!.query(
       `SELECT tenant_id, workspace_id, key, created_at, updated_at, created_by
        FROM cockpit_secrets_pg
-       WHERE tenant_id = $1 AND workspace_id = $2
+       WHERE tenant_id = $1 AND workspace_id = $2 AND key LIKE $3
        ORDER BY updated_at DESC`,
-      [input.tenantId, input.workspaceId],
+      [input.tenantId, input.workspaceId, `${userPrefix}%`],
     ))?.rows || [];
-    return rows.map((row: any) => ({
-      key: String(row.key || ''),
-      tenantId: String(row.tenant_id || ''),
-      workspaceId: String(row.workspace_id || ''),
-      createdAt: String(row.created_at || new Date().toISOString()),
-      updatedAt: String(row.updated_at || new Date().toISOString()),
-      createdBy: row?.created_by ? String(row.created_by) : undefined,
-    }));
+    return rows
+      .map((row: any) => {
+        const decoded = decodeScopedSecretKey(String(row.key || ''));
+        if (!decoded) return null;
+        return {
+          key: decoded.key,
+          tenantId: String(row.tenant_id || ''),
+          workspaceId: String(row.workspace_id || ''),
+          userId: decoded.userId,
+          createdAt: String(row.created_at || new Date().toISOString()),
+          updatedAt: String(row.updated_at || new Date().toISOString()),
+          createdBy: row?.created_by ? String(row.created_by) : undefined,
+        } as SecretMeta;
+      })
+      .filter((row): row is SecretMeta => Boolean(row));
   }
 
-  async delete(input: { tenantId: string; workspaceId: string; key: string }): Promise<boolean> {
+  async delete(input: { tenantId: string; workspaceId: string; userId?: string; key: string }): Promise<boolean> {
     if (!(await this.ensureReady())) return false;
+    const scopedKey = encodeScopedSecretKey(input.userId, input.key);
     const result = await this.client!.query(
       `DELETE FROM cockpit_secrets_pg
        WHERE tenant_id = $1 AND workspace_id = $2 AND key = $3`,
-      [input.tenantId, input.workspaceId, input.key],
+      [input.tenantId, input.workspaceId, scopedKey],
     );
     return Number(result?.rowCount || 0) > 0;
   }
