@@ -106,6 +106,8 @@ describe('DynamicWorkerSpawnManager', () => {
     );
 
     expect(devFirst.worker.workerId).not.toBe(qaFirst.worker.workerId);
+    expect(devFirst.worker.workerType).toBe('worker.developer');
+    expect(qaFirst.worker.workerType).toBe('worker.tdd-qa');
     expect(devFirst.worker.memoryNamespace).toBe(
       'tenant:tenant:proj-a:workspace:workspace:proj-a:project:proj-a:environment:env:tenant:proj-a:workspace:proj-a:project:proj-a:memory:agent:developer',
     );
@@ -114,6 +116,7 @@ describe('DynamicWorkerSpawnManager', () => {
     );
     expect(devSecond.worker.workerId).toBe(devFirst.worker.workerId);
     expect(devSecond.worker.workerId).not.toBe(qaFirst.worker.workerId);
+    expect(devSecond.worker.workerType).toBe('worker.developer');
   });
 
   it('assigns heat mode according to hot/cold policy', async () => {
