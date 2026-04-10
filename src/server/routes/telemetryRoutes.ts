@@ -27,6 +27,14 @@ interface TelemetryRouteDeps {
     generatedAt: string;
   }>;
   listApiTraceSpans?: (input: { traceId?: string; runId?: string; limit?: number }) => Promise<Array<Record<string, any>>>;
+  readStructuredLogs?: (input: {
+    level?: string;
+    source?: string;
+    q?: string;
+    fromTs?: number | null;
+    toTs?: number | null;
+    limit?: number;
+  }) => Promise<Array<Record<string, any>>>;
   readRunLedgerEvents: (input: { runId?: string; projectId?: string; limit?: number }) => Promise<any[]>;
   normalizeRuntimeEvent: (row: any) => UnifiedTelemetryEvent;
 }
@@ -306,6 +314,32 @@ export function registerTelemetryRoutes(app: express.Express, deps: TelemetryRou
         success: false,
         error: 'trace_fetch_failed',
         message: error?.message || 'Failed to fetch trace data',
+      });
+    }
+  });
+
+  app.get('/api/cockpit/logs', async (req, res) => {
+    try {
+      if (!deps.readStructuredLogs) {
+        return res.json({ success: true, logs: [], count: 0, source: 'structured_logs_not_configured' });
+      }
+      const level = String(req.query?.level || '').trim() || undefined;
+      const source = String(req.query?.source || '').trim() || undefined;
+      const q = String(req.query?.q || '').trim() || undefined;
+      const fromTs = parseNumber(req.query?.fromTs);
+      const toTs = parseNumber(req.query?.toTs);
+      const limit = Math.max(1, Math.min(5000, Number(req.query?.limit || 200)));
+      const logs = await deps.readStructuredLogs({ level, source, q, fromTs, toTs, limit });
+      return res.json({
+        success: true,
+        count: logs.length,
+        logs,
+      });
+    } catch (error: any) {
+      return res.status(500).json({
+        success: false,
+        error: 'structured_logs_fetch_failed',
+        message: error?.message || 'Failed to fetch structured logs',
       });
     }
   });
