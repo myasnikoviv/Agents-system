@@ -15,7 +15,7 @@ import { detectLanguage, type DetectedLanguage } from '../LanguageDetection';
 import { buildContractRepromptInstruction, validateAgentResponseContract } from '../ResponseContractGuard';
 import { DynamicWorkerSpawnManager } from '../workers/DynamicWorkerSpawnManager';
 import { QueueAbstractionLayer } from '../queue/QueueAbstractionLayer';
-import { executeRunContextInSubprocess } from '../workers/WorkerProcessExecutor';
+import { WorkerExecutionEngine } from '../workers/WorkerExecutionEngine';
 
 
 // The officially supported way to type State in LangGraph TS
@@ -819,11 +819,16 @@ async function swarmNode(state: PilotState): Promise<Partial<PilotState>> {
         executionTransport: 'subprocess',
       },
     });
-    return runWithStageTimeout(
-      executeRunContextInSubprocess({ runContext, timeoutMs: stageTimeoutMs }),
-      stageTimeoutMs,
-      `${nextStage.id}:${runContext.agent.slug}:subprocess`,
-    );
+    const execution = await WorkerExecutionEngine.executeTask({
+      runContext,
+      timeoutMs: stageTimeoutMs,
+      stageId: String(nextStage.id || ''),
+      agentSlug: String(runContext.agent.slug || ''),
+    });
+    if (!execution.ok) {
+      throw new Error(execution.error || 'worker_execution_failed');
+    }
+    return { content: execution.content };
   };
 
   try {
