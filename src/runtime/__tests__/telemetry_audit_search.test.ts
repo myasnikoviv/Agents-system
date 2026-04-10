@@ -29,6 +29,7 @@ describe('Telemetry audit search (AGSYS-3116)', () => {
     registerTelemetryRoutes(app, {
       fetchRecentEvents: async () => [],
       readControlActionAuditRows: async () => auditRows,
+      verifyAuditIntegrity: async () => ({ ok: true, checked: 2 }),
       readRunLedgerEvents: async () => [],
       normalizeRuntimeEvent: (row: any) => row,
       normalizeAuditRow: (row: any) => ({
@@ -78,6 +79,12 @@ describe('Telemetry audit search (AGSYS-3116)', () => {
       expect(byTime.status).toBe(200);
       expect(byTimeJson.count).toBe(1);
       expect(byTimeJson.events[0]?.type).toBe('billing.subscription.updated');
+
+      const integrity = await fetch(`${base}/api/cockpit/audit/integrity`);
+      const integrityJson: any = await integrity.json();
+      expect(integrity.status).toBe(200);
+      expect(integrityJson.ok).toBe(true);
+      expect(integrityJson.checked).toBe(2);
     } finally {
       await new Promise<void>((resolve, reject) => {
         server.close((err) => (err ? reject(err) : resolve()));
@@ -85,4 +92,3 @@ describe('Telemetry audit search (AGSYS-3116)', () => {
     }
   });
 });
-

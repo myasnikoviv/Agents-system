@@ -19,6 +19,7 @@ interface TelemetryRouteDeps {
   fetchRecentEvents: (count?: number) => Promise<any[]>;
   readControlActionAuditRows: (projectId?: string) => Promise<any[]>;
   normalizeAuditRow: (row: any) => UnifiedTelemetryEvent;
+  verifyAuditIntegrity?: () => Promise<{ ok: boolean; checked: number; brokenAtId?: string; reason?: string }>;
   readRunLedgerEvents: (input: { runId?: string; projectId?: string; limit?: number }) => Promise<any[]>;
   normalizeRuntimeEvent: (row: any) => UnifiedTelemetryEvent;
 }
@@ -130,6 +131,30 @@ export function registerTelemetryRoutes(app: express.Express, deps: TelemetryRou
         success: false,
         error: 'audit_logs_fetch_failed',
         message: error?.message || 'Failed to read audit logs',
+      });
+    }
+  });
+
+  app.get('/api/cockpit/audit/integrity', async (_req, res) => {
+    try {
+      if (!deps.verifyAuditIntegrity) {
+        return res.json({
+          success: true,
+          ok: false,
+          checked: 0,
+          reason: 'integrity_verifier_not_configured',
+        });
+      }
+      const result = await deps.verifyAuditIntegrity();
+      return res.json({
+        success: true,
+        ...result,
+      });
+    } catch (error: any) {
+      return res.status(500).json({
+        success: false,
+        error: 'audit_integrity_check_failed',
+        message: error?.message || 'Failed to verify audit integrity',
       });
     }
   });

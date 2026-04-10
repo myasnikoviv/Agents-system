@@ -1,3 +1,9 @@
+import {
+  buildAuditHashMaterialFromRow,
+  computeAuditChainHash,
+  computeAuditPayloadHash,
+} from '../audit/AuditIntegrity';
+
 type Queryable = {
   query: (sql: string, params?: any[]) => Promise<{ rows?: any[] }>;
   end?: () => Promise<void>;
@@ -75,8 +81,32 @@ export class PostgresControlPlaneStore {
           reason TEXT,
           target_json JSONB,
           result_json JSONB,
+          entry_json JSONB,
+          prev_hash TEXT,
+          payload_hash TEXT,
+          chain_hash TEXT,
           created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
         );
+        ALTER TABLE cockpit_audit_meta_pg ADD COLUMN IF NOT EXISTS entry_json JSONB;
+        ALTER TABLE cockpit_audit_meta_pg ADD COLUMN IF NOT EXISTS prev_hash TEXT;
+        ALTER TABLE cockpit_audit_meta_pg ADD COLUMN IF NOT EXISTS payload_hash TEXT;
+        ALTER TABLE cockpit_audit_meta_pg ADD COLUMN IF NOT EXISTS chain_hash TEXT;
+        CREATE OR REPLACE FUNCTION cockpit_audit_meta_pg_block_mutation()
+        RETURNS TRIGGER AS $$
+        BEGIN
+          RAISE EXCEPTION 'cockpit_audit_meta_pg is append-only';
+        END;
+        $$ LANGUAGE plpgsql;
+        DROP TRIGGER IF EXISTS cockpit_audit_meta_pg_no_update ON cockpit_audit_meta_pg;
+        CREATE TRIGGER cockpit_audit_meta_pg_no_update
+        BEFORE UPDATE ON cockpit_audit_meta_pg
+        FOR EACH ROW
+        EXECUTE FUNCTION cockpit_audit_meta_pg_block_mutation();
+        DROP TRIGGER IF EXISTS cockpit_audit_meta_pg_no_delete ON cockpit_audit_meta_pg;
+        CREATE TRIGGER cockpit_audit_meta_pg_no_delete
+        BEFORE DELETE ON cockpit_audit_meta_pg
+        FOR EACH ROW
+        EXECUTE FUNCTION cockpit_audit_meta_pg_block_mutation();
       `);
       this.enabled = true;
       this.initError = null;
@@ -200,9 +230,33 @@ export class PostgresControlPlaneStore {
     result?: Record<string, any>;
   }): Promise<boolean> {
     if (!(await this.ensureReady())) return false;
+    const timestamp = new Date().toISOString();
+    const rowSeed = {
+      id: `pg-audit-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+      timestamp,
+      action: input.action,
+      projectId: input.projectId || null,
+      actorId: input.actorId || null,
+      reason: input.reason || '',
+      target: input.target || {},
+      result: input.result || {},
+    };
+    const previous = await this.client!.query(
+      `SELECT chain_hash
+       FROM cockpit_audit_meta_pg
+       ORDER BY id DESC
+       LIMIT 1`,
+    );
+    const prevHash = Array.isArray(previous?.rows) && previous.rows[0]?.chain_hash
+      ? String(previous.rows[0].chain_hash)
+      : 'genesis';
+    const payloadHash = computeAuditPayloadHash(buildAuditHashMaterialFromRow(rowSeed));
+    const chainHash = computeAuditChainHash({ prevHash, payloadHash });
     await this.client!.query(
-      `INSERT INTO cockpit_audit_meta_pg(action, project_id, actor_id, reason, target_json, result_json, created_at)
-       VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, NOW())`,
+      `INSERT INTO cockpit_audit_meta_pg(
+          action, project_id, actor_id, reason, target_json, result_json, entry_json, prev_hash, payload_hash, chain_hash, created_at
+       )
+       VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7::jsonb, $8, $9, $10, $11::timestamptz)`,
       [
         input.action,
         input.projectId || null,
@@ -210,6 +264,11 @@ export class PostgresControlPlaneStore {
         input.reason || null,
         JSON.stringify(input.target || {}),
         JSON.stringify(input.result || {}),
+        JSON.stringify(rowSeed),
+        prevHash,
+        payloadHash,
+        chainHash,
+        timestamp,
       ],
     );
     return true;
@@ -228,18 +287,21 @@ export class PostgresControlPlaneStore {
       reason?: string | null;
       target?: Record<string, any>;
       result?: Record<string, any>;
+      prevHash?: string;
+      payloadHash?: string;
+      hash?: string;
     }>
   > {
     if (!(await this.ensureReady())) return [];
     const limit = Math.max(1, Math.min(5000, Number(input?.limit || 1000)));
     const projectId = String(input?.projectId || '').trim();
     const sql = projectId
-      ? `SELECT id, action, project_id, actor_id, reason, target_json, result_json, created_at
+      ? `SELECT id, action, project_id, actor_id, reason, target_json, result_json, prev_hash, payload_hash, chain_hash, created_at
          FROM cockpit_audit_meta_pg
          WHERE project_id = $1
          ORDER BY id DESC
          LIMIT $2`
-      : `SELECT id, action, project_id, actor_id, reason, target_json, result_json, created_at
+      : `SELECT id, action, project_id, actor_id, reason, target_json, result_json, prev_hash, payload_hash, chain_hash, created_at
          FROM cockpit_audit_meta_pg
          ORDER BY id DESC
          LIMIT $1`;
@@ -256,6 +318,9 @@ export class PostgresControlPlaneStore {
         reason: row?.reason ? String(row.reason) : null,
         target: (row?.target_json && typeof row.target_json === 'object') ? row.target_json : {},
         result: (row?.result_json && typeof row.result_json === 'object') ? row.result_json : {},
+        prevHash: row?.prev_hash ? String(row.prev_hash) : '',
+        payloadHash: row?.payload_hash ? String(row.payload_hash) : '',
+        hash: row?.chain_hash ? String(row.chain_hash) : '',
       }))
       .reverse();
   }
