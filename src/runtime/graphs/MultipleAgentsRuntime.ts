@@ -36,6 +36,8 @@ export async function executeMultipleAgentsRun(initialState: Partial<PilotState>
   const pipelineId = enforcedPipeline || selectedPipeline || 'unified-task-intake';
   const workspacePath = asString(initialState.workspacePath, process.cwd());
   const environmentId = asString((initialState as any).environmentId, '');
+  const tenantId = asString((initialState as any).tenantId, '');
+  const workspaceId = asString((initialState as any).workspaceId, '');
   const stageTimeoutMs = Math.max(1000, Number(process.env.RUNTIME_STAGE_TIMEOUT_MS || 60000));
   const stageParallelism = Math.max(1, Number(process.env.RUNTIME_MULTIPLE_AGENTS_PARALLELISM || 2));
   const enforcedSkills = Array.isArray((initialState as any)?.enforcement?.skills)
@@ -120,6 +122,8 @@ export async function executeMultipleAgentsRun(initialState: Partial<PilotState>
     const lease = await DynamicWorkerSpawnManager.ensureWorker({
       runId,
       projectId,
+      ...(tenantId ? { tenantId } : {}),
+      ...(workspaceId ? { workspaceId } : {}),
       ...(environmentId ? { environmentId } : {}),
       chainId,
       agentSlug,
@@ -168,6 +172,9 @@ export async function executeMultipleAgentsRun(initialState: Partial<PilotState>
         threadId: chainId,
         history: historySnapshot,
         workerId: lease.worker.workerId,
+        ...(tenantId ? { tenantId } : {}),
+        ...(workspaceId ? { workspaceId } : {}),
+        ...(environmentId ? { environmentId } : {}),
       },
       { preferredLanguage: initialState.preferredLanguage as any },
       { projectId, workspacePath },
@@ -211,6 +218,8 @@ export async function executeMultipleAgentsRun(initialState: Partial<PilotState>
       await DynamicWorkerSpawnManager.releaseToStandby({
         runId,
         projectId,
+        ...(tenantId ? { tenantId } : {}),
+        ...(workspaceId ? { workspaceId } : {}),
         ...(environmentId ? { environmentId } : {}),
         chainId,
         agentSlug,
@@ -221,7 +230,15 @@ export async function executeMultipleAgentsRun(initialState: Partial<PilotState>
       };
     } catch (error: any) {
       await DynamicWorkerSpawnManager.markFailed(
-        { runId, projectId, ...(environmentId ? { environmentId } : {}), chainId, agentSlug },
+        {
+          runId,
+          projectId,
+          ...(tenantId ? { tenantId } : {}),
+          ...(workspaceId ? { workspaceId } : {}),
+          ...(environmentId ? { environmentId } : {}),
+          chainId,
+          agentSlug,
+        },
         String(error?.message || 'execution_failed'),
       ).catch(() => undefined);
 

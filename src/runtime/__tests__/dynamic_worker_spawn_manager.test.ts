@@ -102,6 +102,29 @@ describe('DynamicWorkerSpawnManager', () => {
     expect(second.worker.assignedTask?.taskMemoryNamespace).toBe('memory:proj-a:developer:task:task-2');
   });
 
+  it('uses tenant/workspace/environment in memory namespace when provided', async () => {
+    const scoped = await DynamicWorkerSpawnManager.ensureWorker(
+      {
+        runId: 'r-scope-1',
+        projectId: 'proj-a',
+        tenantId: 'tenant-a',
+        workspaceId: 'workspace-a',
+        environmentId: 'env-a',
+        chainId: 'c-scope-1',
+        agentSlug: 'developer',
+        taskId: 'task-scope-1',
+      },
+      { emitEvents: false },
+    );
+
+    expect(scoped.worker.memoryNamespace).toBe(
+      'tenant:tenant-a:workspace:workspace-a:project:proj-a:environment:env-a:memory:agent:developer',
+    );
+    expect(scoped.worker.assignedTask?.taskMemoryNamespace).toBe(
+      'tenant:tenant-a:workspace:workspace-a:project:proj-a:environment:env-a:memory:agent:developer:task:task-scope-1',
+    );
+  });
+
   it('reports worker health by heartbeat age', async () => {
     await DynamicWorkerSpawnManager.ensureWorker(
       { runId: 'r1', projectId: 'proj-a', chainId: 'c1', agentSlug: 'developer' },

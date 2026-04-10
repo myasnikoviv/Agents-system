@@ -152,10 +152,28 @@ export class RunContextAssembler {
       throw new Error(`Stage ${effectiveStageId} not found in pipeline ${pipeline.slug}`);
     }
 
+    const resolvedProjectId = projectContext?.projectId || process.env.ACTIVE_PROJECT_ID || 'default';
+    const tenancy = resolveTenantScope({
+      tenantId: memory.tenantId,
+      workspaceId: memory.workspaceId,
+      projectId: resolvedProjectId,
+      environmentId: memory.environmentId,
+      runId: memory.runId,
+      agentSlug: agent.slug,
+    });
+    const boundary = validateTenantBoundary(tenancy);
+    if (!boundary.ok) {
+      const reason = 'reason' in boundary ? boundary.reason : 'invalid_tenant_boundary';
+      throw new Error(`RunContextAssembler tenancy boundary failed: ${reason}`);
+    }
+
     const agentIdentity = buildAgentIdentity({
-      projectId: projectContext?.projectId || process.env.ACTIVE_PROJECT_ID || 'default',
+      projectId: tenancy.projectId,
       agentSlug: agent.slug,
       workerId: memory.workerId,
+      tenantId: tenancy.tenantId,
+      workspaceId: tenancy.workspaceId,
+      environmentId: tenancy.environmentId,
     });
     const isolation = assertWorkerProjectIsolation(agentIdentity);
     if (!isolation.ok) {
@@ -241,19 +259,6 @@ export class RunContextAssembler {
       startTime: new Date().toISOString()
     };
 
-    const tenancy = resolveTenantScope({
-      tenantId: memory.tenantId,
-      workspaceId: memory.workspaceId,
-      projectId: ctx.projectId,
-      environmentId: memory.environmentId,
-      runId: ctx.runId,
-      agentSlug: ctx.agent.slug,
-    });
-    const boundary = validateTenantBoundary(tenancy);
-    if (!boundary.ok) {
-      const reason = 'reason' in boundary ? boundary.reason : 'invalid_tenant_boundary';
-      throw new Error(`RunContextAssembler tenancy boundary failed: ${reason}`);
-    }
     ctx.tenantId = tenancy.tenantId;
     ctx.workspaceId = tenancy.workspaceId;
     ctx.environmentId = tenancy.environmentId;

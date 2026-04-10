@@ -20,6 +20,22 @@ describe('agent identity model', () => {
     expect(identity.memoryNamespace).toBe('memory:proj-a:developer');
   });
 
+  it('builds tenant/workspace/environment-scoped memory namespace when scope is provided', () => {
+    const identity = buildAgentIdentity({
+      projectId: 'proj-a',
+      agentSlug: 'developer',
+      workerId: 'worker-1',
+      tenantId: 'tenant-a',
+      workspaceId: 'workspace-a',
+      environmentId: 'env-a',
+    });
+
+    expect(identity.identityKey).toBe('proj-a:developer:worker-1');
+    expect(identity.memoryNamespace).toBe(
+      'memory:tenant:tenant-a:workspace:workspace-a:project:proj-a:environment:env-a:agent:developer',
+    );
+  });
+
   it('allows same worker id within same project', () => {
     const one = buildAgentIdentity({ projectId: 'proj-a', agentSlug: 'developer', workerId: 'worker-1' });
     const two = buildAgentIdentity({ projectId: 'proj-a', agentSlug: 'research-agent', workerId: 'worker-1' });
@@ -38,4 +54,3 @@ describe('agent identity model', () => {
     expect(String(second.reason || '')).toContain('worker_id_collision_across_projects');
   });
 });
-
