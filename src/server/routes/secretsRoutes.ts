@@ -12,6 +12,15 @@ interface SecretsRouteDeps {
     createdBy: string;
   }) => Promise<any>;
   secretsDelete: (input: { tenantId: string; workspaceId: string; userId?: string; key: string }) => Promise<boolean>;
+  secretsRotate: (input: {
+    tenantId: string;
+    workspaceId: string;
+    userId?: string;
+    key: string;
+    value: string;
+    rotatedBy?: string;
+  }) => Promise<{ secret: any; archivedVersion: number } | null>;
+  secretsListVersions: (input: { tenantId: string; workspaceId: string; userId?: string; key: string }) => Promise<any[]>;
   appendControlActionAudit: (entry: {
     action: string;
     actorId: string;
@@ -73,5 +82,49 @@ export function registerSecretsRoutes(app: express.Express, deps: SecretsRouteDe
       result: { deleted },
     });
     res.json({ success: true, deleted });
+  });
+
+  app.post('/api/cockpit/secrets/:key/rotate', async (req, res) => {
+    const auth = deps.requireRole(req, res, 'admin');
+    if (!auth) return;
+    const key = String(req.params.key || '').trim();
+    const value = String(req.body?.value || '').trim();
+    if (!key || !value) {
+      return res.status(400).json({ success: false, error: 'key_and_value_required' });
+    }
+    const rotated = await deps.secretsRotate({
+      tenantId: auth.tenantId,
+      workspaceId: auth.workspaceId,
+      userId: auth.userId,
+      key,
+      value,
+      rotatedBy: auth.userId,
+    });
+    if (!rotated) {
+      return res.status(404).json({ success: false, error: 'secret_not_found' });
+    }
+    deps.appendControlActionAudit({
+      action: 'cockpit.secrets.rotate',
+      actorId: auth.userId,
+      target: { key },
+      result: { archivedVersion: rotated.archivedVersion },
+    });
+    res.json({ success: true, ...rotated });
+  });
+
+  app.get('/api/cockpit/secrets/:key/versions', async (req, res) => {
+    const auth = deps.requireRole(req, res, 'admin');
+    if (!auth) return;
+    const key = String(req.params.key || '').trim();
+    if (!key) {
+      return res.status(400).json({ success: false, error: 'key_required' });
+    }
+    const versions = await deps.secretsListVersions({
+      tenantId: auth.tenantId,
+      workspaceId: auth.workspaceId,
+      userId: auth.userId,
+      key,
+    });
+    res.json({ success: true, versions });
   });
 }

@@ -2678,6 +2678,25 @@ registerSecretsRoutes(app, {
     }
     return sqliteDeleted;
   },
+  secretsRotate: async (input) => {
+    const sqliteRotated = secretsStore.rotate(input);
+    if (!sqliteRotated) return null;
+    if (await shouldUsePostgresSecrets()) {
+      try {
+        await postgresSecretsStore.rotate(input);
+      } catch {
+        // keep sqlite rotation result
+      }
+    }
+    return sqliteRotated;
+  },
+  secretsListVersions: async (input) => {
+    if (await shouldUsePostgresSecrets()) {
+      const pgRows = await postgresSecretsStore.listVersions(input);
+      if (pgRows.length > 0) return pgRows;
+    }
+    return secretsStore.listVersions(input);
+  },
   appendControlActionAudit,
 });
 
