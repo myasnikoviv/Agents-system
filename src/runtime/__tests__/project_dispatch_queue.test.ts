@@ -272,4 +272,41 @@ describe('ProjectDispatchQueue', () => {
     const cleared = await ProjectDispatchQueue.clearProjectAsync('proj-a');
     expect(cleared).toBeGreaterThanOrEqual(1);
   });
+
+  it('moves exhausted task to DLQ and allows manual requeue', async () => {
+    const queued = await ProjectDispatchQueue.enqueueAsync({
+      runId: 'r-dlq-1',
+      projectId: 'proj-a',
+      chainId: 'c-dlq-1',
+      pipelineId: 'feature-change',
+      stageId: 'dev',
+      agentSlug: 'developer',
+      payload: { retryCount: 3 },
+    });
+    const dlq = await ProjectDispatchQueue.moveToDlqAsync({
+      task: queued,
+      reason: 'retry_budget_exhausted',
+      retriesExhausted: 3,
+      actorId: 'runtime-test',
+    });
+    expect(dlq.dlqId).toBeTruthy();
+    expect(dlq.sourceTaskId).toBe(queued.taskId);
+    expect(dlq.failureReason).toBe('retry_budget_exhausted');
+
+    const list = await ProjectDispatchQueue.listDlqAsync('proj-a');
+    expect(list.length).toBe(1);
+    expect(list[0]?.dlqId).toBe(dlq.dlqId);
+
+    const requeued = await ProjectDispatchQueue.requeueDlqAsync({
+      projectId: 'proj-a',
+      dlqId: dlq.dlqId,
+      actorId: 'tester',
+    });
+    expect(requeued?.taskId).toBeTruthy();
+    expect((requeued?.payload as any)?.requeuedFromDlqId).toBe(dlq.dlqId);
+
+    const listAfter = await ProjectDispatchQueue.listDlqAsync('proj-a');
+    expect(listAfter.length).toBe(0);
+    expect(await ProjectDispatchQueue.depthAsync('proj-a', 'developer')).toBeGreaterThanOrEqual(1);
+  });
 });
