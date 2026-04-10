@@ -2,6 +2,7 @@ import { RunContext } from './context/RunContext';
 import { ExecutionAdapter, ExecutionResult } from './adapters/ExecutionAdapter';
 import { emitSwarmEvent } from './events/EventBus';
 import { executeViaWorkbench } from './WorkbenchGateway';
+import { evaluateMidExecutionQuota } from './billing/MidExecutionQuotaController';
 
 export interface ToolResult {
   tool: string;
@@ -42,6 +43,7 @@ export class NativeToolLoopRunner {
     let iteration = 0;
     let currentContext = { ...context };
     let lastResult: ExecutionResult | null = null;
+    let consumedUsage = Number((context as any)?.billing?.currentUsage || 0);
 
     const { Guardrails } = await import('./guards/Guardrails');
 
@@ -69,6 +71,22 @@ export class NativeToolLoopRunner {
         } catch (guardError: any) {
           return result; // Max retries exceeded, return the original failure
         }
+      }
+
+      const incrementUsage = Number(result.usage?.totalTokens || 0);
+      const midQuota = evaluateMidExecutionQuota({
+        quota: (context as any)?.billing?.quota,
+        state: { consumedUsage },
+        incrementUsage,
+        burstAllowance: Number((context as any)?.billing?.burstAllowance || 0),
+      });
+      consumedUsage = midQuota.consumedUsage;
+      if (!midQuota.continueExecution) {
+        return {
+          ok: false,
+          content: result.content || '',
+          error: `Execution safely terminated by mid-run quota enforcement: ${midQuota.reason}.`,
+        };
       }
 
       // 1. Check if the model wants to call a tool

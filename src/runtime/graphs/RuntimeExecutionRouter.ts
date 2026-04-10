@@ -19,6 +19,7 @@ import {
   collectLearningSignals,
   decideAdaptivePolicy,
   enforceBoundedAdaptation,
+  applyCostAwareTierPolicy,
   routeModelForTask,
   writeAdaptiveLog,
 } from '../adaptive/AdaptiveIntelligenceEngine';
@@ -34,6 +35,8 @@ import {
   writeImprovementArtifacts,
 } from '../improvement/ImprovementEngine';
 import { emitEvent, emitGuardBlockEvent } from '../events/EventBus';
+import { evaluatePreExecutionQuota } from '../billing/PreExecutionQuotaEnforcer';
+import { enforceBillingRuntimePolicy } from '../billing/BillingRuntimeIntegration';
 
 export type RuntimeExecutionMode = 'multiple_agents';
 
@@ -62,7 +65,7 @@ export async function executeRuntimeRun(initialState: Partial<PilotState>): Prom
   const chainId = initialState.threadId || `thread-${Date.now()}`;
   const projectId = initialState.projectId || 'agent_system';
   const workspacePath = initialState.workspacePath || process.cwd();
-  const modelRoute = routeModelForTask({
+  let modelRoute = routeModelForTask({
     workspacePath,
     runId,
     projectId,
@@ -70,6 +73,11 @@ export async function executeRuntimeRun(initialState: Partial<PilotState>): Prom
       [...(initialState.messages || [])]
         .reverse()
         .find((m) => m.role === 'user')?.content || '',
+  });
+  modelRoute = applyCostAwareTierPolicy({
+    workspacePath,
+    planName: (initialState as any)?.billing?.plan?.name,
+    decision: modelRoute,
   });
   process.env.RUNTIME_MODEL_TIER = modelRoute.modelTier;
   process.env.RUNTIME_MODEL_NAME = modelRoute.model;
@@ -106,6 +114,30 @@ export async function executeRuntimeRun(initialState: Partial<PilotState>): Prom
     requestedAgents: initialState.customAgents || [],
     requestedSkills: (initialState as any).requestedSkills || [],
   });
+  const billingRuntimeDecision = enforceBillingRuntimePolicy({
+    billing: {
+      plan: (initialState as any)?.billing?.plan,
+      entitlement: (initialState as any)?.billing?.entitlement,
+      requiredFeatures: (initialState as any)?.billing?.requiredFeatures || [],
+    },
+    plannerDecision,
+    modelRoute,
+  });
+  if (!billingRuntimeDecision.allowed) {
+    await emitGuardBlockEvent(
+      { runId, projectId, chainId },
+      {
+        stage: 'billing.runtime_integration',
+        rule: 'entitlement_runtime_check',
+        reason: billingRuntimeDecision.reason,
+      },
+    ).catch(() => undefined);
+    throw new Error(`[BillingPhase:runtime_integration] blocked ticket=${ticket} reason=${billingRuntimeDecision.reason}`);
+  }
+  if (billingRuntimeDecision.adjustedModelRoute) {
+    process.env.RUNTIME_MODEL_TIER = billingRuntimeDecision.adjustedModelRoute.modelTier;
+    process.env.RUNTIME_MODEL_NAME = billingRuntimeDecision.adjustedModelRoute.model;
+  }
   const adaptiveRoute = await resolveAdaptivePipelineRoute({
     enforcedPipeline,
     selectedPipeline,
@@ -264,6 +296,26 @@ export async function executeRuntimeRun(initialState: Partial<PilotState>): Prom
   } as any);
 
   // Dedicated multiple agents execution engine.
+  const preExecutionQuota = evaluatePreExecutionQuota({
+    quota: (initialState as any)?.billing?.quota,
+    currentUsage: Number((initialState as any)?.billing?.currentUsage || 0),
+    requestedUsage: Number((initialState as any)?.billing?.requestedUsage || 0),
+    burstAllowance: Number((initialState as any)?.billing?.burstAllowance || 0),
+  });
+  if (!preExecutionQuota.allowed) {
+    await emitGuardBlockEvent(
+      { runId, projectId, chainId },
+      {
+        stage: 'billing.pre_execution',
+        rule: 'quota_check_before_run',
+        reason: preExecutionQuota.reason || 'quota_block',
+        projectedUsage: preExecutionQuota.projectedUsage,
+        limit: preExecutionQuota.limit,
+      },
+    ).catch(() => undefined);
+    throw new Error(preExecutionQuota.message || `[BillingPhase:pre_execution] blocked ticket=${ticket} reason=quota_block`);
+  }
+
   await emitEvent({
     type: 'run.started',
     runId,
