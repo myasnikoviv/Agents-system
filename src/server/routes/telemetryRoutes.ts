@@ -38,6 +38,8 @@ interface TelemetryRouteDeps {
   getSloStatus?: () => Promise<Record<string, any>>;
   getAlertsSnapshot?: () => Promise<Record<string, any>>;
   getIncidentFlow?: () => Promise<Record<string, any>>;
+  getBackupStatus?: () => Promise<Record<string, any>>;
+  runBackupNow?: (input: { mode: 'full' | 'incremental' }) => Promise<Record<string, any>>;
   readRunLedgerEvents: (input: { runId?: string; projectId?: string; limit?: number }) => Promise<any[]>;
   normalizeRuntimeEvent: (row: any) => UnifiedTelemetryEvent;
 }
@@ -391,6 +393,39 @@ export function registerTelemetryRoutes(app: express.Express, deps: TelemetryRou
         success: false,
         error: 'incident_flow_fetch_failed',
         message: error?.message || 'Failed to fetch incident flow',
+      });
+    }
+  });
+
+  app.get('/api/cockpit/backup/status', async (_req, res) => {
+    try {
+      if (!deps.getBackupStatus) {
+        return res.json({ success: true, configured: false });
+      }
+      const status = await deps.getBackupStatus();
+      return res.json({ success: true, configured: true, ...status });
+    } catch (error: any) {
+      return res.status(500).json({
+        success: false,
+        error: 'backup_status_fetch_failed',
+        message: error?.message || 'Failed to fetch backup status',
+      });
+    }
+  });
+
+  app.post('/api/cockpit/backup/run', async (req, res) => {
+    try {
+      if (!deps.runBackupNow) {
+        return res.status(501).json({ success: false, error: 'backup_runner_not_configured' });
+      }
+      const mode = String(req.body?.mode || 'incremental').trim().toLowerCase() === 'full' ? 'full' : 'incremental';
+      const result = await deps.runBackupNow({ mode });
+      return res.json({ success: true, ...result });
+    } catch (error: any) {
+      return res.status(500).json({
+        success: false,
+        error: 'backup_run_failed',
+        message: error?.message || 'Failed to run backup',
       });
     }
   });
