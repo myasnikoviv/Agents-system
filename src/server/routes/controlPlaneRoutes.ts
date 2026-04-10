@@ -7,7 +7,7 @@ interface ControlPlaneRouteDeps {
   requireRole: (
     req: express.Request,
     res: express.Response,
-    role?: 'member' | 'admin',
+    role?: string,
   ) => { userId?: string; role?: string } | null;
   manager: ControlPlaneRuntimeManager;
   appendControlActionAudit?: (input: {

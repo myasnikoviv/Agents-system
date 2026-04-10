@@ -12,7 +12,7 @@ interface BillingRouteDeps {
   requireRole: (
     req: express.Request,
     res: express.Response,
-    role?: 'member' | 'admin',
+    role?: string,
   ) => { userId?: string; role?: string } | null;
   billingService: BillingService;
   paymentService: BillingPaymentService;

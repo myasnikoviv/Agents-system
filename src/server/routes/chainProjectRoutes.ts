@@ -22,7 +22,7 @@ export function isRepositoryUrlValid(raw: string): boolean {
 }
 
 interface ChainProjectRouteDeps {
-  requireRole: (req: express.Request, res: express.Response, role?: 'member' | 'admin') => any;
+  requireRole: (req: express.Request, res: express.Response, role?: string) => any;
   canUsePlane: () => boolean;
   fetchPlaneProjects: () => Promise<any[]>;
   projectStore: Map<string, ProjectItem>;

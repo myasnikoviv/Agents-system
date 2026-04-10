@@ -1,7 +1,7 @@
 import type express from 'express';
 
 interface SecretsRouteDeps {
-  requireRole: (req: express.Request, res: express.Response, role?: 'member' | 'admin') => any;
+  requireRole: (req: express.Request, res: express.Response, role?: string) => any;
   secretsListMeta: (input: { tenantId: string; workspaceId: string }) => Promise<any[]>;
   secretsUpsert: (input: {
     tenantId: string;
