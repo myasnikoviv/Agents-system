@@ -12,7 +12,7 @@ describe('InterAgentCommunication', () => {
   });
 
   it('publishes handoff only via event bus payload', async () => {
-    await InterAgentCommunication.publishHandoff({
+    const handoff = await InterAgentCommunication.publishHandoff({
       runId: 'r1',
       projectId: 'proj-a',
       chainId: 'chain-a',
@@ -21,13 +21,18 @@ describe('InterAgentCommunication', () => {
       toAgentId: 'developer',
       toStageId: 'dev',
       toStageTitle: 'Development',
+      taskId: 'task-123',
     });
 
     expect(emitEvent).toHaveBeenCalledTimes(1);
     const call = (emitEvent as jest.Mock).mock.calls[0]?.[0];
     expect(call.type).toBe('swarm.handoff');
+    expect(call.payload.handoffId).toBe(handoff.handoffId);
+    expect(call.payload.handedOffAt).toBe(handoff.handedOffAt);
     expect(call.payload.fromAgentId).toBe('pm-orchestrator');
     expect(call.payload.toAgentId).toBe('developer');
+    expect(call.payload.taskId).toBe('task-123');
+    expect(InterAgentCommunication.listHandoffs().length).toBe(1);
   });
 
   it('supports controlled shared state read/write by scoped channel', () => {
@@ -46,4 +51,3 @@ describe('InterAgentCommunication', () => {
     expect(snapshot.note).toBe('ready');
   });
 });
-
