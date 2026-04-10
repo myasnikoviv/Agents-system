@@ -11,6 +11,16 @@ export interface SecretMeta {
   createdBy?: string;
 }
 
+export interface SecretVersionMeta {
+  version: number;
+  key: string;
+  tenantId: string;
+  workspaceId: string;
+  userId: string;
+  rotatedAt: string;
+  rotatedBy?: string;
+}
+
 type Queryable = {
   query: (sql: string, params?: any[]) => Promise<{ rows?: any[]; rowCount?: number }>;
 };
@@ -52,6 +62,15 @@ export interface SecretsStore {
   getValue(input: { tenantId: string; workspaceId: string; userId?: string; key: string }): Promise<string | null>;
   listMeta(input: { tenantId: string; workspaceId: string; userId?: string }): Promise<SecretMeta[]>;
   delete(input: { tenantId: string; workspaceId: string; userId?: string; key: string }): Promise<boolean>;
+  rotate(input: {
+    tenantId: string;
+    workspaceId: string;
+    userId?: string;
+    key: string;
+    value: string;
+    rotatedBy?: string;
+  }): Promise<{ secret: SecretMeta; archivedVersion: number } | null>;
+  listVersions(input: { tenantId: string; workspaceId: string; userId?: string; key: string }): Promise<SecretVersionMeta[]>;
 }
 
 function normalizeUserScope(userId?: string): string {
@@ -88,6 +107,18 @@ export class SqliteSecretsStore {
       );
       CREATE INDEX IF NOT EXISTS idx_cockpit_secrets_scope
         ON cockpit_secrets(tenant_id, workspace_id, updated_at);
+      CREATE TABLE IF NOT EXISTS cockpit_secrets_versions (
+        tenant_id TEXT NOT NULL,
+        workspace_id TEXT NOT NULL,
+        key TEXT NOT NULL,
+        version INTEGER NOT NULL,
+        cipher_text TEXT NOT NULL,
+        rotated_at TEXT NOT NULL,
+        rotated_by TEXT,
+        PRIMARY KEY (tenant_id, workspace_id, key, version)
+      );
+      CREATE INDEX IF NOT EXISTS idx_cockpit_secrets_versions_scope
+        ON cockpit_secrets_versions(tenant_id, workspace_id, key, version DESC);
     `);
   }
 
@@ -188,6 +219,87 @@ export class SqliteSecretsStore {
     `).run(input.tenantId, input.workspaceId, scopedKey);
     return Number(out.changes || 0) > 0;
   }
+
+  rotate(input: {
+    tenantId: string;
+    workspaceId: string;
+    userId?: string;
+    key: string;
+    value: string;
+    rotatedBy?: string;
+  }): { secret: SecretMeta; archivedVersion: number } | null {
+    const tenantId = String(input.tenantId || '').trim();
+    const workspaceId = String(input.workspaceId || '').trim();
+    const key = String(input.key || '').trim();
+    const userId = normalizeUserScope(input.userId || input.rotatedBy);
+    const scopedKey = encodeScopedSecretKey(userId, key);
+    const now = new Date().toISOString();
+
+    const current = this.db.prepare(`
+      SELECT cipher_text
+      FROM cockpit_secrets
+      WHERE tenant_id = ? AND workspace_id = ? AND key = ?
+      LIMIT 1
+    `).get(tenantId, workspaceId, scopedKey) as { cipher_text?: string } | undefined;
+    if (!current?.cipher_text) return null;
+
+    const versionRow = this.db.prepare(`
+      SELECT COALESCE(MAX(version), 0) as max_version
+      FROM cockpit_secrets_versions
+      WHERE tenant_id = ? AND workspace_id = ? AND key = ?
+    `).get(tenantId, workspaceId, scopedKey) as { max_version?: number } | undefined;
+    const nextVersion = Number(versionRow?.max_version || 0) + 1;
+
+    const nextCipher = encrypt(input.value, this.encryptionSecret);
+    const tx = this.db.transaction(() => {
+      this.db.prepare(`
+        INSERT INTO cockpit_secrets_versions(tenant_id, workspace_id, key, version, cipher_text, rotated_at, rotated_by)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `).run(tenantId, workspaceId, scopedKey, nextVersion, current.cipher_text, now, input.rotatedBy || null);
+      this.db.prepare(`
+        UPDATE cockpit_secrets
+        SET cipher_text = ?, updated_at = ?
+        WHERE tenant_id = ? AND workspace_id = ? AND key = ?
+      `).run(nextCipher, now, tenantId, workspaceId, scopedKey);
+    });
+    tx();
+
+    return {
+      secret: {
+        key,
+        tenantId,
+        workspaceId,
+        userId,
+        createdAt: now,
+        updatedAt: now,
+        createdBy: input.rotatedBy || undefined,
+      },
+      archivedVersion: nextVersion,
+    };
+  }
+
+  listVersions(input: { tenantId: string; workspaceId: string; userId?: string; key: string }): SecretVersionMeta[] {
+    const tenantId = String(input.tenantId || '').trim();
+    const workspaceId = String(input.workspaceId || '').trim();
+    const key = String(input.key || '').trim();
+    const userId = normalizeUserScope(input.userId);
+    const scopedKey = encodeScopedSecretKey(userId, key);
+    const rows = this.db.prepare(`
+      SELECT version, rotated_at, rotated_by
+      FROM cockpit_secrets_versions
+      WHERE tenant_id = ? AND workspace_id = ? AND key = ?
+      ORDER BY version DESC
+    `).all(tenantId, workspaceId, scopedKey) as any[];
+    return rows.map((row) => ({
+      version: Number(row.version || 0),
+      key,
+      tenantId,
+      workspaceId,
+      userId,
+      rotatedAt: String(row.rotated_at || new Date().toISOString()),
+      rotatedBy: row?.rotated_by ? String(row.rotated_by) : undefined,
+    }));
+  }
 }
 
 export class PostgresSecretsStore implements SecretsStore {
@@ -238,6 +350,18 @@ export class PostgresSecretsStore implements SecretsStore {
         );
         CREATE INDEX IF NOT EXISTS idx_cockpit_secrets_pg_scope
           ON cockpit_secrets_pg(tenant_id, workspace_id, updated_at DESC);
+        CREATE TABLE IF NOT EXISTS cockpit_secrets_versions_pg (
+          tenant_id TEXT NOT NULL,
+          workspace_id TEXT NOT NULL,
+          key TEXT NOT NULL,
+          version INTEGER NOT NULL,
+          cipher_text TEXT NOT NULL,
+          rotated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          rotated_by TEXT,
+          PRIMARY KEY (tenant_id, workspace_id, key, version)
+        );
+        CREATE INDEX IF NOT EXISTS idx_cockpit_secrets_versions_pg_scope
+          ON cockpit_secrets_versions_pg(tenant_id, workspace_id, key, version DESC);
       `);
       this.enabled = true;
     } catch {
@@ -362,5 +486,97 @@ export class PostgresSecretsStore implements SecretsStore {
       [input.tenantId, input.workspaceId, scopedKey],
     );
     return Number(result?.rowCount || 0) > 0;
+  }
+
+  async rotate(input: {
+    tenantId: string;
+    workspaceId: string;
+    userId?: string;
+    key: string;
+    value: string;
+    rotatedBy?: string;
+  }): Promise<{ secret: SecretMeta; archivedVersion: number } | null> {
+    if (!(await this.ensureReady())) return null;
+    const tenantId = String(input.tenantId || '').trim();
+    const workspaceId = String(input.workspaceId || '').trim();
+    const key = String(input.key || '').trim();
+    const userId = normalizeUserScope(input.userId || input.rotatedBy);
+    const scopedKey = encodeScopedSecretKey(userId, key);
+    const now = new Date().toISOString();
+
+    const existing = (await this.client!.query(
+      `SELECT cipher_text
+       FROM cockpit_secrets_pg
+       WHERE tenant_id = $1 AND workspace_id = $2 AND key = $3
+       LIMIT 1`,
+      [tenantId, workspaceId, scopedKey],
+    ))?.rows?.[0] as any;
+    if (!existing?.cipher_text) return null;
+
+    const maxRow = (await this.client!.query(
+      `SELECT COALESCE(MAX(version), 0) as max_version
+       FROM cockpit_secrets_versions_pg
+       WHERE tenant_id = $1 AND workspace_id = $2 AND key = $3`,
+      [tenantId, workspaceId, scopedKey],
+    ))?.rows?.[0] as any;
+    const nextVersion = Number(maxRow?.max_version || 0) + 1;
+    const nextCipher = encrypt(input.value, this.encryptionSecret);
+
+    await this.client!.query('BEGIN');
+    try {
+      await this.client!.query(
+        `INSERT INTO cockpit_secrets_versions_pg(tenant_id, workspace_id, key, version, cipher_text, rotated_at, rotated_by)
+         VALUES ($1, $2, $3, $4, $5, NOW(), $6)`,
+        [tenantId, workspaceId, scopedKey, nextVersion, String(existing.cipher_text), input.rotatedBy || null],
+      );
+      await this.client!.query(
+        `UPDATE cockpit_secrets_pg
+         SET cipher_text = $1, updated_at = NOW()
+         WHERE tenant_id = $2 AND workspace_id = $3 AND key = $4`,
+        [nextCipher, tenantId, workspaceId, scopedKey],
+      );
+      await this.client!.query('COMMIT');
+    } catch (error) {
+      await this.client!.query('ROLLBACK');
+      throw error;
+    }
+
+    return {
+      secret: {
+        key,
+        tenantId,
+        workspaceId,
+        userId,
+        createdAt: now,
+        updatedAt: now,
+        createdBy: input.rotatedBy || undefined,
+      },
+      archivedVersion: nextVersion,
+    };
+  }
+
+  async listVersions(input: { tenantId: string; workspaceId: string; userId?: string; key: string }): Promise<SecretVersionMeta[]> {
+    if (!(await this.ensureReady())) return [];
+    const tenantId = String(input.tenantId || '').trim();
+    const workspaceId = String(input.workspaceId || '').trim();
+    const key = String(input.key || '').trim();
+    const userId = normalizeUserScope(input.userId);
+    const scopedKey = encodeScopedSecretKey(userId, key);
+    const rows = (await this.client!.query(
+      `SELECT version, rotated_at, rotated_by
+       FROM cockpit_secrets_versions_pg
+       WHERE tenant_id = $1 AND workspace_id = $2 AND key = $3
+       ORDER BY version DESC`,
+      [tenantId, workspaceId, scopedKey],
+    ))?.rows || [];
+    return rows.map((row: any) => ({
+      version: Number(row?.version || 0),
+      key,
+      tenantId,
+      workspaceId,
+      userId,
+      rotatedAt: String(row?.rotated_at || new Date().toISOString()),
+      rotatedBy: row?.rotated_by ? String(row.rotated_by) : undefined,
+    }));
   }
 }

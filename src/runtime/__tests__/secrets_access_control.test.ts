@@ -49,6 +49,19 @@ describe('Secrets access control (AGSYS-3113)', () => {
       },
       secretsDelete: async ({ tenantId, workspaceId, userId, key }) =>
         records.delete(mk(tenantId, workspaceId, String(userId || ''), key)),
+      secretsRotate: async ({ tenantId, workspaceId, userId, key, value, rotatedBy }) => {
+        const id = mk(tenantId, workspaceId, String(userId || ''), key);
+        if (!records.has(id)) return null;
+        records.set(id, value);
+        return {
+          secret: { tenantId, workspaceId, userId: String(userId || ''), key, createdBy: rotatedBy },
+          archivedVersion: 1,
+        };
+      },
+      secretsListVersions: async ({ tenantId, workspaceId, userId, key }) =>
+        records.has(mk(tenantId, workspaceId, String(userId || ''), key))
+          ? [{ version: 1, tenantId, workspaceId, userId: String(userId || ''), key }]
+          : [],
       appendControlActionAudit: (entry) => {
         auditEntries.push({ action: entry.action, actorId: entry.actorId });
       },
@@ -83,14 +96,37 @@ describe('Secrets access control (AGSYS-3113)', () => {
       expect(Array.isArray(listJson.items)).toBe(true);
       expect(listJson.items.length).toBe(1);
 
+      const rotateOk = await fetch(`${base}/api/cockpit/secrets/openhands.apiKeys.google/rotate`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', authorization: 'Bearer admin-token' },
+        body: JSON.stringify({ value: 'next-secret' }),
+      });
+      expect(rotateOk.status).toBe(200);
+
+      const versions = await fetch(`${base}/api/cockpit/secrets/openhands.apiKeys.google/versions`, {
+        headers: { authorization: 'Bearer admin-token' },
+      });
+      const versionsJson: any = await versions.json();
+      expect(versions.status).toBe(200);
+      expect(Array.isArray(versionsJson.versions)).toBe(true);
+      expect(versionsJson.versions.length).toBeGreaterThanOrEqual(1);
+
       const removed = await fetch(`${base}/api/cockpit/secrets/openhands.apiKeys.google`, {
         method: 'DELETE',
         headers: { authorization: 'Bearer admin-token' },
       });
       expect(removed.status).toBe(200);
 
+      const rotated = await fetch(`${base}/api/cockpit/secrets/openhands.apiKeys.google/rotate`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', authorization: 'Bearer admin-token' },
+        body: JSON.stringify({ value: 'next-secret' }),
+      });
+      expect(rotated.status).toBe(404);
+
       expect(auditEntries.map((x) => x.action)).toEqual([
         'cockpit.secrets.upsert',
+        'cockpit.secrets.rotate',
         'cockpit.secrets.delete',
       ]);
     } finally {
@@ -100,4 +136,3 @@ describe('Secrets access control (AGSYS-3113)', () => {
     }
   });
 });
-
