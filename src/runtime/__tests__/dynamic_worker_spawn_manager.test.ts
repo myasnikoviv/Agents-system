@@ -439,6 +439,34 @@ describe('DynamicWorkerSpawnManager', () => {
     }
   });
 
+  it('auto-recovers dead workers based on heartbeat health snapshot', async () => {
+    const first = await DynamicWorkerSpawnManager.ensureWorker(
+      { runId: 'r-auto-1', projectId: 'proj-a', chainId: 'c-auto-1', agentSlug: 'developer' },
+      { emitEvents: false },
+    );
+    const now = Date.now();
+    const deadView = DynamicWorkerSpawnManager.healthSnapshot({
+      projectId: 'proj-a',
+      now: now + 120000,
+      heartbeatTimeoutMs: 1000,
+    });
+    expect(deadView[0]?.health).toBe('dead');
+
+    const recovery = await DynamicWorkerSpawnManager.autoRecoverUnhealthyWorkers({
+      projectId: 'proj-a',
+      now: now + 120000,
+      heartbeatTimeoutMs: 1000,
+      runId: 'r-auto-recovery',
+      chainId: 'c-auto-recovery',
+    });
+    expect(recovery.dead).toBeGreaterThanOrEqual(1);
+    expect(recovery.recovered).toBeGreaterThanOrEqual(0);
+
+    const snapshot = DynamicWorkerSpawnManager.snapshot().filter((w) => w.projectId === 'proj-a' && w.agentSlug === 'developer');
+    expect(snapshot.length).toBe(1);
+    expect(snapshot[0]?.workerId).toBeTruthy();
+  });
+
   it('blocks worker allocation when project is paused and allows after resume', async () => {
     DynamicWorkerSpawnManager.setProjectPaused('proj-a', true);
     await expect(

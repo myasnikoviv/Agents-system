@@ -1220,4 +1220,84 @@ export class DynamicWorkerSpawnManager {
       return { ok: false, reason: String(error?.message || 'control_failed') };
     }
   }
+
+  static async autoRecoverUnhealthyWorkers(input?: {
+    projectId?: string;
+    environmentId?: string;
+    now?: number;
+    heartbeatTimeoutMs?: number;
+    runId?: string;
+    chainId?: string;
+  }): Promise<{ scanned: number; dead: number; recovered: number }> {
+    const rows = this.healthSnapshot({
+      projectId: input?.projectId,
+      environmentId: input?.environmentId,
+      now: input?.now,
+      heartbeatTimeoutMs: input?.heartbeatTimeoutMs,
+    });
+    let dead = 0;
+    let recovered = 0;
+    for (const row of rows) {
+      if (row.health !== 'dead') continue;
+      dead += 1;
+      const result = await this.controlWorker({
+        projectId: row.projectId,
+        tenantId: row.tenantId,
+        workspaceId: row.workspaceId,
+        environmentId: row.environmentId,
+        agentSlug: row.agentSlug,
+        workerId: row.workerId,
+        action: 'restart',
+        runId: String(input?.runId || `auto-recovery:${Date.now().toString(36)}`),
+        chainId: String(input?.chainId || 'auto-recovery'),
+      });
+      if (result.ok) {
+        recovered += 1;
+        continue;
+      }
+      await this.controlWorker({
+        projectId: row.projectId,
+        tenantId: row.tenantId,
+        workspaceId: row.workspaceId,
+        environmentId: row.environmentId,
+        agentSlug: row.agentSlug,
+        workerId: row.workerId,
+        action: 'kill',
+        runId: String(input?.runId || `auto-recovery:${Date.now().toString(36)}`),
+        chainId: String(input?.chainId || 'auto-recovery'),
+        emitEvents: false,
+      });
+      try {
+        const restarted = await this.ensureWorker(
+          {
+            runId: String(input?.runId || `auto-recovery:${Date.now().toString(36)}`),
+            chainId: String(input?.chainId || 'auto-recovery'),
+            projectId: row.projectId,
+            tenantId: row.tenantId,
+            workspaceId: row.workspaceId,
+            environmentId: row.environmentId,
+            agentSlug: row.agentSlug,
+            taskId: `auto-recovery:${row.workerId}`,
+          },
+          { emitEvents: false },
+        );
+        await this.releaseToStandby(
+          {
+            runId: String(input?.runId || `auto-recovery:${Date.now().toString(36)}`),
+            chainId: String(input?.chainId || 'auto-recovery'),
+            projectId: restarted.worker.projectId,
+            tenantId: restarted.worker.tenantId,
+            workspaceId: restarted.worker.workspaceId,
+            environmentId: restarted.worker.environmentId,
+            agentSlug: restarted.worker.agentSlug,
+          },
+          { emitEvents: false },
+        );
+        recovered += 1;
+      } catch {
+        // keep recovered unchanged
+      }
+    }
+    return { scanned: rows.length, dead, recovered };
+  }
 }
