@@ -23,7 +23,24 @@ describe('RuntimeInfrastructureProfile', () => {
     } as any);
     expect(profile.secretsBackend).toBe('sqlite');
     expect(profile.objectStorageBackend).toBe('sqlite');
+    expect(profile.dispatchQueueBackend).toBe('redis');
+    expect(profile.sharedWorkerStateBackend).toBe('redis');
+    expect(profile.localOnlyMode).toBe(false);
+  });
+
+  it('uses distributed runtime defaults when env is not set', () => {
+    const profile = resolveRuntimeInfrastructureProfile({} as any);
+    expect(profile.dispatchQueueBackend).toBe('redis');
+    expect(profile.sharedWorkerStateBackend).toBe('redis');
+    expect(profile.localOnlyMode).toBe(false);
+  });
+
+  it('supports explicit local-only mode fallback', () => {
+    const profile = resolveRuntimeInfrastructureProfile({
+      RUNTIME_LOCAL_ONLY_MODE: 'true',
+    } as any);
     expect(profile.dispatchQueueBackend).toBe('sqlite');
     expect(profile.sharedWorkerStateBackend).toBe('sqlite');
+    expect(profile.localOnlyMode).toBe(true);
   });
 });
