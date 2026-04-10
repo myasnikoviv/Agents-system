@@ -9,6 +9,8 @@ describe('SqliteObjectStorageService', () => {
     const contentBase64 = Buffer.from('hello-object-storage', 'utf-8').toString('base64');
     const saved = storage.putObject({
       bucket: 'attachments',
+      tenantId: 'tenant-a',
+      workspaceId: 'workspace-a',
       key: 'agent_system/thread-1/sample.txt',
       projectId: 'agent_system',
       threadId: 'thread-1',
@@ -23,6 +25,8 @@ describe('SqliteObjectStorageService', () => {
 
     const listed = storage.listObjects({
       bucket: 'attachments',
+      tenantId: 'tenant-a',
+      workspaceId: 'workspace-a',
       projectId: 'agent_system',
       threadId: 'thread-1',
       limit: 10,
@@ -30,9 +34,29 @@ describe('SqliteObjectStorageService', () => {
     expect(listed.length).toBe(1);
     expect(listed[0]?.id).toBe(saved.id);
 
-    const fetched = storage.getObject(saved.id);
+    const fetched = storage.getObject(saved.id, { tenantId: 'tenant-a', workspaceId: 'workspace-a' });
     expect(fetched).toBeTruthy();
     expect(fetched?.contentBase64).toBe(contentBase64);
     expect(fetched?.metadata?.originalName).toBe('sample.txt');
+  });
+
+  it('enforces tenant/workspace scoped reads', () => {
+    const db = new Database(':memory:');
+    const storage = new SqliteObjectStorageService(db);
+    const saved = storage.putObject({
+      bucket: 'attachments',
+      tenantId: 'tenant-a',
+      workspaceId: 'workspace-a',
+      key: 'agent_system/thread-1/private.txt',
+      projectId: 'agent_system',
+      threadId: 'thread-1',
+      mimeType: 'text/plain',
+      contentBase64: Buffer.from('private', 'utf-8').toString('base64'),
+    });
+
+    const sameScope = storage.getObject(saved.id, { tenantId: 'tenant-a', workspaceId: 'workspace-a' });
+    const otherScope = storage.getObject(saved.id, { tenantId: 'tenant-b', workspaceId: 'workspace-b' });
+    expect(sameScope).toBeTruthy();
+    expect(otherScope).toBeNull();
   });
 });

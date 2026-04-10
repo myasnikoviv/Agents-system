@@ -5,6 +5,8 @@ export interface StoredObjectRecord {
   id: string;
   bucket: string;
   key: string;
+  tenantId?: string;
+  workspaceId?: string;
   projectId?: string;
   threadId?: string;
   mimeType: string;
@@ -40,6 +42,8 @@ export class SqliteObjectStorageService {
         id TEXT PRIMARY KEY,
         bucket TEXT NOT NULL,
         key TEXT NOT NULL,
+        tenant_id TEXT,
+        workspace_id TEXT,
         project_id TEXT,
         thread_id TEXT,
         mime_type TEXT NOT NULL,
@@ -51,14 +55,20 @@ export class SqliteObjectStorageService {
       );
       CREATE INDEX IF NOT EXISTS idx_cockpit_object_storage_bucket_key
         ON cockpit_object_storage(bucket, key);
+      CREATE INDEX IF NOT EXISTS idx_cockpit_object_storage_scope
+        ON cockpit_object_storage(tenant_id, workspace_id, bucket, created_at);
       CREATE INDEX IF NOT EXISTS idx_cockpit_object_storage_project_thread
         ON cockpit_object_storage(project_id, thread_id, created_at);
     `);
+    try { this.db.exec(`ALTER TABLE cockpit_object_storage ADD COLUMN tenant_id TEXT`); } catch {}
+    try { this.db.exec(`ALTER TABLE cockpit_object_storage ADD COLUMN workspace_id TEXT`); } catch {}
   }
 
   putObject(input: {
     bucket?: string;
     key?: string;
+    tenantId?: string;
+    workspaceId?: string;
     projectId?: string;
     threadId?: string;
     mimeType?: string;
@@ -76,12 +86,14 @@ export class SqliteObjectStorageService {
     const mimeType = String(input.mimeType || 'application/octet-stream');
     this.db.prepare(`
       INSERT INTO cockpit_object_storage(
-        id, bucket, key, project_id, thread_id, mime_type, size, checksum_sha256, content_base64, metadata_json, created_at
-      ) VALUES (@id, @bucket, @key, @project_id, @thread_id, @mime_type, @size, @checksum_sha256, @content_base64, @metadata_json, @created_at)
+        id, bucket, key, tenant_id, workspace_id, project_id, thread_id, mime_type, size, checksum_sha256, content_base64, metadata_json, created_at
+      ) VALUES (@id, @bucket, @key, @tenant_id, @workspace_id, @project_id, @thread_id, @mime_type, @size, @checksum_sha256, @content_base64, @metadata_json, @created_at)
     `).run({
       id,
       bucket,
       key,
+      tenant_id: input.tenantId || null,
+      workspace_id: input.workspaceId || null,
       project_id: input.projectId || null,
       thread_id: input.threadId || null,
       mime_type: mimeType,
@@ -95,6 +107,8 @@ export class SqliteObjectStorageService {
       id,
       bucket,
       key,
+      tenantId: input.tenantId,
+      workspaceId: input.workspaceId,
       projectId: input.projectId,
       threadId: input.threadId,
       mimeType,
@@ -105,18 +119,32 @@ export class SqliteObjectStorageService {
     };
   }
 
-  getObject(id: string): StoredObjectPayload | null {
+  getObject(id: string, scope?: { tenantId?: string; workspaceId?: string }): StoredObjectPayload | null {
+    const tenantId = String(scope?.tenantId || '').trim();
+    const workspaceId = String(scope?.workspaceId || '').trim();
+    const clauses = ['id = ?'];
+    const values: any[] = [id];
+    if (tenantId) {
+      clauses.push('tenant_id = ?');
+      values.push(tenantId);
+    }
+    if (workspaceId) {
+      clauses.push('workspace_id = ?');
+      values.push(workspaceId);
+    }
     const row = this.db.prepare(`
-      SELECT id, bucket, key, project_id, thread_id, mime_type, size, checksum_sha256, content_base64, metadata_json, created_at
+      SELECT id, bucket, key, tenant_id, workspace_id, project_id, thread_id, mime_type, size, checksum_sha256, content_base64, metadata_json, created_at
       FROM cockpit_object_storage
-      WHERE id = ?
+      WHERE ${clauses.join(' AND ')}
       LIMIT 1
-    `).get(id) as any;
+    `).get(...values) as any;
     if (!row) return null;
     return {
       id: row.id,
       bucket: row.bucket,
       key: row.key,
+      tenantId: row.tenant_id || undefined,
+      workspaceId: row.workspace_id || undefined,
       projectId: row.project_id || undefined,
       threadId: row.thread_id || undefined,
       mimeType: row.mime_type,
@@ -132,6 +160,8 @@ export class SqliteObjectStorageService {
 
   listObjects(input?: {
     bucket?: string;
+    tenantId?: string;
+    workspaceId?: string;
     projectId?: string;
     threadId?: string;
     limit?: number;
@@ -144,6 +174,14 @@ export class SqliteObjectStorageService {
       clauses.push('bucket = ?');
       values.push(bucket);
     }
+    if (input?.tenantId) {
+      clauses.push('tenant_id = ?');
+      values.push(input.tenantId);
+    }
+    if (input?.workspaceId) {
+      clauses.push('workspace_id = ?');
+      values.push(input.workspaceId);
+    }
     if (input?.projectId) {
       clauses.push('project_id = ?');
       values.push(input.projectId);
@@ -154,7 +192,7 @@ export class SqliteObjectStorageService {
     }
     const where = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '';
     const rows = this.db.prepare(`
-      SELECT id, bucket, key, project_id, thread_id, mime_type, size, checksum_sha256, metadata_json, created_at
+      SELECT id, bucket, key, tenant_id, workspace_id, project_id, thread_id, mime_type, size, checksum_sha256, metadata_json, created_at
       FROM cockpit_object_storage
       ${where}
       ORDER BY created_at DESC
@@ -164,6 +202,8 @@ export class SqliteObjectStorageService {
       id: row.id,
       bucket: row.bucket,
       key: row.key,
+      tenantId: row.tenant_id || undefined,
+      workspaceId: row.workspace_id || undefined,
       projectId: row.project_id || undefined,
       threadId: row.thread_id || undefined,
       mimeType: row.mime_type,
@@ -217,6 +257,8 @@ export class PostgresObjectStorageService {
           id TEXT PRIMARY KEY,
           bucket TEXT NOT NULL,
           key TEXT NOT NULL,
+          tenant_id TEXT,
+          workspace_id TEXT,
           project_id TEXT,
           thread_id TEXT,
           mime_type TEXT NOT NULL,
@@ -228,6 +270,8 @@ export class PostgresObjectStorageService {
         );
         CREATE INDEX IF NOT EXISTS idx_cockpit_object_storage_pg_bucket_key
           ON cockpit_object_storage_pg(bucket, key);
+        CREATE INDEX IF NOT EXISTS idx_cockpit_object_storage_pg_scope
+          ON cockpit_object_storage_pg(tenant_id, workspace_id, bucket, created_at DESC);
         CREATE INDEX IF NOT EXISTS idx_cockpit_object_storage_pg_project_thread
           ON cockpit_object_storage_pg(project_id, thread_id, created_at DESC);
       `);
@@ -250,6 +294,8 @@ export class PostgresObjectStorageService {
   async putObject(input: {
     bucket?: string;
     key?: string;
+    tenantId?: string;
+    workspaceId?: string;
     projectId?: string;
     threadId?: string;
     mimeType?: string;
@@ -268,12 +314,14 @@ export class PostgresObjectStorageService {
     const mimeType = String(input.mimeType || 'application/octet-stream');
     await this.client!.query(
       `INSERT INTO cockpit_object_storage_pg(
-         id, bucket, key, project_id, thread_id, mime_type, size, checksum_sha256, content_base64, metadata_json, created_at
-       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,NOW())`,
+         id, bucket, key, tenant_id, workspace_id, project_id, thread_id, mime_type, size, checksum_sha256, content_base64, metadata_json, created_at
+       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12::jsonb,NOW())`,
       [
         id,
         bucket,
         key,
+        input.tenantId || null,
+        input.workspaceId || null,
         input.projectId || null,
         input.threadId || null,
         mimeType,
@@ -287,6 +335,8 @@ export class PostgresObjectStorageService {
       id,
       bucket,
       key,
+      tenantId: input.tenantId,
+      workspaceId: input.workspaceId,
       projectId: input.projectId,
       threadId: input.threadId,
       mimeType,
@@ -297,20 +347,35 @@ export class PostgresObjectStorageService {
     };
   }
 
-  async getObject(id: string): Promise<StoredObjectPayload | null> {
+  async getObject(id: string, scope?: { tenantId?: string; workspaceId?: string }): Promise<StoredObjectPayload | null> {
     if (!(await this.ensureReady())) return null;
+    const tenantId = String(scope?.tenantId || '').trim();
+    const workspaceId = String(scope?.workspaceId || '').trim();
+    const clauses: string[] = ['id = $1'];
+    const values: any[] = [id];
+    let idx = 2;
+    if (tenantId) {
+      clauses.push(`tenant_id = $${idx++}`);
+      values.push(tenantId);
+    }
+    if (workspaceId) {
+      clauses.push(`workspace_id = $${idx++}`);
+      values.push(workspaceId);
+    }
     const row = (await this.client!.query(
-      `SELECT id, bucket, key, project_id, thread_id, mime_type, size, checksum_sha256, content_base64, metadata_json, created_at
+      `SELECT id, bucket, key, tenant_id, workspace_id, project_id, thread_id, mime_type, size, checksum_sha256, content_base64, metadata_json, created_at
        FROM cockpit_object_storage_pg
-       WHERE id = $1
+       WHERE ${clauses.join(' AND ')}
        LIMIT 1`,
-      [id],
+      values,
     ))?.rows?.[0] as any;
     if (!row) return null;
     return {
       id: String(row.id),
       bucket: String(row.bucket),
       key: String(row.key),
+      tenantId: row?.tenant_id ? String(row.tenant_id) : undefined,
+      workspaceId: row?.workspace_id ? String(row.workspace_id) : undefined,
       projectId: row?.project_id ? String(row.project_id) : undefined,
       threadId: row?.thread_id ? String(row.thread_id) : undefined,
       mimeType: String(row.mime_type),
@@ -324,6 +389,8 @@ export class PostgresObjectStorageService {
 
   async listObjects(input?: {
     bucket?: string;
+    tenantId?: string;
+    workspaceId?: string;
     projectId?: string;
     threadId?: string;
     limit?: number;
@@ -338,6 +405,14 @@ export class PostgresObjectStorageService {
       clauses.push(`bucket = $${idx++}`);
       values.push(bucket);
     }
+    if (input?.tenantId) {
+      clauses.push(`tenant_id = $${idx++}`);
+      values.push(input.tenantId);
+    }
+    if (input?.workspaceId) {
+      clauses.push(`workspace_id = $${idx++}`);
+      values.push(input.workspaceId);
+    }
     if (input?.projectId) {
       clauses.push(`project_id = $${idx++}`);
       values.push(input.projectId);
@@ -349,7 +424,7 @@ export class PostgresObjectStorageService {
     const where = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '';
     values.push(limit);
     const rows = (await this.client!.query(
-      `SELECT id, bucket, key, project_id, thread_id, mime_type, size, checksum_sha256, metadata_json, created_at
+      `SELECT id, bucket, key, tenant_id, workspace_id, project_id, thread_id, mime_type, size, checksum_sha256, metadata_json, created_at
        FROM cockpit_object_storage_pg
        ${where}
        ORDER BY created_at DESC
@@ -360,6 +435,8 @@ export class PostgresObjectStorageService {
       id: String(row.id),
       bucket: String(row.bucket),
       key: String(row.key),
+      tenantId: row?.tenant_id ? String(row.tenant_id) : undefined,
+      workspaceId: row?.workspace_id ? String(row.workspace_id) : undefined,
       projectId: row?.project_id ? String(row.project_id) : undefined,
       threadId: row?.thread_id ? String(row.thread_id) : undefined,
       mimeType: String(row.mime_type),
