@@ -780,6 +780,29 @@ const getAlertsSnapshot = async () => {
   };
 };
 
+const getIncidentFlow = async () => ({
+  stages: [
+    {
+      id: 'detection',
+      description: 'Incident is detected by alerts, telemetry anomalies, or operator report.',
+      sources: ['alerts_endpoint', 'metrics_overview', 'structured_logs', 'operator_report'],
+    },
+    {
+      id: 'escalation',
+      description: 'Severity is classified and ownership is assigned.',
+      actions: ['assign_oncall', 'open_incident_ticket', 'notify_channels'],
+      channels: ['in_app', 'audit_log'],
+    },
+    {
+      id: 'resolution',
+      description: 'Mitigation and recovery actions are executed and verified.',
+      actions: ['execute_runbook', 'validate_health', 'close_with_evidence'],
+      evidence: ['alerts_snapshot', 'metrics_snapshot', 'logs_excerpt'],
+    },
+  ],
+  generatedAt: new Date().toISOString(),
+});
+
 const appendPolicyMetadata = (input: {
   eventKind: string;
   projectId?: string;
@@ -2897,6 +2920,7 @@ registerTelemetryRoutes(app, {
   readStructuredLogs,
   getSloStatus,
   getAlertsSnapshot,
+  getIncidentFlow,
   readRunLedgerEvents,
   normalizeRuntimeEvent,
 });

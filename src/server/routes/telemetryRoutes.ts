@@ -37,6 +37,7 @@ interface TelemetryRouteDeps {
   }) => Promise<Array<Record<string, any>>>;
   getSloStatus?: () => Promise<Record<string, any>>;
   getAlertsSnapshot?: () => Promise<Record<string, any>>;
+  getIncidentFlow?: () => Promise<Record<string, any>>;
   readRunLedgerEvents: (input: { runId?: string; projectId?: string; limit?: number }) => Promise<any[]>;
   normalizeRuntimeEvent: (row: any) => UnifiedTelemetryEvent;
 }
@@ -374,6 +375,22 @@ export function registerTelemetryRoutes(app: express.Express, deps: TelemetryRou
         success: false,
         error: 'alerts_fetch_failed',
         message: error?.message || 'Failed to fetch alerts',
+      });
+    }
+  });
+
+  app.get('/api/cockpit/incidents/flow', async (_req, res) => {
+    try {
+      if (!deps.getIncidentFlow) {
+        return res.json({ success: true, configured: false, stages: [] });
+      }
+      const flow = await deps.getIncidentFlow();
+      return res.json({ success: true, configured: true, ...flow });
+    } catch (error: any) {
+      return res.status(500).json({
+        success: false,
+        error: 'incident_flow_fetch_failed',
+        message: error?.message || 'Failed to fetch incident flow',
       });
     }
   });
