@@ -647,6 +647,36 @@ async function swarmNode(state: PilotState): Promise<Partial<PilotState>> {
       queueDepth: await QueueAbstractionLayer.depth(state.projectId, queueTask.agentSlug),
     },
   });
+  const queueDepthForAgent = await QueueAbstractionLayer.depth(state.projectId, queueTask.agentSlug);
+  const autoscale = await DynamicWorkerSpawnManager.autoscaleWorkers({
+    runId: state.runId,
+    chainId: state.threadId,
+    projectId: state.projectId,
+    tenantId: String((state as any).tenantId || '').trim() || undefined,
+    workspaceId: String((state as any).workspaceId || '').trim() || undefined,
+    environmentId: String((state as any).environmentId || '').trim() || undefined,
+    agentSlug: queueTask.agentSlug,
+    queueDepth: queueDepthForAgent,
+  }).catch(() => null);
+  if (autoscale && autoscale.action !== 'hold') {
+    await emitEvent({
+      type: 'system.thought',
+      runId: state.runId,
+      projectId: state.projectId,
+      chainId: state.threadId,
+      actor: { type: 'system', id: 'worker-autoscaler' },
+      payload: {
+        agentSlug: queueTask.agentSlug,
+        action: autoscale.action,
+        reason: autoscale.reason,
+        desiredWorkers: autoscale.desiredWorkers,
+        beforeWorkers: autoscale.beforeWorkers,
+        afterWorkers: autoscale.afterWorkers,
+        created: autoscale.created,
+        removed: autoscale.removed,
+      },
+    });
+  }
   const pickedLease = await QueueAbstractionLayer.dequeue({
     projectId: state.projectId,
     agentSlug: queueTask.agentSlug,

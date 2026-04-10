@@ -467,6 +467,61 @@ describe('DynamicWorkerSpawnManager', () => {
     expect(snapshot[0]?.workerId).toBeTruthy();
   });
 
+  it('autoscale creates warm replicas when queue pressure increases', async () => {
+    process.env.RUNTIME_SCALE_MIN_WORKERS = '0';
+    process.env.RUNTIME_SCALE_MAX_WORKERS = '3';
+    process.env.RUNTIME_SCALE_TARGET_TASKS_PER_WORKER = '1';
+    process.env.RUNTIME_SCALE_COOLDOWN_MS = '0';
+    const outcome = await DynamicWorkerSpawnManager.autoscaleWorkers({
+      runId: 'r-scale-up',
+      chainId: 'c-scale-up',
+      projectId: 'proj-a',
+      agentSlug: 'developer',
+      queueDepth: 3,
+    });
+    expect(outcome.action).toBe('scale_up');
+    expect(outcome.created).toBeGreaterThanOrEqual(1);
+    const scoped = DynamicWorkerSpawnManager.snapshot().filter((w) => w.projectId === 'proj-a' && w.agentSlug === 'developer');
+    expect(scoped.length).toBeGreaterThanOrEqual(1);
+    delete process.env.RUNTIME_SCALE_MIN_WORKERS;
+    delete process.env.RUNTIME_SCALE_MAX_WORKERS;
+    delete process.env.RUNTIME_SCALE_TARGET_TASKS_PER_WORKER;
+    delete process.env.RUNTIME_SCALE_COOLDOWN_MS;
+  });
+
+  it('autoscale removes idle replicas when queue pressure drops', async () => {
+    process.env.RUNTIME_SCALE_MIN_WORKERS = '1';
+    process.env.RUNTIME_SCALE_MAX_WORKERS = '4';
+    process.env.RUNTIME_SCALE_TARGET_TASKS_PER_WORKER = '1';
+    process.env.RUNTIME_SCALE_COOLDOWN_MS = '0';
+
+    await DynamicWorkerSpawnManager.autoscaleWorkers({
+      runId: 'r-scale-up-2',
+      chainId: 'c-scale-up-2',
+      projectId: 'proj-a',
+      agentSlug: 'developer',
+      queueDepth: 4,
+    });
+
+    const before = DynamicWorkerSpawnManager.snapshot().filter((w) => w.projectId === 'proj-a' && w.agentSlug === 'developer').length;
+    const down = await DynamicWorkerSpawnManager.autoscaleWorkers({
+      runId: 'r-scale-down-2',
+      chainId: 'c-scale-down-2',
+      projectId: 'proj-a',
+      agentSlug: 'developer',
+      queueDepth: 0,
+    });
+    const after = DynamicWorkerSpawnManager.snapshot().filter((w) => w.projectId === 'proj-a' && w.agentSlug === 'developer').length;
+    expect(down.action).toBe('scale_down');
+    expect(after).toBeLessThanOrEqual(before);
+    expect(after).toBeGreaterThanOrEqual(1);
+
+    delete process.env.RUNTIME_SCALE_MIN_WORKERS;
+    delete process.env.RUNTIME_SCALE_MAX_WORKERS;
+    delete process.env.RUNTIME_SCALE_TARGET_TASKS_PER_WORKER;
+    delete process.env.RUNTIME_SCALE_COOLDOWN_MS;
+  });
+
   it('blocks worker allocation when project is paused and allows after resume', async () => {
     DynamicWorkerSpawnManager.setProjectPaused('proj-a', true);
     await expect(
