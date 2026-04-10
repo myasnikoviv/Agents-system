@@ -948,6 +948,23 @@ const getRestoreStatus = async () => {
   };
 };
 
+const getDataClassification = async () => ({
+  pii: [
+    { field: 'user.email', category: 'PII', handling: 'encrypted_at_rest' },
+    { field: 'secrets.key', category: 'PII', handling: 'vault_scoped_access' },
+  ],
+  sensitive: [
+    { field: 'billing.subscription', category: 'sensitive', handling: 'rbac_admin_or_member' },
+    { field: 'runtime.audit', category: 'sensitive', handling: 'append_only_audit' },
+  ],
+  policies: [
+    { id: 'policy.data.retention', description: 'Operational logs and ledgers are retained for auditability window.' },
+    { id: 'policy.data.access', description: 'Tenant/workspace/user scoping is required for sensitive resources.' },
+    { id: 'policy.data.minimization', description: 'Only required metadata is persisted for operational flows.' },
+  ],
+  generatedAt: new Date().toISOString(),
+});
+
 const appendPolicyMetadata = (input: {
   eventKind: string;
   projectId?: string;
@@ -3070,6 +3087,7 @@ registerTelemetryRoutes(app, {
   runBackupNow,
   runRestoreNow,
   getRestoreStatus,
+  getDataClassification,
   readRunLedgerEvents,
   normalizeRuntimeEvent,
 });

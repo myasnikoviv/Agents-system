@@ -42,6 +42,7 @@ interface TelemetryRouteDeps {
   runBackupNow?: (input: { mode: 'full' | 'incremental' }) => Promise<Record<string, any>>;
   runRestoreNow?: (input: { backupFile?: string }) => Promise<Record<string, any>>;
   getRestoreStatus?: () => Promise<Record<string, any>>;
+  getDataClassification?: () => Promise<Record<string, any>>;
   readRunLedgerEvents: (input: { runId?: string; projectId?: string; limit?: number }) => Promise<any[]>;
   normalizeRuntimeEvent: (row: any) => UnifiedTelemetryEvent;
 }
@@ -457,6 +458,20 @@ export function registerTelemetryRoutes(app: express.Express, deps: TelemetryRou
         success: false,
         error: 'restore_run_failed',
         message: error?.message || 'Failed to run restore',
+      });
+    }
+  });
+
+  app.get('/api/cockpit/compliance/data-classification', async (_req, res) => {
+    try {
+      if (!deps.getDataClassification) return res.json({ success: true, configured: false });
+      const data = await deps.getDataClassification();
+      return res.json({ success: true, configured: true, ...data });
+    } catch (error: any) {
+      return res.status(500).json({
+        success: false,
+        error: 'data_classification_fetch_failed',
+        message: error?.message || 'Failed to fetch data classification',
       });
     }
   });
