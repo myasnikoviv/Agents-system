@@ -4,6 +4,7 @@ import Database from 'better-sqlite3';
 import { buildAgentIdentity, assertWorkerProjectIsolation } from '../identity/AgentIdentity';
 import { WorkerLifecycleState, applyLifecycleTransition } from './WorkerLifecycleStateMachine';
 import { resolveWorkerHeatMode } from './EnvironmentWorkerHeatPolicy';
+import { resolveWorkerTypeForAgent } from './AgentWorkerMapping';
 import { resolveRuntimeInfrastructureProfile } from '../infrastructure/RuntimeInfrastructureProfile';
 import { getRedisClient } from '../redisClient';
 import { resolveTenantScope, tenantNamespace } from '../tenancy/TenantContext';
@@ -14,6 +15,7 @@ export interface RuntimeWorkerRecord {
   projectId: string;
   environmentId?: string;
   agentSlug: string;
+  workerType: string;
   workerId: string;
   identityKey: string;
   memoryNamespace: string;
@@ -501,6 +503,7 @@ export class DynamicWorkerSpawnManager {
         existing.lastUsedAt = Date.now();
         existing.lastHeartbeatAt = Date.now();
         existing.heartbeatCount += 1;
+        existing.workerType = String(existing.workerType || resolveWorkerTypeForAgent(agentSlug));
         existing.runCount += 1;
         existing.assignedTask = {
           taskId: String(input.taskId || `${input.projectId}:${input.agentSlug}:${input.runId}`),
@@ -595,6 +598,7 @@ export class DynamicWorkerSpawnManager {
       projectId,
       ...(input.environmentId ? { environmentId: String(input.environmentId) } : {}),
       agentSlug,
+      workerType: resolveWorkerTypeForAgent(agentSlug),
       workerId: identity.workerId,
       identityKey: identity.identityKey,
       memoryNamespace: identity.memoryNamespace,
@@ -687,6 +691,7 @@ export class DynamicWorkerSpawnManager {
         existing.lastHeartbeatAt = now;
         existing.lastUsedAt = now;
         existing.heartbeatCount += 1;
+        existing.workerType = String(existing.workerType || resolveWorkerTypeForAgent(agentSlug));
         existing.state = existing.state === 'failed' ? 'cold' : existing.state;
         poolSet(key, existing);
         await sharedPoolSet(key, existing);
@@ -722,6 +727,7 @@ export class DynamicWorkerSpawnManager {
         projectId,
         ...(input.environmentId ? { environmentId: String(input.environmentId) } : {}),
         agentSlug,
+        workerType: resolveWorkerTypeForAgent(agentSlug),
         workerId: identity.workerId,
         identityKey: identity.identityKey,
         memoryNamespace: identity.memoryNamespace,
