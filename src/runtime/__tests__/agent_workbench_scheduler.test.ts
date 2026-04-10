@@ -54,4 +54,11 @@ describe('AgentWorkbenchScheduler', () => {
     expect(cancelled.cancelled).toBe(true);
     expect(cancelled.queueLength).toBe(0);
   });
+
+  it('isolates exclusive leases by scope key', () => {
+    const one = acquireToolLease('figma', 'agent-A', 'tenant:t1:workspace:w1');
+    const two = acquireToolLease('figma', 'agent-B', 'tenant:t2:workspace:w2');
+    expect(one.status).toBe('acquired');
+    expect(two.status).toBe('acquired');
+  });
 });
