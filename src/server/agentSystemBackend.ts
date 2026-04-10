@@ -36,6 +36,8 @@ import { ServiceLifecycleEventBus } from '../runtime/control-plane/ServiceLifecy
 import { BillingService } from '../runtime/billing/BillingService';
 import { BillingPaymentService } from '../runtime/billing/BillingPaymentService';
 import { StripeMvpProvider } from '../runtime/billing/PaymentProvider';
+import { usageMeteringPipeline } from '../runtime/billing/UsageMeteringPipeline';
+import { UsageAggregationService } from '../runtime/billing/UsageAggregationService';
 import { DEFAULT_ABAC_POLICIES, evaluateAbacPolicyAccess, type AbacRole } from '../runtime/policy/AbacPolicyEngine';
 import { registerAccessEnforcementMiddleware } from './AuthAccessMiddleware';
 import {
@@ -54,6 +56,28 @@ const app = express();
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
 
+const apiMetricsState = {
+  requestsTotal: 0,
+  errorsTotal: 0,
+  byRoute: new Map<string, number>(),
+  byStatusClass: new Map<string, number>(),
+  totalLatencyMs: 0,
+};
+
+app.use((req, res, next) => {
+  const startedAt = Date.now();
+  res.on('finish', () => {
+    const routeKey = `${req.method} ${req.path}`;
+    const statusClass = `${Math.floor((res.statusCode || 0) / 100)}xx`;
+    apiMetricsState.requestsTotal += 1;
+    if ((res.statusCode || 0) >= 400) apiMetricsState.errorsTotal += 1;
+    apiMetricsState.totalLatencyMs += Math.max(0, Date.now() - startedAt);
+    apiMetricsState.byRoute.set(routeKey, Number(apiMetricsState.byRoute.get(routeKey) || 0) + 1);
+    apiMetricsState.byStatusClass.set(statusClass, Number(apiMetricsState.byStatusClass.get(statusClass) || 0) + 1);
+  });
+  next();
+});
+
 const controlPlaneRegistrySource = path.resolve(process.cwd(), 'config/control-plane/service-registry.yaml');
 const loadedControlPlaneRegistry = loadServiceRegistry(controlPlaneRegistrySource).registry;
 const controlPlaneAdapterRegistry = new ServiceExecutionAdapterRegistry();
@@ -63,6 +87,7 @@ controlPlaneAdapterRegistry.register(new DockerAdapter());
 const controlPlaneRuntimeManager = new ControlPlaneRuntimeManager(loadedControlPlaneRegistry, controlPlaneAdapterRegistry, controlPlaneEventBus);
 const billingService = new BillingService();
 const billingPaymentService = new BillingPaymentService(new StripeMvpProvider());
+const usageAggregationService = new UsageAggregationService();
 
 process.on('uncaughtException', (error) => {
   console.error('[agent-system-backend] uncaughtException:', error);
@@ -486,6 +511,55 @@ const verifyControlActionAuditIntegrity = async (): Promise<{
 }> => {
   const rows = await readControlActionAuditRows();
   return verifyAuditHashChain(rows);
+};
+
+const getMetricsOverview = async (input: { projectId?: string; limit?: number }) => {
+  const limit = Math.max(1, Math.min(1000, Number(input.limit || 200)));
+  const runtimeEvents = await fetchRecentEvents(limit);
+  const projectFiltered = input.projectId
+    ? runtimeEvents.filter((row: any) => String(row?.projectId || '') === input.projectId)
+    : runtimeEvents;
+  const recentRuns = new Set(
+    projectFiltered
+      .map((row: any) => String(row?.runId || '').trim())
+      .filter(Boolean),
+  );
+  const workerEvents = projectFiltered.filter((row: any) => String(row?.eventType || '').startsWith('worker.'));
+  const queueEvents = projectFiltered.filter((row: any) => String(row?.eventType || '').startsWith('task.'));
+  const guardEvents = projectFiltered.filter((row: any) => String(row?.eventType || '').startsWith('guard.'));
+  const usageRecords = usageMeteringPipeline.getRecords();
+  const billingUsage = usageAggregationService.aggregate(usageRecords, {});
+  const billingSubscriptions = billingPaymentService.listSubscriptions();
+  const requestsTotal = apiMetricsState.requestsTotal || 0;
+  return {
+    runtime: {
+      recentEvents: projectFiltered.length,
+      recentRuns: recentRuns.size,
+      workerEvents: workerEvents.length,
+      queueEvents: queueEvents.length,
+      guardEvents: guardEvents.length,
+    },
+    api: {
+      requestsTotal,
+      errorsTotal: apiMetricsState.errorsTotal,
+      errorRate: requestsTotal > 0 ? Number((apiMetricsState.errorsTotal / requestsTotal).toFixed(4)) : 0,
+      avgLatencyMs: requestsTotal > 0 ? Math.round(apiMetricsState.totalLatencyMs / requestsTotal) : 0,
+      statusClass: Object.fromEntries(apiMetricsState.byStatusClass.entries()),
+      topRoutes: Array.from(apiMetricsState.byRoute.entries())
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 10)
+        .map(([route, hits]) => ({ route, hits })),
+    },
+    billing: {
+      usageRecords: usageRecords.length,
+      totalUsageQuantity: billingUsage.totalQuantity,
+      usageByType: billingUsage.byType,
+      subscriptionsTotal: billingSubscriptions.length,
+      subscriptionsActive: billingSubscriptions.filter((s) => String(s.status) === 'active').length,
+      subscriptionsPastDue: billingSubscriptions.filter((s) => String(s.status) === 'past_due').length,
+    },
+    generatedAt: new Date().toISOString(),
+  };
 };
 
 const appendPolicyMetadata = (input: {
@@ -2600,6 +2674,7 @@ registerTelemetryRoutes(app, {
   readControlActionAuditRows,
   normalizeAuditRow,
   verifyAuditIntegrity: verifyControlActionAuditIntegrity,
+  getMetricsOverview,
   readRunLedgerEvents,
   normalizeRuntimeEvent,
 });
