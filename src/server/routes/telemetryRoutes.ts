@@ -36,6 +36,7 @@ interface TelemetryRouteDeps {
     limit?: number;
   }) => Promise<Array<Record<string, any>>>;
   getSloStatus?: () => Promise<Record<string, any>>;
+  getAlertsSnapshot?: () => Promise<Record<string, any>>;
   readRunLedgerEvents: (input: { runId?: string; projectId?: string; limit?: number }) => Promise<any[]>;
   normalizeRuntimeEvent: (row: any) => UnifiedTelemetryEvent;
 }
@@ -357,6 +358,22 @@ export function registerTelemetryRoutes(app: express.Express, deps: TelemetryRou
         success: false,
         error: 'slo_status_fetch_failed',
         message: error?.message || 'Failed to fetch SLO status',
+      });
+    }
+  });
+
+  app.get('/api/cockpit/alerts', async (_req, res) => {
+    try {
+      if (!deps.getAlertsSnapshot) {
+        return res.json({ success: true, configured: false, alerts: [], channels: [] });
+      }
+      const snapshot = await deps.getAlertsSnapshot();
+      return res.json({ success: true, configured: true, ...snapshot });
+    } catch (error: any) {
+      return res.status(500).json({
+        success: false,
+        error: 'alerts_fetch_failed',
+        message: error?.message || 'Failed to fetch alerts',
       });
     }
   });
