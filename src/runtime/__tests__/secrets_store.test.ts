@@ -10,6 +10,7 @@ describe('SqliteSecretsStore', () => {
     const meta = store.upsert({
       tenantId: 'tenant-a',
       workspaceId: 'ws-a',
+      userId: 'user-1',
       key: 'openhands.apiKeys.google',
       value: 'g-key-123',
       createdBy: 'user-1',
@@ -19,6 +20,7 @@ describe('SqliteSecretsStore', () => {
     const sameScopeValue = store.getValue({
       tenantId: 'tenant-a',
       workspaceId: 'ws-a',
+      userId: 'user-1',
       key: 'openhands.apiKeys.google',
     });
     expect(sameScopeValue).toBe('g-key-123');
@@ -26,12 +28,22 @@ describe('SqliteSecretsStore', () => {
     const otherScopeValue = store.getValue({
       tenantId: 'tenant-b',
       workspaceId: 'ws-a',
+      userId: 'user-1',
       key: 'openhands.apiKeys.google',
     });
     expect(otherScopeValue).toBeNull();
 
-    const list = store.listMeta({ tenantId: 'tenant-a', workspaceId: 'ws-a' });
+    const list = store.listMeta({ tenantId: 'tenant-a', workspaceId: 'ws-a', userId: 'user-1' });
     expect(list.length).toBe(1);
     expect(list[0]?.createdBy).toBe('user-1');
+    expect(list[0]?.userId).toBe('user-1');
+
+    const crossUser = store.getValue({
+      tenantId: 'tenant-a',
+      workspaceId: 'ws-a',
+      userId: 'user-2',
+      key: 'openhands.apiKeys.google',
+    });
+    expect(crossUser).toBeNull();
   });
 });

@@ -108,17 +108,20 @@ describe('Sprint25 AGSYS-2514 tenant isolation', () => {
     secrets.upsert({
       tenantId: 'tenant-a',
       workspaceId: 'workspace-1',
+      userId: 'user-a',
       key: 'openhands.apiKeys.google',
       value: 'A_KEY',
     });
     secrets.upsert({
       tenantId: 'tenant-b',
       workspaceId: 'workspace-1',
+      userId: 'user-b',
       key: 'openhands.apiKeys.google',
       value: 'B_KEY',
     });
-    expect(secrets.getValue({ tenantId: 'tenant-a', workspaceId: 'workspace-1', key: 'openhands.apiKeys.google' })).toBe('A_KEY');
-    expect(secrets.getValue({ tenantId: 'tenant-b', workspaceId: 'workspace-1', key: 'openhands.apiKeys.google' })).toBe('B_KEY');
+    expect(secrets.getValue({ tenantId: 'tenant-a', workspaceId: 'workspace-1', userId: 'user-a', key: 'openhands.apiKeys.google' })).toBe('A_KEY');
+    expect(secrets.getValue({ tenantId: 'tenant-b', workspaceId: 'workspace-1', userId: 'user-b', key: 'openhands.apiKeys.google' })).toBe('B_KEY');
+    expect(secrets.getValue({ tenantId: 'tenant-a', workspaceId: 'workspace-1', userId: 'user-b', key: 'openhands.apiKeys.google' })).toBeNull();
 
     const objectStorage = new SqliteObjectStorageService(db);
     objectStorage.putObject({

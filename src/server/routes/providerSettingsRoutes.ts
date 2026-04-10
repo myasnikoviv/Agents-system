@@ -19,6 +19,7 @@ interface ProviderSettingsRouteDeps {
   secretsStoreUpsert: (input: {
     tenantId: string;
     workspaceId: string;
+    userId?: string;
     key: string;
     value: string;
     createdBy: string;
@@ -341,6 +342,7 @@ export function registerProviderSettingsRoutes(app: express.Express, deps: Provi
         deps.secretsStoreUpsert({
           tenantId: auth.tenantId,
           workspaceId: auth.workspaceId,
+          userId: auth.userId,
           key: `openhands.apiKeys.${provider}`,
           value,
           createdBy: auth.userId,
