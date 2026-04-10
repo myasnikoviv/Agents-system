@@ -14,7 +14,7 @@ import { ReclassificationCheckpoint } from '../context/ReclassificationCheckpoin
 import { detectLanguage, type DetectedLanguage } from '../LanguageDetection';
 import { buildContractRepromptInstruction, validateAgentResponseContract } from '../ResponseContractGuard';
 import { DynamicWorkerSpawnManager } from '../workers/DynamicWorkerSpawnManager';
-import { ProjectDispatchQueue } from '../queue/ProjectDispatchQueue';
+import { QueueAbstractionLayer } from '../queue/QueueAbstractionLayer';
 import { executeRunContextInSubprocess } from '../workers/WorkerProcessExecutor';
 
 
@@ -624,7 +624,7 @@ async function swarmNode(state: PilotState): Promise<Partial<PilotState>> {
   }
 
   console.log(`[PilotGraph:Swarm] Next stage: ${nextStage.id} (Agent: ${nextStage.agent})`);
-  const queueTask = ProjectDispatchQueue.enqueue({
+  const queueTask = await QueueAbstractionLayer.enqueue({
     runId: state.runId,
     projectId: state.projectId,
     chainId: state.threadId,
@@ -633,7 +633,7 @@ async function swarmNode(state: PilotState): Promise<Partial<PilotState>> {
     agentSlug: String(nextStage.agent || '').trim() || 'system-core',
     payload: {
       stageTitle: String(nextStage.title || nextStage.name || nextStage.id || '').trim(),
-      queueDepth: ProjectDispatchQueue.depth(state.projectId),
+      queueDepth: await QueueAbstractionLayer.depth(state.projectId),
     },
   });
   await emitEvent({
@@ -646,13 +646,20 @@ async function swarmNode(state: PilotState): Promise<Partial<PilotState>> {
       taskId: queueTask.taskId,
       stageId: queueTask.stageId,
       agentSlug: queueTask.agentSlug,
-      queueDepth: ProjectDispatchQueue.depth(state.projectId, queueTask.agentSlug),
+      queueDepth: await QueueAbstractionLayer.depth(state.projectId, queueTask.agentSlug),
     },
   });
-  const pickedTask = ProjectDispatchQueue.pickup(state.projectId, queueTask.agentSlug);
-  if (!pickedTask) {
+  const pickedLease = await QueueAbstractionLayer.dequeue({
+    projectId: state.projectId,
+    agentSlug: queueTask.agentSlug,
+    consumerId: `dispatcher:${state.runId}`,
+    environmentId: String((state as any).environmentId || '').trim() || undefined,
+  });
+  if (!pickedLease) {
     throw new Error(`Dispatch queue pickup failed for ${state.projectId}:${queueTask.agentSlug}`);
   }
+  const pickedTask = pickedLease.task;
+  await QueueAbstractionLayer.ack(pickedLease.leaseId);
   await emitEvent({
     type: 'task.dispatched',
     runId: state.runId,
@@ -664,7 +671,7 @@ async function swarmNode(state: PilotState): Promise<Partial<PilotState>> {
       stageId: pickedTask.stageId,
       agentSlug: pickedTask.agentSlug,
       queuedForMs: Math.max(0, Date.now() - pickedTask.enqueuedAt),
-      queueDepthAfterPickup: ProjectDispatchQueue.depth(state.projectId, pickedTask.agentSlug),
+      queueDepthAfterPickup: await QueueAbstractionLayer.depth(state.projectId, pickedTask.agentSlug),
     },
   });
 
@@ -828,7 +835,7 @@ async function swarmNode(state: PilotState): Promise<Partial<PilotState>> {
     const retryCount = Number((pickedTask.payload as any)?.retryCount || 0);
 
     if (retryCount < retryLimit) {
-      const retryTask = ProjectDispatchQueue.enqueue({
+      const retryTask = await QueueAbstractionLayer.enqueue({
         runId: state.runId,
         projectId: state.projectId,
         chainId: state.threadId,
@@ -853,11 +860,18 @@ async function swarmNode(state: PilotState): Promise<Partial<PilotState>> {
           stageId: retryTask.stageId,
           agentSlug: retryTask.agentSlug,
           retryCount: retryCount + 1,
-          queueDepth: ProjectDispatchQueue.depth(state.projectId, retryTask.agentSlug),
+          queueDepth: await QueueAbstractionLayer.depth(state.projectId, retryTask.agentSlug),
         },
       });
-      const retryPicked = ProjectDispatchQueue.pickup(state.projectId, retryTask.agentSlug);
-      if (retryPicked) {
+      const retryLease = await QueueAbstractionLayer.dequeue({
+        projectId: state.projectId,
+        agentSlug: retryTask.agentSlug,
+        consumerId: `dispatcher-retry:${state.runId}`,
+        environmentId: String((state as any).environmentId || '').trim() || undefined,
+      });
+      if (retryLease) {
+        const retryPicked = retryLease.task;
+        await QueueAbstractionLayer.ack(retryLease.leaseId);
         await emitEvent({
           type: 'task.dispatched',
           runId: state.runId,
@@ -870,10 +884,10 @@ async function swarmNode(state: PilotState): Promise<Partial<PilotState>> {
             agentSlug: retryPicked.agentSlug,
             retryCount: retryCount + 1,
             queuedForMs: Math.max(0, Date.now() - retryPicked.enqueuedAt),
-            queueDepthAfterPickup: ProjectDispatchQueue.depth(state.projectId, retryPicked.agentSlug),
+            queueDepthAfterPickup: await QueueAbstractionLayer.depth(state.projectId, retryPicked.agentSlug),
           },
         });
-        const retryLease = await DynamicWorkerSpawnManager.ensureWorker({
+        const retryWorkerLease = await DynamicWorkerSpawnManager.ensureWorker({
           runId: state.runId,
           projectId: state.projectId,
           tenantId: String((state as any).tenantId || '').trim() || undefined,
@@ -885,7 +899,7 @@ async function swarmNode(state: PilotState): Promise<Partial<PilotState>> {
           stageId: retryPicked.stageId,
           pipelineId: retryPicked.pipelineId,
         });
-        runContext = await buildRunContext(retryLease.worker.workerId);
+        runContext = await buildRunContext(retryWorkerLease.worker.workerId);
         result = await runInConfiguredMode();
       } else {
         stopHeartbeat();
