@@ -338,6 +338,8 @@ const RUN_LEDGER_DIR = path.resolve(process.cwd(), 'docs/process/runs/ledger');
 const STRUCTURED_LOG_FILE = path.resolve(process.cwd(), 'docs/runtime/system/logs/structured-app.jsonl');
 const BACKUP_DIR = path.resolve(process.cwd(), 'docs/runtime/backups');
 const BACKUP_LEDGER_FILE = path.join(BACKUP_DIR, 'backup-ledger.jsonl');
+const RESTORE_DIR = path.resolve(process.cwd(), 'docs/runtime/restores');
+const RESTORE_LEDGER_FILE = path.join(RESTORE_DIR, 'restore-ledger.jsonl');
 
 const structuredLogBuffer: Array<{
   timestamp: string;
@@ -369,6 +371,15 @@ const backupState: {
     nextIncrementalAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
   },
 };
+
+const restoreState: {
+  lastRun?: {
+    backupFile: string;
+    restoreFile: string;
+    checksumMatch: boolean;
+    restoredAt: string;
+  };
+} = {};
 
 const appendStructuredLog = (entry: {
   level: 'info' | 'warn' | 'error';
@@ -882,6 +893,57 @@ const getBackupStatus = async () => {
     schedule: backupState.schedule,
     lastRun: backupState.lastRun || null,
     recent: recentRows,
+    generatedAt: new Date().toISOString(),
+  };
+};
+
+const runRestoreNow = async (input: { backupFile?: string }) => {
+  fs.mkdirSync(RESTORE_DIR, { recursive: true });
+  const backupRows = fs.existsSync(BACKUP_LEDGER_FILE)
+    ? fs.readFileSync(BACKUP_LEDGER_FILE, 'utf-8').split('\n').filter(Boolean).map((line) => {
+        try {
+          return JSON.parse(line);
+        } catch {
+          return null;
+        }
+      }).filter(Boolean)
+    : [];
+  const selected = input.backupFile
+    ? backupRows.find((row: any) => String(row.file || '') === input.backupFile)
+    : backupRows[backupRows.length - 1];
+  if (!selected?.file || !fs.existsSync(String(selected.file))) {
+    throw new Error('backup_file_not_found');
+  }
+  const raw = fs.readFileSync(String(selected.file), 'utf-8');
+  const checksum = crypto.createHash('sha256').update(raw, 'utf8').digest('hex');
+  const checksumMatch = checksum === String(selected.checksum || '');
+  const restoredAt = new Date().toISOString();
+  const restoreFile = path.join(RESTORE_DIR, `restore-${Date.now()}.json`);
+  fs.writeFileSync(restoreFile, raw, 'utf-8');
+  const row = {
+    restoredAt,
+    backupFile: String(selected.file),
+    restoreFile,
+    checksumMatch,
+  };
+  fs.appendFileSync(RESTORE_LEDGER_FILE, `${JSON.stringify(row)}\n`, 'utf-8');
+  restoreState.lastRun = row;
+  return row;
+};
+
+const getRestoreStatus = async () => {
+  const recent = fs.existsSync(RESTORE_LEDGER_FILE)
+    ? fs.readFileSync(RESTORE_LEDGER_FILE, 'utf-8').split('\n').filter(Boolean).slice(-20).map((line) => {
+        try {
+          return JSON.parse(line);
+        } catch {
+          return null;
+        }
+      }).filter(Boolean)
+    : [];
+  return {
+    lastRun: restoreState.lastRun || null,
+    recent,
     generatedAt: new Date().toISOString(),
   };
 };
@@ -3006,6 +3068,8 @@ registerTelemetryRoutes(app, {
   getIncidentFlow,
   getBackupStatus,
   runBackupNow,
+  runRestoreNow,
+  getRestoreStatus,
   readRunLedgerEvents,
   normalizeRuntimeEvent,
 });
