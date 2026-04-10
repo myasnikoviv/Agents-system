@@ -23,6 +23,39 @@ describe('DynamicWorkerSpawnManager', () => {
     expect(second.worker.runCount).toBeGreaterThanOrEqual(2);
   });
 
+  it('registers worker announcement and tracks status in registry', async () => {
+    const registered = await DynamicWorkerSpawnManager.registerWorker(
+      {
+        runId: 'reg-1',
+        chainId: 'chain-reg-1',
+        projectId: 'proj-a',
+        agentSlug: 'developer',
+        workerId: 'worker-developer-announced',
+      },
+      { emitEvents: false },
+    );
+    expect(registered.workerId).toBe('worker-developer-announced');
+    expect(registered.state).toBe('idle');
+
+    const snapshot = DynamicWorkerSpawnManager.snapshot().filter((row) => row.projectId === 'proj-a' && row.agentSlug === 'developer');
+    expect(snapshot.length).toBe(1);
+    expect(snapshot[0]?.workerId).toBe('worker-developer-announced');
+    expect(snapshot[0]?.heartbeatCount).toBe(1);
+
+    const heartbeatBefore = Number(snapshot[0]?.heartbeatCount || 0);
+    const announcedAgain = await DynamicWorkerSpawnManager.registerWorker(
+      {
+        runId: 'reg-2',
+        chainId: 'chain-reg-2',
+        projectId: 'proj-a',
+        agentSlug: 'developer',
+      },
+      { emitEvents: false },
+    );
+    expect(announcedAgain.workerId).toBe('worker-developer-announced');
+    expect(announcedAgain.heartbeatCount).toBeGreaterThan(heartbeatBefore);
+  });
+
   it('creates isolated workers per project for same agent slug', async () => {
     const one = await DynamicWorkerSpawnManager.ensureWorker(
       { runId: 'r1', projectId: 'proj-a', chainId: 'c1', agentSlug: 'developer' },

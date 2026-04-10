@@ -63,6 +63,17 @@ export interface EnsureWorkerResult {
   spawned: boolean;
 }
 
+export interface RegisterWorkerInput {
+  runId: string;
+  chainId: string;
+  projectId: string;
+  agentSlug: string;
+  workerId?: string;
+  tenantId?: string;
+  workspaceId?: string;
+  environmentId?: string;
+}
+
 export type WorkerControlAction = 'pause' | 'resume' | 'restart' | 'kill';
 
 let db: Database.Database | null = null;
@@ -649,6 +660,115 @@ export class DynamicWorkerSpawnManager {
       }
 
       return { worker: { ...record }, spawned: true };
+    } finally {
+      await releaseWorkerLock(key, lock.token);
+    }
+  }
+
+  static async registerWorker(input: RegisterWorkerInput, options?: { emitEvents?: boolean }): Promise<RuntimeWorkerRecord> {
+    const emitEvents = options?.emitEvents !== false;
+    const projectId = String(input.projectId || 'default').trim() || 'default';
+    const tenantId = String(input.tenantId || '').trim() || undefined;
+    const workspaceId = String(input.workspaceId || '').trim() || undefined;
+    const agentSlug = String(input.agentSlug || 'system-core').trim() || 'system-core';
+    const key = keyOf({ projectId, tenantId, workspaceId, agentSlug, environmentId: input.environmentId });
+    const lock = await acquireWorkerLock(key);
+    if (!lock.acquired) {
+      throw new Error(`worker_lock_busy:${key}`);
+    }
+    try {
+      const sharedExisting = await sharedPoolGet(key);
+      if (sharedExisting) {
+        poolSet(key, sharedExisting);
+      }
+      const existing = sharedExisting || poolGet(key);
+      const now = Date.now();
+      if (existing) {
+        existing.lastHeartbeatAt = now;
+        existing.lastUsedAt = now;
+        existing.heartbeatCount += 1;
+        existing.state = existing.state === 'failed' ? 'cold' : existing.state;
+        poolSet(key, existing);
+        await sharedPoolSet(key, existing);
+        if (emitEvents) {
+          await emitRuntimeEvent({
+            type: 'worker.heartbeat',
+            runId: input.runId,
+            projectId,
+            chainId: input.chainId,
+            payload: {
+              agentSlug,
+              workerId: existing.workerId,
+              state: existing.state,
+              registration: true,
+            },
+          });
+        }
+        return { ...existing };
+      }
+
+      const identity = buildAgentIdentity({
+        projectId,
+        agentSlug,
+        tenantId,
+        workspaceId,
+        environmentId: input.environmentId,
+        ...(input.workerId ? { workerId: input.workerId } : {}),
+      });
+
+      const record: RuntimeWorkerRecord = {
+        ...(tenantId ? { tenantId } : {}),
+        ...(workspaceId ? { workspaceId } : {}),
+        projectId,
+        ...(input.environmentId ? { environmentId: String(input.environmentId) } : {}),
+        agentSlug,
+        workerId: identity.workerId,
+        identityKey: identity.identityKey,
+        memoryNamespace: identity.memoryNamespace,
+        state: 'idle',
+        createdAt: now,
+        lastUsedAt: now,
+        lastHeartbeatAt: now,
+        heartbeatCount: 1,
+        runCount: 0,
+        invocationCount: 0,
+        coldStartCount: 0,
+        totalTaskDurationMs: 0,
+        totalIdleMs: 0,
+        successfulTaskCount: 0,
+        failedTaskCount: 0,
+        retryTaskCount: 0,
+        heatMode: resolveWorkerHeatMode(agentSlug),
+        assignedTask: null,
+        manuallyPaused: false,
+      };
+      record.memoryNamespace = scopedMemoryNamespace({
+        tenantId: input.tenantId,
+        workspaceId: input.workspaceId,
+        projectId,
+        environmentId: input.environmentId,
+        runId: input.runId,
+        agentSlug,
+      });
+
+      poolSet(key, record);
+      await sharedPoolSet(key, record);
+      if (emitEvents) {
+        await emitRuntimeEvent({
+          type: 'worker.spawned',
+          runId: input.runId,
+          projectId,
+          chainId: input.chainId,
+          payload: {
+            agentSlug,
+            workerId: record.workerId,
+            identityKey: record.identityKey,
+            memoryNamespace: record.memoryNamespace,
+            registration: true,
+          },
+        });
+      }
+      return { ...record };
     } finally {
       await releaseWorkerLock(key, lock.token);
     }
