@@ -252,7 +252,7 @@ type UnifiedTelemetryEvent = {
   timestamp: number;
   isoTime: string;
   source: 'runtime' | 'audit';
-  category: 'run' | 'agent' | 'tool' | 'guard' | 'governance' | 'worker' | 'queue' | 'control' | 'other';
+  category: 'run' | 'agent' | 'tool' | 'guard' | 'governance' | 'worker' | 'queue' | 'control' | 'billing' | 'other';
   type: string;
   runId?: string;
   projectId?: string;
@@ -360,13 +360,35 @@ const normalizeRuntimeEvent = (row: any): UnifiedTelemetryEvent => {
 const normalizeAuditRow = (row: any): UnifiedTelemetryEvent => {
   const ts = new Date(String(row?.timestamp || Date.now())).getTime();
   const action = String(row?.action || 'control.unknown');
-  const normalizedType = action.startsWith('control.') ? action : `control.${action}`;
+  const actionLower = action.toLowerCase();
+  const category: UnifiedTelemetryEvent['category'] =
+    actionLower.startsWith('billing.') || actionLower.startsWith('workspace:update_subscription') || actionLower.startsWith('workspace:cancel_subscription')
+      ? 'billing'
+      : actionLower.startsWith('governance.')
+        ? 'governance'
+        : actionLower.startsWith('run.') || actionLower.startsWith('execution.')
+          ? 'run'
+          : actionLower.startsWith('agent.')
+            ? 'agent'
+            : actionLower.startsWith('tool.')
+              ? 'tool'
+              : actionLower.startsWith('guard.')
+                ? 'guard'
+                : actionLower.startsWith('task.')
+                  ? 'queue'
+                  : actionLower.startsWith('worker.')
+                    ? 'worker'
+                    : 'control';
+  const normalizedType =
+    action.includes('.') || action.includes(':')
+      ? action
+      : `control.${action}`;
   return {
     id: String(row?.id || `audit-${ts}`),
     timestamp: ts,
     isoTime: new Date(ts).toISOString(),
     source: 'audit',
-    category: 'control',
+    category,
     type: normalizedType,
     runId: row?.target?.runId ? String(row.target.runId) : undefined,
     projectId: row?.projectId ? String(row.projectId) : undefined,
@@ -374,6 +396,7 @@ const normalizeAuditRow = (row: any): UnifiedTelemetryEvent => {
     actorId: row?.actorId ? String(row.actorId) : undefined,
     actorType: 'system',
     payload: {
+      schemaVersion: 'audit-event.v1',
       reason: row?.reason || '',
       target: row?.target || {},
       result: row?.result || {},

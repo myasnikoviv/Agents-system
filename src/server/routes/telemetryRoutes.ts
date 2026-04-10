@@ -5,7 +5,7 @@ type UnifiedTelemetryEvent = {
   timestamp: number;
   isoTime: string;
   source: 'runtime' | 'audit';
-  category: 'run' | 'agent' | 'tool' | 'guard' | 'governance' | 'worker' | 'queue' | 'control' | 'other';
+  category: 'run' | 'agent' | 'tool' | 'guard' | 'governance' | 'worker' | 'queue' | 'control' | 'billing' | 'other';
   type: string;
   runId?: string;
   projectId?: string;
