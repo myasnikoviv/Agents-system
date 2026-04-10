@@ -79,9 +79,9 @@ function scoreByKeywords(message: string, keywords: string[]): number {
   return score;
 }
 
-function selectFallbackPipelineFromManifest(manifest: ProjectRuntimeManifest): string {
-  const fallback = manifest.pipelines.find((p) => p.fallback);
-  if (fallback) return fallback.id;
+function selectDefaultPipelineFromManifest(manifest: ProjectRuntimeManifest): string {
+  const defaultPipeline = manifest.pipelines.find((p: any) => p?.default === true);
+  if (defaultPipeline) return defaultPipeline.id;
   return manifest.pipelines[0]?.id || 'unified-task-intake';
 }
 
@@ -89,7 +89,7 @@ export function selectPipelineFromManifest(
   message: string,
   manifest: ProjectRuntimeManifest,
 ): PipelineSelection {
-  const fallbackPipeline = selectFallbackPipelineFromManifest(manifest);
+  const defaultPipeline = selectDefaultPipelineFromManifest(manifest);
 
   let best: { id: string; score: number; reason: string } | null = null;
 
@@ -113,9 +113,9 @@ export function selectPipelineFromManifest(
 
   if (!best) {
     return {
-      selectedPipeline: fallbackPipeline,
+      selectedPipeline: defaultPipeline,
       confidence: 'low',
-      reason: 'No project rule matched; using project fallback pipeline.',
+      reason: 'No project rule matched; using project default pipeline.',
     };
   }
 
@@ -163,7 +163,7 @@ export async function selectPipelineForProject(
   } catch (e: any) {
     return {
       ...selectPipelineFromMessage(message),
-      reason: `Manifest unavailable, fallback to legacy selector: ${e?.message || 'unknown error'}`,
+      reason: `Manifest unavailable, switched to legacy selector: ${e?.message || 'unknown error'}`,
     };
   }
 }

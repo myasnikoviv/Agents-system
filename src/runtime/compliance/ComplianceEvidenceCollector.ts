@@ -23,7 +23,7 @@ function readSkillTelemetryForRun(workspacePath: string, runId: string): string[
 
 export async function collectComplianceActualEvidence(input: {
   runId: string;
-  fallbackPipeline?: string;
+  defaultPipeline?: string;
   workspacePath: string;
 }): Promise<ComplianceActualEvidence> {
   const events = await EventStore.getEventsByRunId(input.runId);
@@ -49,8 +49,8 @@ export async function collectComplianceActualEvidence(input: {
     }
   }
 
-  if (pipelines.size === 0 && input.fallbackPipeline) {
-    pipelines.add(input.fallbackPipeline);
+  if (pipelines.size === 0 && input.defaultPipeline) {
+    pipelines.add(input.defaultPipeline);
   }
 
   return {
