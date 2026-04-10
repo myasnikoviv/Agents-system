@@ -37,6 +37,15 @@ function summarize(content: unknown, defaultValue: string): string {
   }
 }
 
+function resolveLeaseScopeKey(context: RunContext, level: 'global' | 'tenant' | 'workspace' | 'session'): string {
+  if (level === 'global') return 'global';
+  if (level === 'tenant') return `tenant:${context.tenantId || 'tenant:default'}`;
+  if (level === 'workspace') {
+    return `tenant:${context.tenantId || 'tenant:default'}:workspace:${context.workspaceId || 'workspace:default'}`;
+  }
+  return `tenant:${context.tenantId || 'tenant:default'}:workspace:${context.workspaceId || 'workspace:default'}:session:${context.chainId || context.runId}`;
+}
+
 export async function executeViaWorkbench(
   toolId: string,
   args: any,
@@ -154,7 +163,9 @@ export async function executeViaWorkbench(
     description: `Workbench policy tool ${policy.id}`,
   });
 
-  const lease = acquireToolLease(toolId, agentId);
+  const scopeLevel = policy.scope?.level || 'global';
+  const leaseScopeKey = resolveLeaseScopeKey(context, scopeLevel);
+  const lease = acquireToolLease(toolId, agentId, leaseScopeKey);
   if (lease.status === 'queued') {
     appendWorkbenchTelemetry({
       runId: context.runId,
@@ -196,7 +207,6 @@ export async function executeViaWorkbench(
     detail: lease.status,
   });
 
-  const scopeLevel = policy.scope?.level || 'global';
   const isolatedWorkspacePath =
     policy.type === 'isolated'
       ? path.join(
@@ -253,7 +263,7 @@ export async function executeViaWorkbench(
       summary: `Tool ${toolId} failed: ${String(err?.message || err)}`,
     };
   } finally {
-    releaseToolLease(toolId, agentId);
+    releaseToolLease(toolId, agentId, leaseScopeKey);
     appendWorkbenchTelemetry({
       runId: context.runId,
       projectId: context.projectId,
