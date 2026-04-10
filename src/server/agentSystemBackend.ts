@@ -108,6 +108,18 @@ app.use((req, res, next) => {
     if (apiTraceSpans.length > 5000) {
       apiTraceSpans.splice(0, apiTraceSpans.length - 5000);
     }
+    appendStructuredLog({
+      level: (res.statusCode || 0) >= 500 ? 'error' : (res.statusCode || 0) >= 400 ? 'warn' : 'info',
+      source: 'http',
+      message: `${req.method} ${req.path}`,
+      meta: {
+        statusCode: Number(res.statusCode || 0),
+        durationMs: Math.max(0, Date.now() - startedAt),
+        traceId,
+        spanId,
+        ...(runId ? { runId } : {}),
+      },
+    });
   });
   next();
 });
@@ -125,10 +137,22 @@ const usageAggregationService = new UsageAggregationService();
 
 process.on('uncaughtException', (error) => {
   console.error('[agent-system-backend] uncaughtException:', error);
+  appendStructuredLog({
+    level: 'error',
+    source: 'process',
+    message: 'uncaught_exception',
+    meta: { error: String((error as any)?.message || error) },
+  });
 });
 
 process.on('unhandledRejection', (reason) => {
   console.error('[agent-system-backend] unhandledRejection:', reason);
+  appendStructuredLog({
+    level: 'error',
+    source: 'process',
+    message: 'unhandled_rejection',
+    meta: { reason: String((reason as any)?.message || reason) },
+  });
 });
 
 const settingsStore = new Map<string, unknown>();
@@ -311,6 +335,40 @@ const defaultContractRegistry = {
 
 const CONTROL_ACTION_AUDIT_FILE = path.resolve(process.cwd(), 'docs/runtime/governance/logs/control-actions.jsonl');
 const RUN_LEDGER_DIR = path.resolve(process.cwd(), 'docs/process/runs/ledger');
+const STRUCTURED_LOG_FILE = path.resolve(process.cwd(), 'docs/runtime/system/logs/structured-app.jsonl');
+
+const structuredLogBuffer: Array<{
+  timestamp: string;
+  level: 'info' | 'warn' | 'error';
+  source: string;
+  message: string;
+  meta?: Record<string, any>;
+}> = [];
+
+const appendStructuredLog = (entry: {
+  level: 'info' | 'warn' | 'error';
+  source: string;
+  message: string;
+  meta?: Record<string, any>;
+}) => {
+  const row = {
+    timestamp: new Date().toISOString(),
+    level: entry.level,
+    source: entry.source,
+    message: entry.message,
+    meta: entry.meta || {},
+  };
+  structuredLogBuffer.push(row);
+  if (structuredLogBuffer.length > 5000) {
+    structuredLogBuffer.splice(0, structuredLogBuffer.length - 5000);
+  }
+  try {
+    fs.mkdirSync(path.dirname(STRUCTURED_LOG_FILE), { recursive: true });
+    fs.appendFileSync(STRUCTURED_LOG_FILE, `${JSON.stringify(row)}\n`, 'utf-8');
+  } catch {
+    // non-blocking
+  }
+};
 
 type UnifiedTelemetryEvent = {
   id: string;
@@ -608,6 +666,35 @@ const listApiTraceSpans = async (input: { traceId?: string; runId?: string; limi
     rows = rows.filter((row) => String(row.runId || '') === runId);
   }
   return rows.slice(-limit);
+};
+
+const readStructuredLogs = async (input: {
+  level?: string;
+  source?: string;
+  q?: string;
+  fromTs?: number | null;
+  toTs?: number | null;
+  limit?: number;
+}) => {
+  const limit = Math.max(1, Math.min(5000, Number(input.limit || 200)));
+  const level = String(input.level || '').trim().toLowerCase();
+  const source = String(input.source || '').trim().toLowerCase();
+  const q = String(input.q || '').trim().toLowerCase();
+  const fromTs = input.fromTs;
+  const toTs = input.toTs;
+  const rows = structuredLogBuffer.slice().filter((row) => {
+    if (level && String(row.level || '').toLowerCase() !== level) return false;
+    if (source && String(row.source || '').toLowerCase() !== source) return false;
+    const ts = Date.parse(String(row.timestamp || 0));
+    if (typeof fromTs === 'number' && ts < fromTs) return false;
+    if (typeof toTs === 'number' && ts > toTs) return false;
+    if (q) {
+      const blob = JSON.stringify(row).toLowerCase();
+      if (!blob.includes(q)) return false;
+    }
+    return true;
+  });
+  return rows.slice(-limit).reverse();
 };
 
 const appendPolicyMetadata = (input: {
@@ -2724,6 +2811,7 @@ registerTelemetryRoutes(app, {
   verifyAuditIntegrity: verifyControlActionAuditIntegrity,
   getMetricsOverview,
   listApiTraceSpans,
+  readStructuredLogs,
   readRunLedgerEvents,
   normalizeRuntimeEvent,
 });
