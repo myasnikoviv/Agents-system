@@ -503,6 +503,22 @@ runtimeDb.exec(`
     created_at TEXT NOT NULL
   );
   CREATE INDEX IF NOT EXISTS idx_auth_sessions_user ON auth_sessions(user_id);
+  CREATE TABLE IF NOT EXISTS auth_sso_providers (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    protocol TEXT NOT NULL,
+    issuer TEXT,
+    entrypoint TEXT,
+    audience TEXT,
+    tenant_id TEXT NOT NULL,
+    workspace_id TEXT NOT NULL,
+    client_id TEXT,
+    client_secret_hash TEXT,
+    active INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_auth_sso_providers_scope ON auth_sso_providers(tenant_id, workspace_id, protocol);
 `);
 
 const objectStorage = new SqliteObjectStorageService(runtimeDb);
@@ -577,6 +593,45 @@ const hashRefreshToken = (raw: string): string =>
 
 const createSessionToken = (prefix: 'sess' | 'refresh'): string =>
   `${prefix}_${crypto.randomUUID()}_${crypto.randomBytes(12).toString('hex')}`;
+
+const createAuthSession = (input: {
+  userId: string;
+  tenantId: string;
+  workspaceId: string;
+  userAgent?: string;
+  ipAddress?: string;
+}) => {
+  const token = createSessionToken('sess');
+  const refreshToken = createSessionToken('refresh');
+  const refreshTokenHash = hashRefreshToken(refreshToken);
+  const expiresAt = new Date(Date.now() + AUTH_SESSION_TTL_HOURS * 60 * 60 * 1000).toISOString();
+  runtimeDb
+    .prepare(
+      `INSERT INTO auth_sessions (
+        token,
+        user_id,
+        tenant_id,
+        workspace_id,
+        refresh_token_hash,
+        expires_at,
+        created_at,
+        user_agent,
+        ip_address
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .run(
+      token,
+      input.userId,
+      input.tenantId,
+      input.workspaceId,
+      refreshTokenHash,
+      expiresAt,
+      new Date().toISOString(),
+      String(input.userAgent || '').slice(0, 512),
+      String(input.ipAddress || '').slice(0, 128),
+    );
+  return { token, refreshToken, expiresAt };
+};
 
 const shouldUsePostgresSecrets = async (): Promise<boolean> => {
   if (infrastructureProfile.secretsBackend !== 'postgres') return false;
@@ -2642,35 +2697,13 @@ app.post('/api/auth/login', (req, res) => {
     return;
   }
 
-  const token = createSessionToken('sess');
-  const refreshToken = createSessionToken('refresh');
-  const refreshTokenHash = hashRefreshToken(refreshToken);
-  const expiresAt = new Date(Date.now() + AUTH_SESSION_TTL_HOURS * 60 * 60 * 1000).toISOString();
-  runtimeDb
-    .prepare(
-      `INSERT INTO auth_sessions (
-        token,
-        user_id,
-        tenant_id,
-        workspace_id,
-        refresh_token_hash,
-        expires_at,
-        created_at,
-        user_agent,
-        ip_address
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    )
-    .run(
-      token,
-      user.id,
-      user.tenant_id,
-      user.workspace_id,
-      refreshTokenHash,
-      expiresAt,
-      new Date().toISOString(),
-      String(req.header('user-agent') || '').slice(0, 512),
-      String(req.ip || '').slice(0, 128),
-    );
+  const { token, refreshToken, expiresAt } = createAuthSession({
+    userId: user.id,
+    tenantId: user.tenant_id,
+    workspaceId: user.workspace_id,
+    userAgent: req.header('user-agent') || '',
+    ipAddress: req.ip || '',
+  });
 
   res.json({
     success: true,
@@ -2684,6 +2717,168 @@ app.post('/api/auth/login', (req, res) => {
       role: user.role,
       tenantId: user.tenant_id,
       workspaceId: user.workspace_id,
+    },
+  });
+});
+
+app.get('/api/auth/sso/providers', (req, res) => {
+  const auth = requireRole(req, res, 'member');
+  if (!auth) return;
+  const items = runtimeDb
+    .prepare(
+      `SELECT id, name, protocol, issuer, entrypoint, audience, tenant_id, workspace_id, client_id, active, created_at, updated_at
+       FROM auth_sso_providers
+       WHERE tenant_id = ? AND workspace_id = ?
+       ORDER BY protocol ASC, name ASC`,
+    )
+    .all(auth.tenantId, auth.workspaceId);
+  res.json({ success: true, items });
+});
+
+app.post('/api/auth/sso/providers', (req, res) => {
+  const auth = requireRole(req, res, 'admin');
+  if (!auth) return;
+  const name = String(req.body?.name || '').trim();
+  const protocolRaw = String(req.body?.protocol || '').trim().toLowerCase();
+  const protocol = protocolRaw === 'oidc' || protocolRaw === 'saml' ? protocolRaw : '';
+  const issuer = String(req.body?.issuer || '').trim();
+  const entrypoint = String(req.body?.entrypoint || '').trim();
+  const audience = String(req.body?.audience || '').trim();
+  const clientId = String(req.body?.clientId || '').trim();
+  const clientSecret = String(req.body?.clientSecret || '').trim();
+  if (!name || !protocol) {
+    res.status(400).json({ success: false, error: 'name_and_valid_protocol_required' });
+    return;
+  }
+
+  const id = `sso_${crypto.randomUUID()}`;
+  const now = new Date().toISOString();
+  runtimeDb
+    .prepare(
+      `INSERT INTO auth_sso_providers (
+        id, name, protocol, issuer, entrypoint, audience, tenant_id, workspace_id, client_id, client_secret_hash, active, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`,
+    )
+    .run(
+      id,
+      name,
+      protocol,
+      issuer || null,
+      entrypoint || null,
+      audience || null,
+      auth.tenantId,
+      auth.workspaceId,
+      clientId || null,
+      clientSecret ? hashPassword(clientSecret) : null,
+      now,
+      now,
+    );
+  res.status(201).json({
+    success: true,
+    provider: {
+      id,
+      name,
+      protocol,
+      issuer: issuer || null,
+      entrypoint: entrypoint || null,
+      audience: audience || null,
+      tenantId: auth.tenantId,
+      workspaceId: auth.workspaceId,
+      clientId: clientId || null,
+      active: true,
+    },
+  });
+});
+
+app.post('/api/auth/sso/login', (req, res) => {
+  const providerId = String(req.body?.providerId || '').trim();
+  const protocolRaw = String(req.body?.protocol || '').trim().toLowerCase();
+  const protocol = protocolRaw === 'oidc' || protocolRaw === 'saml' ? protocolRaw : '';
+  const email = String(req.body?.email || '').trim().toLowerCase();
+  if (!providerId || !protocol || !email) {
+    res.status(400).json({ success: false, error: 'provider_protocol_email_required' });
+    return;
+  }
+
+  const provider = runtimeDb
+    .prepare(
+      `SELECT id, name, protocol, tenant_id, workspace_id, active
+       FROM auth_sso_providers
+       WHERE id = ?`,
+    )
+    .get(providerId) as
+    | { id: string; name: string; protocol: string; tenant_id: string; workspace_id: string; active: number }
+    | undefined;
+  if (!provider || !provider.active || provider.protocol !== protocol) {
+    res.status(401).json({ success: false, error: 'invalid_sso_provider' });
+    return;
+  }
+
+  let user = runtimeDb
+    .prepare(
+      `SELECT id, email, role, tenant_id, workspace_id, is_active
+       FROM auth_users
+       WHERE email = ? AND tenant_id = ? AND workspace_id = ?`,
+    )
+    .get(email, provider.tenant_id, provider.workspace_id) as
+    | { id: string; email: string; role: string; tenant_id: string; workspace_id: string; is_active: number }
+    | undefined;
+
+  if (!user) {
+    const userId = `user-${crypto.randomUUID()}`;
+    runtimeDb
+      .prepare(
+        `INSERT INTO auth_users (id, email, password_hash, tenant_id, workspace_id, role, is_active, created_at)
+         VALUES (?, ?, ?, ?, ?, 'member', 1, ?)`,
+      )
+      .run(
+        userId,
+        email,
+        hashPassword(`sso:${provider.id}:${crypto.randomUUID()}`),
+        provider.tenant_id,
+        provider.workspace_id,
+        new Date().toISOString(),
+      );
+    user = {
+      id: userId,
+      email,
+      role: 'member',
+      tenant_id: provider.tenant_id,
+      workspace_id: provider.workspace_id,
+      is_active: 1,
+    };
+  }
+
+  if (!user.is_active) {
+    res.status(401).json({ success: false, error: 'user_inactive' });
+    return;
+  }
+
+  const session = createAuthSession({
+    userId: user.id,
+    tenantId: user.tenant_id,
+    workspaceId: user.workspace_id,
+    userAgent: req.header('user-agent') || '',
+    ipAddress: req.ip || '',
+  });
+
+  res.json({
+    success: true,
+    token: session.token,
+    refreshToken: session.refreshToken,
+    tokenType: 'Bearer',
+    expiresAt: session.expiresAt,
+    user: {
+      id: user.id,
+      email: user.email,
+      role: user.role,
+      tenantId: user.tenant_id,
+      workspaceId: user.workspace_id,
+    },
+    sso: {
+      providerId: provider.id,
+      providerName: provider.name,
+      protocol: provider.protocol,
     },
   });
 });
