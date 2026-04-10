@@ -1,7 +1,7 @@
 import { VerificationWrapper } from './VerificationWrapper';
 import { Task, TaskType, TaskStatus } from '../models/pm-types';
 
-const mockTask: Task = {
+const sampleTask: Task = {
   id: 'TASK-1',
   name: 'Implement Logic',
   description: 'Add core business logic',
@@ -18,13 +18,13 @@ const mockTask: Task = {
 } as any;
 
 console.log('--- TEST: CODE TASK ---');
-console.log(VerificationWrapper.getVerificationInstructions(mockTask));
+console.log(VerificationWrapper.getVerificationInstructions(sampleTask));
 
-const mockDocsTask: Task = {
-  ...mockTask,
+const sampleDocsTask: Task = {
+  ...sampleTask,
   type: 'docs',
   name: 'Update README'
 };
 
 console.log('\n--- TEST: DOCS TASK ---');
-console.log(VerificationWrapper.getVerificationInstructions(mockDocsTask));
+console.log(VerificationWrapper.getVerificationInstructions(sampleDocsTask));

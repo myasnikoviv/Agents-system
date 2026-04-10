@@ -34,7 +34,7 @@ describe('PilotGraph approve continuation with quota errors', () => {
     }
   });
 
-  it('does not throw on QA step and emits fallback marker before git approval', async () => {
+  it('does not throw on QA step and emits default marker before git approval', async () => {
     const { executeUnifiedSwarmRun, unifiedSwarmGraph } = await import('../graphs/UnifiedSwarmGraph');
 
     const threadId = `thread-${Date.now()}`;
@@ -51,7 +51,7 @@ describe('PilotGraph approve continuation with quota errors', () => {
     expect(Array.isArray(firstPass.artifactLogs)).toBe(true);
     expect(
       (firstPass.artifactLogs as string[]).some(
-        (log) => log.includes('[stage:qa]') && log.includes('[fallback:insufficient_quota]'),
+        (log) => log.includes('[stage:qa]') && log.includes('[recovery:insufficient_quota]'),
       ),
     ).toBe(true);
 

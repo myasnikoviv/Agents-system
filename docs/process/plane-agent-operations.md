@@ -27,7 +27,7 @@ Common operations:
 4. Assign owner
 5. Post handoff comment with evidence before re-assign
 
-### Mode B: UI (fallback)
+### Mode B: UI (default)
 If API schema differs from examples, use UI operations and keep markdown evidence linked.
 
 ## API Bootstrap

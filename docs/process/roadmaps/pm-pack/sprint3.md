@@ -234,7 +234,7 @@ agentContextPath
 Що зробити
 	•	перевірити:
 	•	що discovery йде тільки з project path
-	•	що немає fallback на cwd
+	•	що немає default на cwd
 
 ⸻
 

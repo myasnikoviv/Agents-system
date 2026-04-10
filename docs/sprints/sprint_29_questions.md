@@ -1,429 +1,396 @@
-🟪 Sprint 29 — Tasks
+🟪 SPRINT 29 — FINAL VALIDATION PACK
 
 Theme: Settings IA Remediation + System Boundaries Enforcement
-Source of truth:
-	•	docs/sprints/System Boundary Decisions v1.md
-	•	docs/sprints/Settings IA Remediation Spec v1.md
 
 ⸻
 
-🟫 EPIC 1 — Runtime Cleanup (CRITICAL)
+🎯 Ціль перевірки
+
+Підтвердити, що:
+	•	❗ система повністю перейшла на multi-agent runtime
+	•	❗ ніякого legacy більше не існує
+	•	❗ чітко розділені 3 шари: Workspace / Governance / Control Plane
+	•	❗ governance — реально впливає на execution
+	•	❗ control plane ізольований
+	•	❗ API і UI більше не змішані
 
 ⸻
 
-🎫 AGSYS-2901 — Remove Quasi-linear Runtime
-
-Description
-Повністю видалити quasi-linear execution path.
-
-Acceptance Criteria
-	•	всі quasi-linear handlers видалені
-	•	runtime router більше не містить branching
-	•	немає fallback logic
-	•	tests не посилаються на quasi-linear
-
-Handoff
-PM → Backend → QA → PM
+🟫 SECTION 1 — Runtime (NO LEGACY GUARANTEE)
 
 ⸻
 
-🎫 AGSYS-2902 — Remove Mock Runtime
-
-Description
-Повністю видалити mock mode.
-
-Acceptance Criteria
-	•	mock execution code видалений
-	•	debug flags видалені
-	•	UI згадки відсутні
-	•	tests оновлені
-
-Handoff
-PM → Backend → QA → PM
+1.1 Чи залишився тільки один runtime?
+	•	існує тільки multi-agent execution
+	•	немає runtime switch
+	•	немає config для вибору режиму
 
 ⸻
 
-🎫 AGSYS-2903 — Enforce Single Runtime (Multiple Agents)
+1.2 Чи повністю видалений quasi-linear?
 
-Description
-Зробити multi-agent runtime єдиним execution path.
-
-Acceptance Criteria
-	•	runtime не має альтернатив
-	•	router deterministic
-	•	всі execution flows через multi-agent
-	•	system не має runtime switch
-
-Handoff
-PM → Backend → Runtime → QA → PM
+Перевірити:
+	•	немає коду
+	•	немає згадок
+	•	немає default
+	•	немає tests
 
 ⸻
 
-🟫 EPIC 2 — Settings Refactor (Client Layer)
+1.3 Чи повністю видалений mock?
+	•	немає mock execution
+	•	немає debug runtime flags
+	•	немає mock UI
 
 ⸻
 
-🎫 AGSYS-2904 — Refactor Workspace Settings API
+1.4 Чи немає прихованого legacy?
 
-Description
-Очистити settings API від non-client полів.
+Сценарій:
+	•	grep по проекту
 
-Acceptance Criteria
-	•	залишились тільки:
+Очікування:
+	•	quasi, mock, default не існують
+	•	немає dead code paths
+
+⸻
+
+🟫 SECTION 2 — Workspace Settings (CLIENT PURITY)
+
+⸻
+
+2.1 Чи settings чисто client-level?
 	•	language
 	•	appearance
 	•	notifications
 	•	providers
-	•	model selection
-	•	runtime/gov/system поля відсутні
-	•	backward compatibility не потрібна
-
-Handoff
-PM → Backend → QA → PM
+	•	models
 
 ⸻
 
-🎫 AGSYS-2905 — Workspace Settings UI Cleanup
+2.2 Чи видалені всі system-level поля?
+	•	runtime mode ❌
+	•	execution target ❌
+	•	sandbox ❌
+	•	git controls ❌
+	•	MCP ❌
+	•	swarm ❌
 
-Description
-Переробити UI settings.
+⸻
 
-Acceptance Criteria
-	•	немає runtime controls
+2.3 Чи UI відповідає принципу “safe UX”?
+	•	немає low-level controls
 	•	немає debug controls
-	•	UI відповідає spec
-	•	clean UX
-
-Handoff
-PM → Frontend → QA → PM
+	•	немає “страшних” опцій
 
 ⸻
 
-🟫 EPIC 3 — Governance Center (NEW CORE)
+🟫 SECTION 3 — Governance Center (REAL, NOT FAKE)
 
 ⸻
 
-🎫 AGSYS-2906 — Governance Data Model
-
-Description
-Створити data model для governance.
-
-Acceptance Criteria
-	•	rules entity
-	•	loops entity
-	•	profiles entity
-	•	artifacts entity
-	•	overrides entity
-
-Handoff
-PM → Backend → Architect → QA → PM
+3.1 Чи існує Governance Center?
+	•	окремий route
+	•	окремий UI
+	•	не частина settings
 
 ⸻
 
-🎫 AGSYS-2907 — Governance API Layer
-
-Description
-Реалізувати API для governance.
-
-Acceptance Criteria
-	•	GET rules
-	•	PATCH rules
-	•	GET loops
-	•	POST loops
-	•	PATCH loops
-	•	GET profiles
-
-Handoff
-PM → Backend → QA → PM
+3.2 Чи можна керувати rules?
+	•	enable/disable
+	•	scope
+	•	persistence
 
 ⸻
 
-🎫 AGSYS-2908 — Governance UI (MVP)
+3.3 Чи loops реально працюють?
 
-Description
-Створити Governance Center UI.
+Сценарій:
+	•	змінити loop
 
-Acceptance Criteria
-	•	rules list
-	•	enable/disable rules
-	•	loops view/edit
-	•	profiles selection
-	•	basic UX (без polishing)
-
-Handoff
-PM → Frontend → QA → PM
+Очікування:
+	•	execution змінюється
+	•	не просто UI
 
 ⸻
 
-🎫 AGSYS-2909 — Governance Engine Integration
-
-Description
-Інтегрувати governance з runtime.
-
-Acceptance Criteria
-	•	rules реально впливають на execution
-	•	loops виконуються
+3.4 Чи governance впливає на runtime?
+	•	rules виконуються
+	•	loops тригеряться
 	•	overrides працюють
-	•	no stub logic
-
-Handoff
-PM → Backend → Runtime → QA → PM
 
 ⸻
 
-🟫 EPIC 4 — Control Plane Isolation
+3.5 Чи немає stub governance?
+	•	немає “псевдо логіки”
+	•	немає unused fields
+	•	немає disconnected config
 
 ⸻
 
-🎫 AGSYS-2910 — Extract Control Plane APIs
-
-Description
-Винести control plane API в окремий namespace.
-
-Acceptance Criteria
-	•	/system/* endpoints
-	•	відсутні в client API
-	•	розділення clear
-
-Handoff
-PM → Backend → QA → PM
+🟫 SECTION 4 — Control Plane Isolation
 
 ⸻
 
-🎫 AGSYS-2911 — Restrict Control Plane Access
-
-Description
-Обмежити доступ.
-
-Acceptance Criteria
-	•	тільки owner/admin
-	•	auth enforced
-	•	audit logs
-
-Handoff
-PM → Backend → Security → QA → PM
+4.1 Чи control plane повністю відділений?
+	•	/system/* API
+	•	окремий namespace
+	•	не змішується з client
 
 ⸻
 
-🎫 AGSYS-2912 — Remove Swarm from Client UI
-
-Description
-Видалити swarm controls з user UI.
-
-Acceptance Criteria
-	•	кнопки відсутні
-	•	немає доступу через client
-	•	тільки через control plane
-
-Handoff
-PM → Frontend → QA → PM
+4.2 Чи клієнт не має доступу?
+	•	UI не містить control plane
+	•	API захищений
+	•	RBAC enforced
 
 ⸻
 
-🟫 EPIC 5 — MCP & Workbench Isolation
+4.3 Чи swarm винесений?
+	•	немає в chat UI
+	•	немає в settings
+	•	тільки control plane
 
 ⸻
 
-🎫 AGSYS-2913 — MCP Scope Model
-
-Description
-Реалізувати scope system.
-
-Acceptance Criteria
-	•	global scope
-	•	tenant scope
-	•	workspace scope
-	•	session scope
-
-Handoff
-PM → Backend → QA → PM
+🟫 SECTION 5 — MCP / Workbench Isolation
 
 ⸻
 
-🎫 AGSYS-2914 — MCP Access Enforcement
+5.1 Чи реалізовані scopes?
+	•	global
+	•	tenant
+	•	workspace
+	•	session
 
-Description
-Обмежити доступ до MCP.
+⸻
 
-Acceptance Criteria
+5.2 Чи доступ обмежений?
 	•	unsafe tools ізольовані
 	•	mutable tools ізольовані
 	•	policy enforced
 
-Handoff
-PM → Backend → QA → PM
+⸻
+
+5.3 Чи немає “global everything”?
+	•	MCP не доступний всюди
+	•	secrets не витікають
 
 ⸻
 
-🟫 EPIC 6 — Git / Project Profile System
+🟫 SECTION 6 — Project Profiles & Git Policy
 
 ⸻
 
-🎫 AGSYS-2915 — Project Profiles System
-
-Description
-Впровадити profiles.
-
-Acceptance Criteria
-	•	engineering profile
-	•	non-engineering profile
-	•	configurable
-
-Handoff
-PM → Backend → QA → PM
+6.1 Чи існують profiles?
+	•	engineering
+	•	non-engineering
+	•	selectable
 
 ⸻
 
-🎫 AGSYS-2916 — Git Policy Integration
-
-Description
-Прив’язати git policy до профілю.
-
-Acceptance Criteria
-	•	git isolation не global
-	•	працює через profile
-	•	вимикається для non-code проектів
-
-Handoff
-PM → Backend → QA → PM
+6.2 Чи git не глобальний?
+	•	git isolation не forced
+	•	залежить від profile
 
 ⸻
 
-🟫 EPIC 7 — Repository-first Onboarding
+6.3 Чи non-code проект працює без git?
+	•	не ламається
+	•	не вимагає preflight
 
 ⸻
 
-🎫 AGSYS-2917 — Repo Onboarding Flow
-
-Description
-Впровадити onboarding через repo.
-
-Acceptance Criteria
-	•	GitHub/Git інтеграція
-	•	OAuth/PAT
-	•	repo detection
-
-Handoff
-PM → Backend → QA → PM
+🟫 SECTION 7 — Repository-first Onboarding
 
 ⸻
 
-🎫 AGSYS-2918 — Bootstrap Flow
+7.1 Чи onboarding через repo?
+	•	Git інтеграція
+	•	repo selection
+	•	auth працює
 
-Description
-Fallback при відсутності config.
+⸻
 
-Acceptance Criteria
-	•	auto template
-	•	read-only mode
+7.2 Чи bootstrap працює?
+
+Сценарій:
+	•	repo без config
+
+Очікування:
+	•	template пропонується
+	•	read-only mode можливий
 	•	UX зрозумілий
 
-Handoff
-PM → Backend → Frontend → QA → PM
+⸻
+
+7.3 Чи local mode не primary?
+	•	не дефолтний
+	•	не SaaS path
 
 ⸻
 
-🟫 EPIC 8 — API Restructuring
+🟫 SECTION 8 — API Architecture
 
 ⸻
 
-🎫 AGSYS-2919 — Split API Domains
-
-Description
-Розділити API.
-
-Acceptance Criteria
+8.1 Чи API розділений?
 	•	/workspace/*
 	•	/governance/*
 	•	/system/*
-	•	немає змішування
-
-Handoff
-PM → Backend → QA → PM
 
 ⸻
 
-⸻
-
-🟫 EPIC 9 — Legacy Cleanup
-
-⸻
-
-🎫 AGSYS-2920 — Remove Dead Settings
-
-Description
-Видалити legacy settings.
-
-Acceptance Criteria
-	•	немає unused fields
-	•	немає hidden toggles
-	•	немає stub config
-
-Handoff
-PM → Backend → QA → PM
+8.2 Чи немає змішаних endpoint-ів?
+	•	governance не в settings
+	•	system не в workspace
 
 ⸻
 
-🎫 AGSYS-2921 — Remove Legacy UI
+8.3 Чи API відповідає ролям?
+	•	client → workspace
+	•	admin → governance
+	•	owner → system
 
-Description
-Видалити старі UI частини.
+⸻
 
-Acceptance Criteria
-	•	старий settings UI видалений
-	•	немає legacy screens
+🟫 SECTION 9 — Legacy Cleanup (CRITICAL)
+
+⸻
+
+9.1 Чи видалені старі settings?
+	•	немає dead fields
+	•	немає hidden flags
+
+⸻
+
+9.2 Чи видалений старий UI?
+	•	немає старих screens
 	•	немає dead routes
 
-Handoff
-PM → Frontend → QA → PM
+⸻
+
+9.3 Чи код чистий?
+	•	немає unused services
+	•	немає commented legacy
+	•	немає “потім приберемо”
 
 ⸻
 
-⸻
-
-🧠 Definition of Done — Sprint 29
+🟫 SECTION 10 — System Behavior
 
 ⸻
 
-Спринт завершений, якщо:
-	•	тільки multi-agent runtime існує
-	•	settings очищені
-	•	governance center працює
-	•	control plane ізольований
-	•	MCP scopes працюють
-	•	repo onboarding працює
-	•	API розділений
-	•	legacy повністю видалений
+10.1 Чи система predictable?
+	•	немає hidden режимів
+	•	немає default logic
+	•	немає side-effects
 
 ⸻
 
-💥 Результат після Sprint 29
+10.2 Чи поведінка визначається governance?
+	•	rules → execution
+	•	loops → behavior
+	•	profiles → flow
 
 ⸻
 
-До:
-	•	змішані налаштування
-	•	debug leakage
-	•	кілька runtime моделей
+10.3 Чи user не може зламати систему?
+	•	немає unsafe toggles
+	•	немає raw control
 
 ⸻
 
-Після:
-	•	чиста SaaS-ready архітектура
-	•	governance як ядро
-	•	control plane ізольований
-	•	predictable system
+🟫 SECTION 11 — Reality Check
 
 ⸻
 
-🔥 Найважливіше
+❗ Питання 1
+	•	Чи система стала простішою?
 
 ⸻
 
-Sprint 29 =
+❗ Питання 2
+	•	Чи зникло “меню для розробника”?
 
-❗ перехід від “prototype system”
-до
-реальної продуктної платформи
+⸻
+
+❗ Питання 3
+	•	Чи всі налаштування тепер мають чіткого owner?
+
+⸻
+
+❗ Питання 4
+	•	Чи можна це продавати як SaaS без сорому?
+
+⸻
+
+❗ Питання 5
+	•	Чи немає прихованого legacy?
+
+⸻
+
+🧾 REQUIRED OUTPUT
+
+## Sprint 29 Validation Report
+
+Overall: READY / PARTIAL / NOT READY
+
+### Runtime
+...
+
+### Workspace Settings
+...
+
+### Governance Center
+...
+
+### Control Plane
+...
+
+### MCP Isolation
+...
+
+### Profiles & Git
+...
+
+### Onboarding
+...
+
+### API
+...
+
+### Legacy Cleanup
+...
+
+### Critical Gaps
+...
+
+### Recommendation
+...
+
+
+⸻
+
+💥 Ключовий критерій Sprint 29
+
+⸻
+
+Sprint 29 вважається завершеним ТІЛЬКИ якщо:
+	•	❗ legacy runtime повністю знищений
+	•	❗ settings очищені
+	•	❗ governance реально працює
+	•	❗ control plane ізольований
+	•	❗ API розділений
+	•	❗ system predictable
+
+⸻
+
+🔥 Якщо коротко
+
+⸻
+
+❗ Sprint 29 — це момент, коли система або стає продуктом,
+або залишається прототипом назавжди
 
 ⸻

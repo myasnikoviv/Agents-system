@@ -1,7 +1,7 @@
 # TRADE-113 Cockpit Productization Sprint 2 QA Matrix
 
 ## Scope
-- TRADE-107 root-cause/fallback visibility
+- TRADE-107 root-cause/default visibility
 - TRADE-108 rich execution feed
 - TRADE-109 artifact-aware timeline
 - TRADE-110 catalog panel
@@ -12,7 +12,7 @@
 ## Validation Summary
 | Area | Evidence | Result |
 |---|---|---|
-| Runtime fallback transparency | `src/runtime/__tests__/pilot_approve_quota_fallback.test.ts` | PASS |
+| Runtime default transparency | `src/runtime/__tests__/pilot_approve_quota_default.test.ts` | PASS |
 | Quasi-linear graph execution | `src/runtime/__tests__/graph.test.ts` | PASS |
 | Cockpit frontend build | `npm run build` in `frontend/` | PASS |
 | Execution feed in API | `/api/chat`, `/api/chat/approve` now include `executionFeed` | PASS |
@@ -25,7 +25,7 @@
 
 ## Commands Executed
 ```bash
-npx jest src/runtime/__tests__/pilot_approve_quota_fallback.test.ts src/runtime/__tests__/graph.test.ts --runInBand
+npx jest src/runtime/__tests__/pilot_approve_quota_default.test.ts src/runtime/__tests__/graph.test.ts --runInBand
 npm run build   # in frontend/
 curl -sS http://localhost:3001/api/health
 curl -sS -X POST http://localhost:3001/api/chat -H 'Content-Type: application/json' -d '{"message":"CLI smoke for sprint2","executionMode":"mock"}'

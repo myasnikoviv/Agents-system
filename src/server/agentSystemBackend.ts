@@ -159,7 +159,7 @@ const providerModelCatalog: Record<'claude-cli' | 'codex-cli' | 'openhands-sdk',
 };
 
 type RuntimeProvider = keyof typeof providerModelCatalog;
-type ControlPlaneSource = 'postgres' | 'sqlite' | 'fallback';
+type ControlPlaneSource = 'postgres' | 'sqlite' | 'default';
 
 const isRuntimeProvider = (value: string): value is RuntimeProvider => value in providerModelCatalog;
 
@@ -176,11 +176,11 @@ const controlPlaneSourceState: {
   postgres: { enabled: boolean; ok: boolean; error?: string };
   lastHydratedAt?: string;
 } = {
-  settings: 'fallback',
+  settings: 'default',
   runtimeState: {
-    runtime_footer: 'fallback',
-    runtime_selection: 'fallback',
-    runtime_enforcement_by_project: 'fallback',
+    runtime_footer: 'default',
+    runtime_selection: 'default',
+    runtime_enforcement_by_project: 'default',
   },
   postgres: { enabled: false, ok: false },
 };
@@ -653,11 +653,11 @@ const resolveWorkspaceRuntimeContext = (input: {
 }): { tenantId: string; workspaceId: string; userId?: string } | { error: string; message: string; status: number } => {
   const requestedTenantId = String(input.requestedTenantId || '').trim();
   const requestedWorkspaceId = String(input.requestedWorkspaceId || '').trim();
-  const fallbackTenant = process.env.DEFAULT_TENANT_ID || `tenant:${input.projectId}`;
-  const fallbackWorkspace = process.env.DEFAULT_WORKSPACE_ID || `workspace:${input.projectId}`;
+  const defaultTenant = process.env.DEFAULT_TENANT_ID || `tenant:${input.projectId}`;
+  const defaultWorkspace = process.env.DEFAULT_WORKSPACE_ID || `workspace:${input.projectId}`;
 
-  const tenantId = requestedTenantId || input.auth?.tenantId || fallbackTenant;
-  const workspaceId = requestedWorkspaceId || input.auth?.workspaceId || fallbackWorkspace;
+  const tenantId = requestedTenantId || input.auth?.tenantId || defaultTenant;
+  const workspaceId = requestedWorkspaceId || input.auth?.workspaceId || defaultWorkspace;
 
   if (!tenantId || !workspaceId) {
     return {
@@ -700,15 +700,15 @@ const saveRuntimeState = (key: string, value: unknown) => {
   void postgresStore.upsertState(key, value);
 };
 
-const loadRuntimeState = <T>(key: string, fallback: T): T => {
+const loadRuntimeState = <T>(key: string, defaultValue: T): T => {
   const row = runtimeDb
     .prepare('SELECT value_json FROM cockpit_state WHERE key = ?')
     .get(key) as { value_json?: string } | undefined;
   if (!row?.value_json) {
     if ((CONTROL_PLANE_STATE_KEYS as readonly string[]).includes(key)) {
-      markRuntimeStateSource(key as ControlPlaneStateKey, 'fallback');
+      markRuntimeStateSource(key as ControlPlaneStateKey, 'default');
     }
-    return fallback;
+    return defaultValue;
   }
   try {
     const value = JSON.parse(row.value_json) as T;
@@ -718,9 +718,9 @@ const loadRuntimeState = <T>(key: string, fallback: T): T => {
     return value;
   } catch {
     if ((CONTROL_PLANE_STATE_KEYS as readonly string[]).includes(key)) {
-      markRuntimeStateSource(key as ControlPlaneStateKey, 'fallback');
+      markRuntimeStateSource(key as ControlPlaneStateKey, 'default');
     }
-    return fallback;
+    return defaultValue;
   }
 };
 
@@ -773,7 +773,7 @@ const restoreSettingsStore = () => {
     const parsed = JSON.parse(raw) as Record<string, unknown>;
     Object.entries(parsed).forEach(([key, value]) => settingsStore.set(key, value));
     persistSettingsStore();
-    controlPlaneSourceState.settings = 'fallback';
+    controlPlaneSourceState.settings = 'default';
   } catch (error) {
     console.error('[agent-system-backend] failed to restore settings store:', error);
   }
@@ -1261,7 +1261,7 @@ const normalizeWorktreePath = (raw?: string): string | undefined => {
     try {
       if (fs.existsSync(candidate)) return candidate;
     } catch {
-      // ignore fs errors and fallback below
+      // ignore fs errors and use default below
     }
   }
   return path.resolve(path.dirname(process.cwd()), value);
@@ -1642,7 +1642,7 @@ app.get('/api/health', (_req, res) => {
       sourceOfTruth: 'postgres',
       settingsSource: controlPlaneSourceState.settings,
       runtimeStateSources: controlPlaneSourceState.runtimeState,
-      fallback: {
+      default: {
         enabled: true,
         store: 'sqlite',
       },
@@ -1652,7 +1652,7 @@ app.get('/api/health', (_req, res) => {
     storage: {
       objectStorageBackend: OBJECT_STORAGE_BACKEND || 'sqlite',
       secretsBackend: SECRETS_STORAGE_BACKEND || 'sqlite',
-      fallbackStore: 'sqlite',
+      defaultStore: 'sqlite',
     },
     auth: {
       mode: AUTH_MODE,
@@ -2439,7 +2439,7 @@ app.get('/api/cockpit/storage/postgres/health', async (_req, res) => {
     backend: 'postgres',
     enabled: health.enabled,
     sourceOfTruth: 'postgres',
-    fallbackStore: 'sqlite',
+    defaultStore: 'sqlite',
     settingsSource: controlPlaneSourceState.settings,
     runtimeStateSources: controlPlaneSourceState.runtimeState,
     ...(controlPlaneSourceState.lastHydratedAt ? { lastHydratedAt: controlPlaneSourceState.lastHydratedAt } : {}),

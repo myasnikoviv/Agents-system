@@ -40,7 +40,7 @@ Use **Plane (self-hosted)** on local machine.
      - change status
      - assign responsible owner
      - set priority
-   - Preferred via API token + API endpoint docs; UI fallback is acceptable only as backup.
+   - Preferred via API token + API endpoint docs; UI default is acceptable only as backup.
 4. Initial data
    - Kickoff ticket set migrated/created in Plane:
      - `KICKOFF-001`, `KICKOFF-002`, `KICKOFF-003`

@@ -103,7 +103,7 @@ Current cockpit UI is functional but not production-grade in UX architecture. Ma
 
 ### P2-3 Copy system inconsistent
 - Status messages mix technical and conversational voices.
-- Needs one canonical copy system for role events, fallback, artifacts, handoff.
+- Needs one canonical copy system for role events, default, artifacts, handoff.
 
 ## Compliance Delta (against web-interface-guidelines)
 1. Missing/weak semantic labels on controls.
@@ -123,7 +123,7 @@ Current cockpit UI is functional but not production-grade in UX architecture. Ma
 
 ### B. Command UX contract
 1. Chips for `pipeline`, `agent`, `skill`, `scope`, `ticket`, `mode`.
-2. Text fallback still available, but parser normalizes into chips.
+2. Text default still available, but parser normalizes into chips.
 3. Drag from catalog onto composer to instantiate structured chip.
 4. Keyboard-first editing and token deletion.
 

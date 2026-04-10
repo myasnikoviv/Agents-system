@@ -80,7 +80,7 @@ function scoreByKeywords(message: string, keywords: string[]): number {
 }
 
 function selectDefaultPipelineFromManifest(manifest: ProjectRuntimeManifest): string {
-  const defaultPipeline = manifest.pipelines.find((p: any) => p?.default === true);
+  const defaultPipeline = manifest.pipelines.find((p) => p.default === true);
   if (defaultPipeline) return defaultPipeline.id;
   return manifest.pipelines[0]?.id || 'unified-task-intake';
 }

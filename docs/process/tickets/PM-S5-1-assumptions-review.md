@@ -23,7 +23,7 @@
 - **Risk**: Stream flickering or duplicate events in React state.
   - **Mitigation**: Introduce a robust `useExecutionStream` hook that buffers and deduplicates events based on `eventId` or precise sequence counters.
 - **Risk**: Unhandled custom events crashing the renderer.
-  - **Mitigation**: Implement a fallback `UnknownEventRenderer` or silently drop unknown types.
+  - **Mitigation**: Implement a default `UnknownEventRenderer` or silently drop unknown types.
 - **Risk**: Overwhelming the DOM with thousands of micro-thoughts.
   - **Mitigation**: Group/collapse sequential `system.thought` events inside a single UI node.
 

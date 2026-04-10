@@ -22,7 +22,7 @@ Sections:
 
 2. `composer`
 - Structured command composition.
-- Token-first workflow with text fallback.
+- Token-first workflow with text default.
 - Quick-command parser (`/pipeline`, `/agent`, `/skill`, `@agent`, `#skill`).
 
 3. `catalog`
@@ -59,7 +59,7 @@ Execution feed card schema:
 - role
 - stage
 - status badge (`ok|progress|fail|neutral`)
-- fallback marker (if exists)
+- default marker (if exists)
 - message/raw payload
 
 Event stream card schema:

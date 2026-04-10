@@ -31,24 +31,24 @@ export class DynamicDiscoveryService {
       options,
     );
     const externalDocsPath = options?.externalAgentsRoot ? path.join(options.externalAgentsRoot, 'docs') : '';
-    const fallbackDocsPath = externalDocsPath && fs.existsSync(externalDocsPath) ? externalDocsPath : docsPath;
+    const defaultDocsPath = externalDocsPath && fs.existsSync(externalDocsPath) ? externalDocsPath : docsPath;
 
     if (fromManifest.agents.length > 0) {
       await this.discoverAgentsFromFiles(fromManifest.agents, fromManifest.callsignsBySlug);
     } else {
-      await this.discoverAgents(fallbackDocsPath);
+      await this.discoverAgents(defaultDocsPath);
     }
 
     if (fromManifest.pipelines.length > 0) {
       await this.discoverPipelinesFromFiles(fromManifest.pipelines);
     } else {
-      await this.discoverPipelines(fallbackDocsPath);
+      await this.discoverPipelines(defaultDocsPath);
     }
 
     if (fromManifest.skills.length > 0) {
       await this.discoverSkillsFromFiles(fromManifest.skills);
     } else {
-      await this.discoverSkills(fallbackDocsPath);
+      await this.discoverSkills(defaultDocsPath);
     }
   }
 

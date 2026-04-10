@@ -18,7 +18,7 @@ Playwright MCP failed to launch browser context with message that Chrome was ope
 - Action: kill stale `mcp-chrome` processes and remove `Singleton*` lock files from `~/Library/Caches/ms-playwright/mcp-chrome`.
 - Result: browser context launch issue removed; next error changed to `ERR_CONNECTION_REFUSED`.
 
-3. Infra fallback path
+3. Infra default path
 - Action: start backend (`:3001`) and frontend cockpit (`:5174`) from TRADE-120 worktree in persistent PTY sessions.
 - Result: Playwright navigation and page snapshot PASS at `http://127.0.0.1:5174/cockpit/runtime` and `.../settings`.
 

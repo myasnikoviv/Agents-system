@@ -16,13 +16,13 @@ describe('ProjectRuntimeManifest', () => {
     expect(errors).toEqual([]);
   });
 
-  it('flags invalid fallback count', async () => {
+  it('flags invalid default count', async () => {
     const manifest = await loadProjectRuntimeManifest({ projectRoot: process.cwd() });
     for (const p of manifest.pipelines) {
-      p.fallback = false;
+      p.default = false;
     }
 
     const issues = validateProjectRuntimeManifest(manifest);
-    expect(issues.some((i) => i.code === 'invalid_fallback_count')).toBe(true);
+    expect(issues.some((i) => i.code === 'invalid_default_count')).toBe(true);
   });
 });

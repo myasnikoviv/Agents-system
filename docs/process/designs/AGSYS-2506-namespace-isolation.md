@@ -14,7 +14,7 @@ Enforce tenant-aware runtime namespace boundaries for shared memory domains.
 
 ## Enforcement Logic
 - `tenantId/workspaceId` are read from runtime context.
-- If missing, deterministic fallback is applied:
+- If missing, deterministic default is applied:
   - `tenant:{projectId}`
   - `workspace:{projectId}`
 - This prevents cross-tenant collisions even when `projectId/chainId/runId` are identical.

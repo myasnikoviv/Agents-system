@@ -16,7 +16,7 @@ Evidence:
 1. `Сокіл-Координатор (PM Orchestrator)` -> intake and execution approval.
 2. `Майстер Креслень (Solution Architect)` -> localize root cause and recovery design.
 3. `Ловець Багів (TDD QA)` -> add regression test for approve flow on LLM 429.
-4. `Кодоковаль (Developer)` -> implement graceful fallback and non-crashing response path.
+4. `Кодоковаль (Developer)` -> implement graceful default and non-crashing response path.
 5. `Вартовий Якості (Code Reviewer)` -> confirm root-cause fix, no symptom-only patch.
 6. `Бойовий Прогін (Runner Backtest)` -> smoke validation of graph continuation.
 7. `Пан Гілка (Git Flow Manager)` -> preflight/branch compliance.
@@ -24,6 +24,6 @@ Evidence:
 
 ## Acceptance Criteria
 - `POST /api/chat/approve` never crashes on OpenAI 429.
-- QA node degrades to deterministic fallback message on LLM failures.
+- QA node degrades to deterministic default message on LLM failures.
 - API returns stable JSON with `success=false` only for non-recoverable conditions.
 - Regression test covers the 429 path and verifies no unhandled throw.

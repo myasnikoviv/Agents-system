@@ -20,7 +20,7 @@ Create failing tests first for all agreed behavior changes.
 3. Perform at least 3 autonomous recovery attempts before escalating to user:
    - Attempt 1: direct tool/MCP path (native QA path).
    - Attempt 2: alternate API/CLI path.
-   - Attempt 3: data/infra fallback path (with DevOps/Git coordination if needed).
+   - Attempt 3: data/infra default path (with DevOps/Git coordination if needed).
 4. Log evidence for each attempt (command, result, error signature, timestamp).
 5. Escalate to user only after 3 failed distinct attempts, with concise options and attached evidence.
 

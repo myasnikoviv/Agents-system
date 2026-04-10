@@ -1,4 +1,4 @@
-# Skill: Plane Project Management DB Fallback
+# Skill: Plane Project Management DB Default
 
 ## Purpose
 Keep project management flow operational when Plane MCP and direct API token path are unavailable.
@@ -11,12 +11,12 @@ Keep project management flow operational when Plane MCP and direct API token pat
 ## Primary Strategy
 1. Try Plane MCP flow first.
 2. If MCP fails, run direct API flow.
-3. If API fails, run controlled DB-read/DB-write fallback using project runtime DB path and documented scripts.
+3. If API fails, run controlled DB-read/DB-write default using project runtime DB path and documented scripts.
 
-## DB Fallback Guardrails
-- Use DB fallback only for critical ticket-lifecycle continuity.
+## DB Default Guardrails
+- Use DB default only for critical ticket-lifecycle continuity.
 - Apply minimum required mutations only (state, assignee, handoff note pointer, linkage IDs).
-- Record every DB fallback action in:
+- Record every DB default action in:
   - `Plane` comments (when service recovers), and
   - `docs/process/blockers/<id>.md` with SQL/script evidence.
 - After recovery, reconcile DB-side actions back through official Plane API/MCP.
@@ -33,12 +33,12 @@ Keep project management flow operational when Plane MCP and direct API token pat
 3. Execute read checks (issue exists, current state, assignee).
 4. Execute minimal write operation required for continuity.
 5. Validate write with read-back query.
-6. Continue pipeline and mark fallback mode in pipeline state card.
+6. Continue pipeline and mark default mode in pipeline state card.
 7. Reconcile to official Plane channel when restored.
 
 ## Exit Criteria
 - Ticket lifecycle progressed without data corruption.
-- All fallback actions are traceable and reconciled.
+- All default actions are traceable and reconciled.
 - PM closes blocker with prevention note (env/auth/runtime hardening).
 
 ## Related References

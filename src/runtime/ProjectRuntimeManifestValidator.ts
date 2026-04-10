@@ -36,10 +36,10 @@ export function validateProjectRuntimeManifest(manifest: ProjectRuntimeManifest)
   const agentIds = new Set(manifest.agents.map((a) => a.id));
   const gateIds = new Set(manifest.policies.gates.map((g) => g.id));
 
-  let fallbackCount = 0;
+  let defaultCount = 0;
   for (const pipeline of manifest.pipelines) {
-    if (pipeline.fallback) {
-      fallbackCount += 1;
+    if (pipeline.default) {
+      defaultCount += 1;
     }
 
     if (pipeline.stages.length === 0) {
@@ -97,10 +97,10 @@ export function validateProjectRuntimeManifest(manifest: ProjectRuntimeManifest)
     }
   }
 
-  if (fallbackCount !== 1) {
+  if (defaultCount !== 1) {
     issues.push({
-      code: 'invalid_fallback_count',
-      message: `Expected exactly one fallback pipeline, got ${fallbackCount}`,
+      code: 'invalid_default_count',
+      message: `Expected exactly one default pipeline, got ${defaultCount}`,
       path: 'pipelines',
       severity: 'error',
     });

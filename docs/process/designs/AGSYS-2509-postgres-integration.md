@@ -1,12 +1,12 @@
 # AGSYS-2509 Postgres Integration
 
 ## Objective
-Add Postgres-backed persistence integration for control-plane data while keeping safe fallback to SQLite.
+Add Postgres-backed persistence integration for control-plane data while keeping safe default to SQLite.
 
 ## Implemented
 - New adapter: `src/server/storage/PostgresControlPlaneStore.ts`
   - Lazy init from `POSTGRES_URL` / `DATABASE_URL`
-  - Health probe and no-op fallback when Postgres is not configured
+  - Health probe and no-op default when Postgres is not configured
   - Tables (auto-create):
     - `cockpit_settings_pg`
     - `cockpit_state_pg`
@@ -24,5 +24,5 @@ Add Postgres-backed persistence integration for control-plane data while keeping
 - Policies in Postgres: yes (policy metadata stream `cockpit_policy_meta_pg`)
 - Audit metadata in Postgres: yes (`cockpit_audit_meta_pg`)
 
-## Fallback Safety
+## Default Safety
 If Postgres is unavailable or unset, runtime continues on SQLite (existing behavior preserved).

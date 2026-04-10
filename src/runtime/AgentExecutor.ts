@@ -16,8 +16,8 @@ import { logGovernance } from './governance/GovernanceLogger';
 
 type RuntimeBackend = 'claude-cli' | 'codex-cli' | 'openhands-sdk' | 'gemini' | 'langchain';
 
-interface ProviderFallbackPolicy {
-  fallbackOrder?: RuntimeBackend[];
+interface ProviderPolicy {
+  backupOrder?: RuntimeBackend[];
 }
 
 export class AgentExecutor {
@@ -25,31 +25,31 @@ export class AgentExecutor {
 
   private resolveBackendFromContext(
     context: RunContext,
-    fallback: 'claude-cli' | 'codex-cli' | 'openhands-sdk',
+    primary: 'claude-cli' | 'codex-cli' | 'openhands-sdk',
   ): 'claude-cli' | 'codex-cli' | 'openhands-sdk' {
     if (context.executionTarget === 'claude-cli') return 'claude-cli';
     if (context.executionTarget === 'codex-cli') return 'codex-cli';
     if (context.executionTarget === 'openhands') return 'openhands-sdk';
-    return fallback;
+    return primary;
   }
 
-  private loadFallbackPolicy(workspacePath: string): ProviderFallbackPolicy {
-    const filePath = path.resolve(workspacePath || process.cwd(), 'docs/runtime/adaptive/provider-fallback-policy.json');
+  private loadProviderPolicy(workspacePath: string): ProviderPolicy {
+    const filePath = path.resolve(workspacePath || process.cwd(), 'docs/runtime/adaptive/provider-backup-policy.json');
     if (!fs.existsSync(filePath)) {
-      return { fallbackOrder: ['codex-cli', 'claude-cli', 'openhands-sdk', 'gemini', 'langchain'] };
+      return { backupOrder: ['codex-cli', 'claude-cli', 'openhands-sdk', 'gemini', 'langchain'] };
     }
     try {
-      return JSON.parse(fs.readFileSync(filePath, 'utf-8')) as ProviderFallbackPolicy;
+      return JSON.parse(fs.readFileSync(filePath, 'utf-8')) as ProviderPolicy;
     } catch {
-      return { fallbackOrder: ['codex-cli', 'claude-cli', 'openhands-sdk', 'gemini', 'langchain'] };
+      return { backupOrder: ['codex-cli', 'claude-cli', 'openhands-sdk', 'gemini', 'langchain'] };
     }
   }
 
   private resolveExecutionChain(context: RunContext): RuntimeBackend[] {
     const cfg = loadConfig(context.workspacePath);
     const preferred = this.resolveBackendFromContext(context, cfg.backend);
-    const policy = this.loadFallbackPolicy(context.workspacePath || process.cwd());
-    const chain = [preferred as RuntimeBackend, ...(policy.fallbackOrder || [])];
+    const policy = this.loadProviderPolicy(context.workspacePath || process.cwd());
+    const chain = [preferred as RuntimeBackend, ...(policy.backupOrder || [])];
     return Array.from(new Set(chain));
   }
 
@@ -121,7 +121,7 @@ export class AgentExecutor {
           result = attempt;
           if (i > 0) {
             logGovernance({
-              rule: 'provider_fallback_orchestration',
+              rule: 'provider_backup_orchestration',
               status: 'pass',
               action: 'allow',
               ticket: context.activeTicketId,
@@ -134,7 +134,7 @@ export class AgentExecutor {
         }
         failures.push(`${backend}:${attempt.error || 'failed'}`);
         logGovernance({
-          rule: 'provider_fallback_orchestration',
+          rule: 'provider_backup_orchestration',
           status: 'fail',
           action: 'warn',
           ticket: context.activeTicketId,
@@ -191,7 +191,7 @@ export class AgentExecutor {
       // Telemetry
       await this.emitTelemetry(context, result, durationMs);
     } else {
-      throw new Error(`Execution failed across fallback chain: ${failures.join(' | ') || result?.error || 'unknown'}`);
+      throw new Error(`Execution failed across backup chain: ${failures.join(' | ') || result?.error || 'unknown'}`);
     }
 
     return result;

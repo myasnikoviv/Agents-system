@@ -13,7 +13,7 @@ Scope: Research only (no implementation)
 3. Tool-call rendering/parsing path
 4. Error normalization to user-facing messages
 5. Retry/backoff behavior under transient errors
-6. Rate-limit behavior (429) and fallback semantics
+6. Rate-limit behavior (429) and default semantics
 
 ## 3) Known environment constraints
 - Provider quotas can trigger 429 and false-negative routing outcomes.

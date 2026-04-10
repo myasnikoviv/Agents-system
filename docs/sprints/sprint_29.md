@@ -2,8 +2,8 @@
 
 Theme: Settings IA Remediation + System Boundaries Enforcement
 Source of truth:
-	•	System Boundary Decisions v1
-	•	Settings IA Remediation Spec v1
+	•	docs/sprints/Settings IA Remediation Spec v1.md
+	•	docs/sprints/System Boundary Decisions v1.md
 
 ⸻
 
@@ -19,7 +19,7 @@ Description
 Acceptance Criteria
 	•	всі quasi-linear handlers видалені
 	•	runtime router більше не містить branching
-	•	немає fallback logic
+	•	немає default logic
 	•	tests не посилаються на quasi-linear
 
 Handoff
@@ -311,7 +311,7 @@ PM → Backend → QA → PM
 🎫 AGSYS-2918 — Bootstrap Flow
 
 Description
-Fallback при відсутності config.
+Default при відсутності config.
 
 Acceptance Criteria
 	•	auto template

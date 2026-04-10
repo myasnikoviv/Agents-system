@@ -75,12 +75,12 @@ export class LocalPlatformBootOrchestrator {
         .filter((n) => n.dependsOn.filter((d) => known.has(d)).every((d) => resolved.some((r) => r.serviceId === d)))
         .sort((a, b) => runtimeOrder(a.runtime) - runtimeOrder(b.runtime) || a.serviceId.localeCompare(b.serviceId));
       if (ready.length === 0) {
-        // fallback for circular dependency: deterministic runtime/name ordering
-        const fallback = Array.from(pending.values()).sort(
+        // defaultValue for circular dependency: deterministic runtime/name ordering
+        const defaultValue = Array.from(pending.values()).sort(
           (a, b) => runtimeOrder(a.runtime) - runtimeOrder(b.runtime) || a.serviceId.localeCompare(b.serviceId),
         )[0];
-        resolved.push({ serviceId: fallback.serviceId, runtime: fallback.runtime });
-        pending.delete(fallback.serviceId);
+        resolved.push({ serviceId: defaultValue.serviceId, runtime: defaultValue.runtime });
+        pending.delete(defaultValue.serviceId);
         continue;
       }
 

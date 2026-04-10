@@ -50,7 +50,7 @@ export interface ManifestPipelineSpec {
   stages: ManifestStageSpec[];
   transitions: ManifestTransitionSpec[];
   selectionRules: ManifestSelectionRule[];
-  fallback?: boolean;
+  default?: boolean;
 }
 
 export interface ManifestGateSpec {

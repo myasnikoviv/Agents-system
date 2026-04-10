@@ -11,7 +11,7 @@
 1. Unified entry point: Cockpit chat as canonical operator surface.
 2. Runtime contract:
    - `linear`: single process, sequential graph execution, deterministic checkpoints.
-   - `multiple_agents`: delegated role workers with explicit callback contracts and timeout/fallback policy.
+   - `multiple_agents`: delegated role workers with explicit callback contracts and timeout/default policy.
 3. Memory contract:
    - Task-local memory per ticket/thread.
    - Shareable project memory (read-only baseline + controlled writes).
@@ -28,5 +28,5 @@
 - WP5 Operator Docs: cockpit usage guide, troubleshooting matrix, incident playbooks.
 
 ## Decision Notes
-- Keep graceful fallback for provider outages to preserve pipeline continuity.
+- Keep graceful default for provider outages to preserve pipeline continuity.
 - Do not mask billing/auth faults: classify and surface them explicitly in logs/API.

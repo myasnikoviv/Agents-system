@@ -186,7 +186,7 @@ Use one row per disputed function.
 5. Де межа між `client workspace settings` і `operator control plane`?
 6. Чи runtime mode selector має існувати в user UI у production?
 7. Які swarm controls (якщо будь-які) дозволяємо tenant/project admin?
-8. Який fallback режим для non-engineering проєктів без git-centric flow?
+8. Який default режим для non-engineering проєктів без git-centric flow?
 
 ## 9) Next Step
 

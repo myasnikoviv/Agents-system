@@ -4,7 +4,7 @@
 `Майстер Креслень (Solution Architect)`
 
 ## Objective
-Define deterministic execution contract for cockpit modes so operator clearly understands what runs inline vs delegated, how memory is isolated, and when/why fallback occurs.
+Define deterministic execution contract for cockpit modes so operator clearly understands what runs inline vs delegated, how memory is isolated, and when/why default occurs.
 
 ## Contract
 
@@ -12,7 +12,7 @@ Define deterministic execution contract for cockpit modes so operator clearly un
 - Single graph runtime executes all stages sequentially.
 - Interrupt gates remain at `research`, `qa`, `git`.
 - Role outputs are stored in thread state artifacts.
-- Provider failures degrade to fallback artifacts without hard crash.
+- Provider failures degrade to default artifacts without hard crash.
 
 ### Mode: multiple_agents
 - PM/Architect/Git gates remain controlled by graph thread.
@@ -21,7 +21,7 @@ Define deterministic execution contract for cockpit modes so operator clearly un
   - Phase 2: Add delegatable roles (`trader`, `qa`, `dev`, `review`) behind feature flags.
 - Callback contract per delegated role:
   - Required fields: `event_type`, `pipeline_run_id`, `thread_id`, `agent_role`, `status`, `payload`.
-  - Timeout policy: bounded retries + deterministic fallback artifact.
+  - Timeout policy: bounded retries + deterministic default artifact.
 
 ## Memory Model
 - Task-local memory: per `pipeline_run_id` + role namespace.
@@ -34,6 +34,6 @@ Define deterministic execution contract for cockpit modes so operator clearly un
 
 ## Acceptance
 1. Operator can predict execution path by selected mode.
-2. Every delegated stage has timeout and fallback behavior.
+2. Every delegated stage has timeout and default behavior.
 3. Memory write boundaries are explicit and auditable.
 4. No stage can mutate code without preflight validation evidence.

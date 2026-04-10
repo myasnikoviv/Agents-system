@@ -5,7 +5,7 @@
 |---|---|---|
 | `scripts/git/preflight_guard.sh` | TKT-59 | Keep in current fix scope |
 | `src/runtime/graphs/PilotQuasiLinearGraph.ts` | TKT-59 | Keep in current fix scope |
-| `src/runtime/__tests__/pilot_approve_quota_fallback.test.ts` | TKT-59 | Keep in current fix scope |
+| `src/runtime/__tests__/pilot_approve_quota_default.test.ts` | TKT-59 | Keep in current fix scope |
 | `docs/process/*/TKT-59*` | TKT-59 | Keep in current fix scope |
 | `frontend/src/App.tsx` | TKT-60/TKT-61 | Move to runtime-mode clarification slice |
 | `frontend/src/components/cockpit/CockpitPage.tsx` | TKT-60/TKT-63 | Move to cockpit UX/E2E slice |

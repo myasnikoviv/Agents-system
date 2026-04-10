@@ -212,7 +212,7 @@ async function test_negative_pipeline_gate(): Promise<void> {
     isExplicit: false,
     confidence: 0.1 // Should trigger fail
   });
-  console.log('[PASS] ENF-006 — low confidence fallback triggered fail event');
+  console.log('[PASS] ENF-006 — low confidence default triggered fail event');
 }
 
 // ------- RUN -------

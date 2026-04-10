@@ -20,9 +20,9 @@ export interface PersistedEnvironmentRecord {
   lastError?: string;
 }
 
-function normalize(value: string | undefined, fallback = ''): string {
+function normalize(value: string | undefined, defaultValue = ''): string {
   const v = String(value || '').trim();
-  return v || fallback;
+  return v || defaultValue;
 }
 
 export function buildPersistedEnvironmentId(input: {

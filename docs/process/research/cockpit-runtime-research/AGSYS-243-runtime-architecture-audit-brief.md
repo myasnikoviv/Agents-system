@@ -89,7 +89,7 @@ flowchart LR
 Confirmed
 - `multiple_agents` and `linear` currently execute the same graph engine.
 - PM-entry is force-inserted for first stage when no completed stage exists.
-- Contract guard may trigger one auto-reprompt before fallback formatting.
+- Contract guard may trigger one auto-reprompt before default formatting.
 - UI receives both `/api/chat` payload and SSE event stream updates.
 - Cockpit runtime state is persisted in SQLite, with legacy JSON migration paths.
 

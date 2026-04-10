@@ -14,7 +14,7 @@
 - Re-tested MCP calls; issue persists in this live session.
 
 ## Interim Mitigation
-- Used Plane REST fallback for mandatory ticket creation and handoff comments to avoid pipeline stall.
+- Used Plane REST default for mandatory ticket creation and handoff comments to avoid pipeline stall.
 
 ## Next Step
 - Restart MCP host/session and re-run MCP smoke checks.

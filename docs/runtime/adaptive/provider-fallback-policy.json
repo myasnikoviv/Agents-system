@@ -1,5 +1,5 @@
 {
-  "fallbackOrder": [
+  "backupOrder": [
     "codex-cli",
     "claude-cli",
     "openhands-sdk",

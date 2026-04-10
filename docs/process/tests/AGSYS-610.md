@@ -15,13 +15,13 @@
 
 ## Behavioral validation
 1. Boot sequence now performs Postgres hydration before server listen.
-2. Health payload now exposes source/fallback metadata:
+2. Health payload now exposes source/default metadata:
 - `controlPlane.sourceOfTruth`
 - `controlPlane.settingsSource`
 - `controlPlane.runtimeStateSources`
-- `controlPlane.fallback`
+- `controlPlane.default`
 - `controlPlane.postgres`
 - `controlPlane.lastHydratedAt` (when hydrated)
 
 ## Regression risk
-- Low/Medium: boot now includes async hydration step, but fallback remains SQLite when Postgres is unavailable.
+- Low/Medium: boot now includes async hydration step, but default remains SQLite when Postgres is unavailable.

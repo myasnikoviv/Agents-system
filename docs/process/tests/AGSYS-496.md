@@ -30,7 +30,7 @@
   - `default-research-agent-pid21289-mnq669jy`
   - `default-pm-orchestrator-pid21289-mnq61ttb`
   - overlap window: `2186 ms`.
-3. No fake single-process fallback: PASS (worker spawn/reuse/heartbeat + task queue/dispatched events persisted in ledger).
+3. No fake single-process default: PASS (worker spawn/reuse/heartbeat + task queue/dispatched events persisted in ledger).
 4. Project isolation preserved: PASS (identity tests + project-scoped identity fields in worker payloads).
 5. Validation report produced: PASS.
 

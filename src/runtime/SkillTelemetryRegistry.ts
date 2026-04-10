@@ -19,7 +19,7 @@ export interface SkillUsageEntry {
   inputTokens: number;
   outputTokens: number;
   totalTokens: number;
-  outcome: 'success' | 'fallback' | 'error';
+  outcome: 'success' | 'default' | 'error';
 }
 
 export interface SkillTelemetrySummary {

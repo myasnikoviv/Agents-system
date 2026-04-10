@@ -32,7 +32,7 @@ Close handoff-observability/runtime-context bug and remove hard coupling to a si
   - `AGENTS.md` exists in that directory.
 
 5. Legacy manifest path compatibility
-- Discovery service now supports fallback remap for legacy manifest refs like `./common-agents/...` when external agents root is configured.
+- Discovery service now supports default remap for legacy manifest refs like `./common-agents/...` when external agents root is configured.
 - This removes hard fail behavior after decoupling into separate repos.
 
 ## Verification

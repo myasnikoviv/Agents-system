@@ -35,7 +35,7 @@ This creates a migration-safe bridge to multi-host dispatch semantics while pres
    - release/heartbeat/failure updates
 3. Ensure path now reads shared worker record first (when enabled) and hydrates local pool from shared source before decision.
 
-This lowers duplicate-spawn risk across multi-host runtime nodes while preserving existing sqlite local pool behavior as compatibility fallback.
+This lowers duplicate-spawn risk across multi-host runtime nodes while preserving existing sqlite local pool behavior as compatibility default.
 
 ## Slice 3 (Cockpit Queue API Alignment)
 1. Added full async control surface in `ProjectDispatchQueue`:

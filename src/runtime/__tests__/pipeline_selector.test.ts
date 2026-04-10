@@ -35,7 +35,7 @@ describe('PipelineSelector', () => {
         {
           id: 'unified-task-intake',
           source: 'docs/pipelines/unified-task-intake.md',
-          fallback: true,
+          default: true,
           stages: [{ id: 'intake-1', role: 'pm-orchestrator', requiredGates: [], outputs: [] }],
           transitions: [],
           selectionRules: [{ keywords: ['intake'], scoreWeight: 1 }],
@@ -56,7 +56,7 @@ describe('PipelineSelector', () => {
     expect(['high', 'medium']).toContain(selected.confidence);
   });
 
-  it('falls back to manifest fallback pipeline when no rule matches', () => {
+  it('falls back to manifest default pipeline when no rule matches', () => {
     const manifest: ProjectRuntimeManifest = {
       manifestVersion: '1.0',
       project: { id: 'x', name: 'x', rootPath: '/tmp/x' },
@@ -66,7 +66,7 @@ describe('PipelineSelector', () => {
         {
           id: 'unified-task-intake',
           source: 'docs/pipelines/unified-task-intake.md',
-          fallback: true,
+          default: true,
           stages: [{ id: 'intake-1', role: 'pm-orchestrator', requiredGates: [], outputs: [] }],
           transitions: [],
           selectionRules: [{ keywords: ['intake'], scoreWeight: 1 }],

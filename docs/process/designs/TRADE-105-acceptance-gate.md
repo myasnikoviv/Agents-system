@@ -32,7 +32,7 @@ Evidence sources:
 Pass conditions:
 1. Runtime manifest model/validator/loader exist and pass tests.
 2. Canonical manifest migration path exists (generator + generated bundle).
-3. Loader supports canonical-first with markdown fallback.
+3. Loader supports canonical-first with markdown default.
 
 Evidence sources:
 - `src/runtime/ProjectRuntimeManifest*.ts`

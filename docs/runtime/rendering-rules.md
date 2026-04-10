@@ -15,7 +15,7 @@ Normalize cockpit rendering so mixed messages and ordering drift are impossible.
 ## Ordering Rules
 
 1. Primary order key: `timestamp` ascending.
-2. Tie-breaker: monotonic `seq` (or `eventId` lexical fallback).
+2. Tie-breaker: monotonic `seq` (or `eventId` lexical default).
 3. UI reordering after first paint is forbidden except explicit reconciliation of missing older chunks.
 4. If out-of-order arrival happens, event is queued and inserted by ordering policy, with no chat text mutation.
 

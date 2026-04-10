@@ -21,13 +21,13 @@ Scope: Research only (no implementation)
 - Redis client has retry strategy with bounded delay function.
 - Evidence: `src/runtime/redisClient.ts:10-14`
 
-4. Router classification fallback
+4. Router classification default
 - If LLM classification fails, pipeline falls back to `unified-task-intake`.
-- Evidence: `src/runtime/IntakeClassifier.ts:330-339`, and router fallback artifact `src/runtime/graphs/PilotQuasiLinearGraph.ts:310-328`
+- Evidence: `src/runtime/IntakeClassifier.ts:330-339`, and router default artifact `src/runtime/graphs/PilotQuasiLinearGraph.ts:310-328`
 
 ## 2) Stop conditions and bounds
 
-- Contract reprompt: bounded (max one reprompt attempt before fallback message).
+- Contract reprompt: bounded (max one reprompt attempt before default message).
 - Swarm stage loop: bounded by pipeline stage progression or reroute conditions; if stage progression fails, risk of repeated stage behavior remains possible.
 - Redis retry: bounded delay step function, but connection retry lifecycle is managed by ioredis internals.
 

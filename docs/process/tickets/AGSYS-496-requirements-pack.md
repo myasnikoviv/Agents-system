@@ -21,7 +21,7 @@ Validate end-to-end that runtime in `multiple_agents` mode is real multi-agent e
 ## Acceptance Criteria
 1. Reproducible scenario with command/evidence links.
 2. Parallel execution proven by independent worker traces.
-3. No central single-process fallback pretending to be multi-agent.
+3. No central single-process default pretending to be multi-agent.
 4. Project isolation preserved.
 5. Validation report produced at `docs/process/tests/AGSYS-496.md`.
 

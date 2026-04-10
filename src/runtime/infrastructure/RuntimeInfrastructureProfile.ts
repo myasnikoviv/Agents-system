@@ -7,12 +7,12 @@ export interface RuntimeInfrastructureProfile {
   sharedWorkerStateBackend: InfraBackend;
 }
 
-function normalize(value: string | undefined, fallback: InfraBackend): InfraBackend {
+function normalize(value: string | undefined, defaultValue: InfraBackend): InfraBackend {
   const raw = String(value || '').trim().toLowerCase();
   if (raw === 'postgres' || raw === 'redis' || raw === 'memory' || raw === 'sqlite') {
     return raw;
   }
-  return fallback;
+  return defaultValue;
 }
 
 export function resolveRuntimeInfrastructureProfile(env: NodeJS.ProcessEnv = process.env): RuntimeInfrastructureProfile {

@@ -10,7 +10,7 @@
 ## Assumptions
 1. Existing Postgres control-plane storage can store runtime snapshots/audit metadata for cutover.
 2. Compatibility mode is required while local FS artifacts still exist.
-3. Migration can proceed endpoint-by-endpoint with reversible fallback.
+3. Migration can proceed endpoint-by-endpoint with reversible default.
 
 ## Risks
 - Partial cutover may produce mixed-source reads.
@@ -18,5 +18,5 @@
 
 ## Mitigations
 - Explicit source field in API responses.
-- Centralized-first read order with guarded fallback.
+- Centralized-first read order with guarded default.
 - Regression tests on key telemetry/audit endpoints.

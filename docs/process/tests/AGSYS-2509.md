@@ -1,7 +1,7 @@
 # AGSYS-2509 Test Report
 
 ## Scope
-Postgres integration for configs/policies/audit metadata with safe fallback.
+Postgres integration for configs/policies/audit metadata with safe default.
 
 ## Verification
 - Runtime regression command:

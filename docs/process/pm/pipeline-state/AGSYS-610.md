@@ -17,6 +17,6 @@
 
 ## Notes
 - Implemented Postgres canonical boot hydration for control-plane settings/state.
-- Added explicit source/fallback metadata to health APIs.
+- Added explicit source/default metadata to health APIs.
 - Added Postgres store read APIs for canonical load path.
 - Test evidence attached in `docs/process/tests/AGSYS-610.md`.

@@ -272,7 +272,7 @@ Respond ONLY with a JSON object, no markdown:
 User message: "${message.replace(/"/g, "'")}"`;
 
   try {
-    // Prefer Gemini for classification when OpenHands+Google is active, to avoid OpenAI quota fallback.
+    // Prefer Gemini for classification when OpenHands+Google is active, to avoid OpenAI quota default path.
     if (prefersGoogle && hasGoogleKey) {
       const apiKey = cfg.openhands.apiKeys.google || process.env.GOOGLE_API_KEY || '';
       const model = (cfg.openhands.model || 'google/gemini-2.5-flash').replace(/^google\//, '');
@@ -318,7 +318,7 @@ User message: "${message.replace(/"/g, "'")}"`;
       };
     }
 
-    // OpenAI fallback classifier path.
+    // OpenAI default classifier path.
     const { ChatOpenAI } = await import('@langchain/openai');
     const openaiKey = cfg.openhands.apiKeys.openai || process.env.OPENAI_API_KEY || '';
     const model = new ChatOpenAI({

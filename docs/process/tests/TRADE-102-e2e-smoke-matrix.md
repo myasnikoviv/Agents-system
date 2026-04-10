@@ -45,4 +45,4 @@ Scenario on `http://localhost:5174/`:
 ## Result
 - Matrix status: PASS
 - Blocking defects: none
-- Note: Runtime used fallback responses (`fallback:insufficient_quota`) for content generation, while orchestration and handoff sequence remained correct.
+- Note: Runtime used default responses (`default:insufficient_quota`) for content generation, while orchestration and handoff sequence remained correct.

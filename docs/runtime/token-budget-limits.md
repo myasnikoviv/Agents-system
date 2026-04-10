@@ -19,7 +19,7 @@ limits:
 ## Enforcement Rules
 
 1. Runtime accumulator tracks input/output token usage per run and per stage.
-2. If stage budget is exceeded, stage emits `guard.flagged` and transitions to controlled abort/fallback.
+2. If stage budget is exceeded, stage emits `guard.flagged` and transitions to controlled abort/default.
 3. If run budget is exceeded, run terminates with explicit `run.failed` reason `budget_exceeded`.
 4. Retries consume budget and are counted toward call limits.
 5. Budget counters are persisted in run artifacts for postmortem.

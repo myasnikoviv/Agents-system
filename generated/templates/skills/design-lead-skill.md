@@ -13,7 +13,7 @@ Guarantee UI/UX quality, design consistency, and accessibility gates for all UI-
    - implement/review against project design tokens
    - parity validation
 5. Run accessibility and usability checks (contrast, hierarchy, interaction clarity, error states).
-6. Run visual verification via Playwright MCP (or equivalent visual MCP fallback when unavailable).
+6. Run visual verification via Playwright MCP (or equivalent visual MCP default when unavailable).
 7. Produce sign-off artifact (`APPROVED` or `REWORK`) with concrete deltas.
 
 ## Required Output
@@ -30,9 +30,9 @@ Guarantee UI/UX quality, design consistency, and accessibility gates for all UI-
 4. Re-check responsive behavior (desktop + mobile width).
 5. Record defects as explicit deltas (expected vs observed), not generic comments.
 
-## Alternate Visual MCP Fallback
+## Alternate Visual MCP Default
 - If Playwright MCP is unavailable, run equivalent visual MCP flow.
-- Mark fallback reason and tool name in review artifact.
+- Mark default reason and tool name in review artifact.
 - Do not return `APPROVED` without any visual MCP evidence.
 
 ## External Design Skill Pack (Installed)

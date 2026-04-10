@@ -20,4 +20,4 @@ npx jest src/runtime/__tests__/project_runtime_manifest.test.ts src/runtime/__te
 
 ## Evidence Notes
 - Negative cases verify explicit contract rejection for malformed runtime manifests.
-- Pipeline selection remains backward-compatible via legacy selector fallback.
+- Pipeline selection remains backward-compatible via legacy selector default.

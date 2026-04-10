@@ -5,7 +5,7 @@
 - Branch: codex/s19-runtime-remediation
 
 ## Scope
-Switch critical telemetry/audit read paths from filesystem-first to centralized-first with safe fallback.
+Switch critical telemetry/audit read paths from filesystem-first to centralized-first with safe default.
 
 ## Changes
 1. `PostgresControlPlaneStore`:
@@ -13,15 +13,15 @@ Switch critical telemetry/audit read paths from filesystem-first to centralized-
 2. `EventBus`:
    - Added `fetchEventsByRunId()` to retrieve run-scoped events from Redis runtime stream.
 3. `agentSystemBackend.ts`:
-   - `readControlActionAuditRows` converted to async and now reads Postgres first, fallback to JSONL file.
-   - `readRunLedgerEvents` converted to async and now reads Redis events first (run-scoped or recent), fallback to JSONL ledger files.
+   - `readControlActionAuditRows` converted to async and now reads Postgres first, default to JSONL file.
+   - `readRunLedgerEvents` converted to async and now reads Redis events first (run-scoped or recent), default to JSONL ledger files.
 4. `telemetryRoutes.ts`:
    - Updated deps contracts to async readers.
    - Updated handlers to await centralized readers.
 
 ## Impact
 - Critical telemetry/audit retrieval is no longer dependent on local file copy presence in normal operation.
-- Legacy files remain fallback-only for compatibility during migration.
+- Legacy files remain default-only for compatibility during migration.
 
 ## Slice 2 (Centralized-Primary Audit Writes)
 1. Updated `appendControlActionAudit` in backend:

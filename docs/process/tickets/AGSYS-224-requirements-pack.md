@@ -13,7 +13,7 @@ Adapter layer must execute with a standardized runtime contract from `RunContext
 - Validate with deterministic adapter smoke.
 
 ## Acceptance Criteria
-- AgentExecutor resolves backend from runtime context with fallback.
+- AgentExecutor resolves backend from runtime context with default.
 - Context fields `executionTarget/provider/model` are normalized before run.
 - Smoke evidence captured.
 
