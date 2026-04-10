@@ -35,6 +35,7 @@ interface TelemetryRouteDeps {
     toTs?: number | null;
     limit?: number;
   }) => Promise<Array<Record<string, any>>>;
+  getSloStatus?: () => Promise<Record<string, any>>;
   readRunLedgerEvents: (input: { runId?: string; projectId?: string; limit?: number }) => Promise<any[]>;
   normalizeRuntimeEvent: (row: any) => UnifiedTelemetryEvent;
 }
@@ -340,6 +341,22 @@ export function registerTelemetryRoutes(app: express.Express, deps: TelemetryRou
         success: false,
         error: 'structured_logs_fetch_failed',
         message: error?.message || 'Failed to fetch structured logs',
+      });
+    }
+  });
+
+  app.get('/api/cockpit/sre/slo', async (_req, res) => {
+    try {
+      if (!deps.getSloStatus) {
+        return res.json({ success: true, configured: false, message: 'slo_status_not_configured' });
+      }
+      const status = await deps.getSloStatus();
+      return res.json({ success: true, configured: true, ...status });
+    } catch (error: any) {
+      return res.status(500).json({
+        success: false,
+        error: 'slo_status_fetch_failed',
+        message: error?.message || 'Failed to fetch SLO status',
       });
     }
   });
