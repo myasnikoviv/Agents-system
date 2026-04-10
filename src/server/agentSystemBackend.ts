@@ -37,6 +37,7 @@ import { BillingService } from '../runtime/billing/BillingService';
 import { BillingPaymentService } from '../runtime/billing/BillingPaymentService';
 import { StripeMvpProvider } from '../runtime/billing/PaymentProvider';
 import { DEFAULT_ABAC_POLICIES, evaluateAbacPolicyAccess, type AbacRole } from '../runtime/policy/AbacPolicyEngine';
+import { registerAccessEnforcementMiddleware } from './AuthAccessMiddleware';
 
 dotenv.config();
 
@@ -782,6 +783,11 @@ const requireAccess = (
   }
   return auth;
 };
+
+registerAccessEnforcementMiddleware(app, {
+  requireRole,
+  requireAccess,
+});
 
 const resolveWorkspaceRuntimeContext = (input: {
   projectId: string;
