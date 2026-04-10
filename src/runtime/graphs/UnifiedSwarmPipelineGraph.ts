@@ -616,6 +616,7 @@ async function swarmNode(state: PilotState): Promise<Partial<PilotState>> {
         toAgentId: toAgent,
         toStageId: String(nextStage.id || '').trim(),
         toStageTitle: String(nextStage.title || nextStage.name || nextStage.id || '').trim(),
+        taskId: String((state as any)?.currentTaskId || '').trim() || undefined,
       });
     }
   }
