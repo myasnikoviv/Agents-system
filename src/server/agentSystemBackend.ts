@@ -495,6 +495,10 @@ runtimeDb.exec(`
     user_id TEXT NOT NULL,
     tenant_id TEXT NOT NULL,
     workspace_id TEXT NOT NULL,
+    refresh_token_hash TEXT,
+    revoked_at TEXT,
+    user_agent TEXT,
+    ip_address TEXT,
     expires_at TEXT NOT NULL,
     created_at TEXT NOT NULL
   );
@@ -529,6 +533,18 @@ try {
 try {
   runtimeDb.exec(`ALTER TABLE cockpit_projects ADD COLUMN onboarding_read_only INTEGER`);
 } catch {}
+try {
+  runtimeDb.exec(`ALTER TABLE auth_sessions ADD COLUMN refresh_token_hash TEXT`);
+} catch {}
+try {
+  runtimeDb.exec(`ALTER TABLE auth_sessions ADD COLUMN revoked_at TEXT`);
+} catch {}
+try {
+  runtimeDb.exec(`ALTER TABLE auth_sessions ADD COLUMN user_agent TEXT`);
+} catch {}
+try {
+  runtimeDb.exec(`ALTER TABLE auth_sessions ADD COLUMN ip_address TEXT`);
+} catch {}
 
 const toPlaneIdentifier = (value: string): string =>
   value
@@ -555,6 +571,12 @@ const infrastructureProfile = resolveRuntimeInfrastructureProfile();
 
 const hashPassword = (raw: string): string =>
   crypto.createHash('sha256').update(`${AUTH_SECRET}:${String(raw || '')}`).digest('hex');
+
+const hashRefreshToken = (raw: string): string =>
+  crypto.createHash('sha256').update(`${AUTH_SECRET}:refresh:${String(raw || '')}`).digest('hex');
+
+const createSessionToken = (prefix: 'sess' | 'refresh'): string =>
+  `${prefix}_${crypto.randomUUID()}_${crypto.randomBytes(12).toString('hex')}`;
 
 const shouldUsePostgresSecrets = async (): Promise<boolean> => {
   if (infrastructureProfile.secretsBackend !== 'postgres') return false;
@@ -584,7 +606,7 @@ const getAuthContext = (req: express.Request): {
   if (!token) return null;
   const row = runtimeDb
     .prepare(
-      `SELECT s.token, s.user_id, s.tenant_id, s.workspace_id, s.expires_at, u.email, u.role, u.is_active
+      `SELECT s.token, s.user_id, s.tenant_id, s.workspace_id, s.expires_at, s.revoked_at, u.email, u.role, u.is_active
        FROM auth_sessions s
        JOIN auth_users u ON u.id = s.user_id
        WHERE s.token = ?`,
@@ -596,6 +618,7 @@ const getAuthContext = (req: express.Request): {
         tenant_id: string;
         workspace_id: string;
         expires_at: string;
+        revoked_at: string | null;
         email: string;
         role: string;
         is_active: number;
@@ -603,6 +626,10 @@ const getAuthContext = (req: express.Request): {
     | undefined;
   if (!row) return null;
   if (!row.is_active) return null;
+  if (row.revoked_at) {
+    runtimeDb.prepare('DELETE FROM auth_sessions WHERE token = ?').run(token);
+    return null;
+  }
   if (new Date(row.expires_at).getTime() <= Date.now()) {
     runtimeDb.prepare('DELETE FROM auth_sessions WHERE token = ?').run(token);
     return null;
@@ -2615,18 +2642,40 @@ app.post('/api/auth/login', (req, res) => {
     return;
   }
 
-  const token = `sess_${crypto.randomUUID()}`;
+  const token = createSessionToken('sess');
+  const refreshToken = createSessionToken('refresh');
+  const refreshTokenHash = hashRefreshToken(refreshToken);
   const expiresAt = new Date(Date.now() + AUTH_SESSION_TTL_HOURS * 60 * 60 * 1000).toISOString();
   runtimeDb
     .prepare(
-      `INSERT INTO auth_sessions (token, user_id, tenant_id, workspace_id, expires_at, created_at)
-       VALUES (?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO auth_sessions (
+        token,
+        user_id,
+        tenant_id,
+        workspace_id,
+        refresh_token_hash,
+        expires_at,
+        created_at,
+        user_agent,
+        ip_address
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
-    .run(token, user.id, user.tenant_id, user.workspace_id, expiresAt, new Date().toISOString());
+    .run(
+      token,
+      user.id,
+      user.tenant_id,
+      user.workspace_id,
+      refreshTokenHash,
+      expiresAt,
+      new Date().toISOString(),
+      String(req.header('user-agent') || '').slice(0, 512),
+      String(req.ip || '').slice(0, 128),
+    );
 
   res.json({
     success: true,
     token,
+    refreshToken,
     tokenType: 'Bearer',
     expiresAt,
     user: {
@@ -2637,6 +2686,91 @@ app.post('/api/auth/login', (req, res) => {
       workspaceId: user.workspace_id,
     },
   });
+});
+
+app.post('/api/auth/refresh', (req, res) => {
+  const refreshToken = String(req.body?.refreshToken || '').trim();
+  if (!refreshToken) {
+    res.status(400).json({ success: false, error: 'refresh_token_required' });
+    return;
+  }
+
+  const refreshTokenHash = hashRefreshToken(refreshToken);
+  const session = runtimeDb
+    .prepare(
+      `SELECT s.token, s.user_id, s.tenant_id, s.workspace_id, s.expires_at, s.revoked_at, u.email, u.role, u.is_active
+       FROM auth_sessions s
+       JOIN auth_users u ON u.id = s.user_id
+       WHERE s.refresh_token_hash = ?`,
+    )
+    .get(refreshTokenHash) as
+    | {
+        token: string;
+        user_id: string;
+        tenant_id: string;
+        workspace_id: string;
+        expires_at: string;
+        revoked_at: string | null;
+        email: string;
+        role: string;
+        is_active: number;
+      }
+    | undefined;
+
+  if (!session || !session.is_active || session.revoked_at) {
+    res.status(401).json({ success: false, error: 'invalid_refresh_token' });
+    return;
+  }
+  if (new Date(session.expires_at).getTime() <= Date.now()) {
+    runtimeDb.prepare('DELETE FROM auth_sessions WHERE token = ?').run(session.token);
+    res.status(401).json({ success: false, error: 'refresh_token_expired' });
+    return;
+  }
+
+  const newToken = createSessionToken('sess');
+  const newRefreshToken = createSessionToken('refresh');
+  const newRefreshTokenHash = hashRefreshToken(newRefreshToken);
+  const newExpiresAt = new Date(Date.now() + AUTH_SESSION_TTL_HOURS * 60 * 60 * 1000).toISOString();
+
+  runtimeDb
+    .prepare(
+      `UPDATE auth_sessions
+       SET token = ?, refresh_token_hash = ?, expires_at = ?, user_agent = ?, ip_address = ?, revoked_at = NULL
+       WHERE token = ?`,
+    )
+    .run(
+      newToken,
+      newRefreshTokenHash,
+      newExpiresAt,
+      String(req.header('user-agent') || '').slice(0, 512),
+      String(req.ip || '').slice(0, 128),
+      session.token,
+    );
+
+  res.json({
+    success: true,
+    token: newToken,
+    refreshToken: newRefreshToken,
+    tokenType: 'Bearer',
+    expiresAt: newExpiresAt,
+    user: {
+      id: session.user_id,
+      email: session.email,
+      role: session.role,
+      tenantId: session.tenant_id,
+      workspaceId: session.workspace_id,
+    },
+  });
+});
+
+app.post('/api/auth/logout', (req, res) => {
+  const auth = getAuthContext(req);
+  if (!auth) {
+    res.status(401).json({ success: false, error: 'unauthorized' });
+    return;
+  }
+  runtimeDb.prepare('DELETE FROM auth_sessions WHERE token = ?').run(auth.token);
+  res.json({ success: true });
 });
 
 app.get('/api/auth/me', (req, res) => {
