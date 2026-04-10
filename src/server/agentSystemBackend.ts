@@ -727,6 +727,59 @@ const getSloStatus = async () => {
   };
 };
 
+const getAlertsSnapshot = async () => {
+  const requestsTotal = apiMetricsState.requestsTotal || 0;
+  const errors5xx = Number(apiMetricsState.byStatusClass.get('5xx') || 0);
+  const successRatePct = requestsTotal > 0 ? ((requestsTotal - errors5xx) / requestsTotal) * 100 : 100;
+  const avgLatencyMs = requestsTotal > 0 ? Math.round(apiMetricsState.totalLatencyMs / requestsTotal) : 0;
+  const usageRecords = usageMeteringPipeline.getRecords();
+  const usageAgg = usageAggregationService.aggregate(usageRecords, {});
+  const snapshot = billingService.getSnapshot();
+  const maxQuota = snapshot.quotas.reduce((acc, q) => Math.max(acc, Number(q.limit || 0)), 0);
+  const quotaUsagePct = maxQuota > 0 ? (usageAgg.totalQuantity / maxQuota) * 100 : 0;
+  const infraHealth = await postgresStore.health();
+  const alerts: Array<Record<string, any>> = [];
+
+  if (errors5xx > 0 || successRatePct < 99) {
+    alerts.push({
+      code: 'failures_alert',
+      severity: errors5xx > 10 ? 'high' : 'medium',
+      status: 'firing',
+      message: `API failure signal detected: 5xx=${errors5xx}, successRate=${successRatePct.toFixed(2)}%`,
+    });
+  }
+  if (quotaUsagePct >= 90) {
+    alerts.push({
+      code: 'quota_alert',
+      severity: quotaUsagePct >= 100 ? 'high' : 'medium',
+      status: 'firing',
+      message: `Quota usage is high: ${quotaUsagePct.toFixed(2)}%`,
+    });
+  }
+  if (!infraHealth.ok) {
+    alerts.push({
+      code: 'infra_alert',
+      severity: 'high',
+      status: 'firing',
+      message: `Infra health degraded: ${String(infraHealth.error || 'unknown')}`,
+    });
+  }
+
+  return {
+    alerts,
+    channels: ['in_app', 'audit_log'],
+    metrics: {
+      requestsTotal,
+      errors5xx,
+      avgLatencyMs,
+      successRatePct: Number(successRatePct.toFixed(2)),
+      quotaUsagePct: Number(quotaUsagePct.toFixed(2)),
+      infraOk: infraHealth.ok,
+    },
+    generatedAt: new Date().toISOString(),
+  };
+};
+
 const appendPolicyMetadata = (input: {
   eventKind: string;
   projectId?: string;
@@ -2843,6 +2896,7 @@ registerTelemetryRoutes(app, {
   listApiTraceSpans,
   readStructuredLogs,
   getSloStatus,
+  getAlertsSnapshot,
   readRunLedgerEvents,
   normalizeRuntimeEvent,
 });
