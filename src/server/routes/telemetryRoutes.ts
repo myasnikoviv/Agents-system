@@ -24,12 +24,65 @@ interface TelemetryRouteDeps {
 }
 
 export function registerTelemetryRoutes(app: express.Express, deps: TelemetryRouteDeps): void {
+  const parseNumber = (value: unknown): number | null => {
+    const n = Number(value);
+    return Number.isFinite(n) ? n : null;
+  };
+  const normalizeText = (value: unknown): string => String(value || '').trim().toLowerCase();
+  const matchesAuditFilters = (
+    row: UnifiedTelemetryEvent,
+    input: {
+      action?: string;
+      actorId?: string;
+      category?: string;
+      q?: string;
+      fromTs?: number | null;
+      toTs?: number | null;
+    },
+  ): boolean => {
+    const action = normalizeText(input.action);
+    const actorId = normalizeText(input.actorId);
+    const category = normalizeText(input.category);
+    const q = normalizeText(input.q);
+    const fromTs = input.fromTs;
+    const toTs = input.toTs;
+
+    if (action && !normalizeText(row.type).includes(action)) return false;
+    if (actorId && normalizeText(row.actorId).indexOf(actorId) < 0) return false;
+    if (category && normalizeText(row.category) !== category) return false;
+    if (typeof fromTs === 'number' && row.timestamp < fromTs) return false;
+    if (typeof toTs === 'number' && row.timestamp > toTs) return false;
+    if (q) {
+      const blob = normalizeText(
+        JSON.stringify({
+          type: row.type,
+          actorId: row.actorId,
+          payload: row.payload,
+          projectId: row.projectId,
+          runId: row.runId,
+          chainId: row.chainId,
+        }),
+      );
+      if (!blob.includes(q)) return false;
+    }
+    return true;
+  };
+
   const readControlActions = async (req: express.Request, res: express.Response) => {
     try {
       const projectId = String(req.query?.projectId || '').trim();
       const limit = Math.max(1, Math.min(500, Number(req.query?.limit || 100)));
+      const action = String(req.query?.action || '').trim();
+      const actorId = String(req.query?.actorId || '').trim();
+      const category = String(req.query?.category || '').trim();
+      const q = String(req.query?.q || '').trim();
+      const fromTs = parseNumber(req.query?.fromTs);
+      const toTs = parseNumber(req.query?.toTs);
       const rows = await deps.readControlActionAuditRows(projectId || undefined);
-      const sliced = rows.slice(-limit).reverse();
+      const events = rows.map(deps.normalizeAuditRow).filter((row) =>
+        matchesAuditFilters(row, { action, actorId, category, q, fromTs, toTs }),
+      );
+      const sliced = events.slice(-limit).reverse();
       res.json({ success: true, actions: sliced, total: rows.length, limit });
     } catch (error: any) {
       res.status(500).json({
@@ -52,8 +105,18 @@ export function registerTelemetryRoutes(app: express.Express, deps: TelemetryRou
     try {
       const projectId = String(req.query?.projectId || '').trim();
       const limit = Math.max(1, Math.min(1000, Number(req.query?.limit || 200)));
+      const action = String(req.query?.action || '').trim();
+      const actorId = String(req.query?.actorId || '').trim();
+      const category = String(req.query?.category || '').trim();
+      const q = String(req.query?.q || '').trim();
+      const fromTs = parseNumber(req.query?.fromTs);
+      const toTs = parseNumber(req.query?.toTs);
       const rows = await deps.readControlActionAuditRows(projectId || undefined);
-      const events = rows.slice(-limit).map(deps.normalizeAuditRow).sort((a, b) => b.timestamp - a.timestamp);
+      const events = rows
+        .map(deps.normalizeAuditRow)
+        .filter((row) => matchesAuditFilters(row, { action, actorId, category, q, fromTs, toTs }))
+        .sort((a, b) => b.timestamp - a.timestamp)
+        .slice(0, limit);
       res.json({
         success: true,
         source: 'control-actions.jsonl',
