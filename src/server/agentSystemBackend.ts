@@ -709,8 +709,14 @@ const getAuthContext = (req: express.Request): {
   };
 };
 
-type AuthRole = 'owner' | 'admin' | 'member';
-const AUTH_ROLE_ORDER: Record<AuthRole, number> = { owner: 3, admin: 2, member: 1 };
+type AuthRole = 'owner' | 'admin' | 'member' | 'viewer';
+const AUTH_ROLE_ORDER: Record<AuthRole, number> = { owner: 4, admin: 3, member: 2, viewer: 1 };
+const AUTH_PERMISSION_MATRIX: Record<AuthRole, string[]> = {
+  owner: ['*'],
+  admin: ['runtime:read', 'runtime:write', 'config:read', 'config:write', 'secrets:read', 'secrets:write'],
+  member: ['runtime:read', 'runtime:write', 'config:read'],
+  viewer: ['runtime:read', 'config:read'],
+};
 
 const requireRole = (
   req: express.Request,
@@ -723,7 +729,10 @@ const requireRole = (
     return null;
   }
   const normalizedRole = (String(auth.role || '').trim().toLowerCase() || 'member') as AuthRole;
-  const effectiveRole: AuthRole = normalizedRole === 'owner' || normalizedRole === 'admin' ? normalizedRole : 'member';
+  const effectiveRole: AuthRole =
+    normalizedRole === 'owner' || normalizedRole === 'admin' || normalizedRole === 'member' || normalizedRole === 'viewer'
+      ? normalizedRole
+      : 'member';
   if (AUTH_ROLE_ORDER[effectiveRole] < AUTH_ROLE_ORDER[minRole]) {
     res.status(403).json({ success: false, error: 'forbidden', message: `Requires role: ${minRole}` });
     return null;
@@ -2659,7 +2668,7 @@ app.post('/api/auth/register', (req, res) => {
   }
 
   const existingCount = Number((runtimeDb.prepare('SELECT COUNT(*) as c FROM auth_users').get() as any)?.c || 0);
-  const role = requestedRole === 'admin' || requestedRole === 'owner' || requestedRole === 'member'
+  const role = requestedRole === 'admin' || requestedRole === 'owner' || requestedRole === 'member' || requestedRole === 'viewer'
     ? requestedRole
     : existingCount === 0
       ? 'owner'
@@ -2682,6 +2691,16 @@ app.post('/api/auth/register', (req, res) => {
       tenantId,
       workspaceId,
     },
+  });
+});
+
+app.get('/api/auth/rbac/matrix', (req, res) => {
+  const auth = requireRole(req, res, 'member');
+  if (!auth) return;
+  res.json({
+    success: true,
+    roles: Object.keys(AUTH_PERMISSION_MATRIX),
+    matrix: AUTH_PERMISSION_MATRIX,
   });
 });
 

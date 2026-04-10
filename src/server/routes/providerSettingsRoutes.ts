@@ -1,8 +1,8 @@
 import type express from 'express';
 
 interface ProviderSettingsRouteDeps {
-  requireRole: (req: express.Request, res: express.Response, role?: 'member' | 'admin') => any;
-  getAuthContext: (req: express.Request) => { userId: string; role: 'member' | 'admin'; tenantId: string; workspaceId: string } | null;
+  requireRole: (req: express.Request, res: express.Response, role?: string) => any;
+  getAuthContext: (req: express.Request) => { userId: string; role: string; tenantId: string; workspaceId: string } | null;
   getRuntimeSelectionFromExecutorSettings: () => { provider: string; model: string } | null;
   isRuntimeProvider: (provider: string) => boolean;
   providerModelCatalog: Record<string, string[]>;
@@ -14,7 +14,7 @@ interface ProviderSettingsRouteDeps {
   persistSettingsStore: () => void;
   syncExecutorSettingsToRuntimeConfig: (
     executor: Record<string, any>,
-    auth: { userId: string; role: 'member' | 'admin'; tenantId: string; workspaceId: string },
+    auth: { userId: string; role: string; tenantId: string; workspaceId: string },
   ) => void;
   secretsStoreUpsert: (input: {
     tenantId: string;
