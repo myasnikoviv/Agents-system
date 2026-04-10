@@ -16,6 +16,7 @@ import { buildContractRepromptInstruction, validateAgentResponseContract } from 
 import { DynamicWorkerSpawnManager } from '../workers/DynamicWorkerSpawnManager';
 import { QueueAbstractionLayer } from '../queue/QueueAbstractionLayer';
 import { WorkerExecutionEngine } from '../workers/WorkerExecutionEngine';
+import { InterAgentCommunication } from '../workers/InterAgentCommunication';
 
 
 // The officially supported way to type State in LangGraph TS
@@ -606,19 +607,15 @@ async function swarmNode(state: PilotState): Promise<Partial<PilotState>> {
     const fromAgent = String(previousStage?.agent || '').trim();
     const toAgent = String(nextStage.agent || '').trim();
     if (fromAgent && toAgent && fromAgent !== toAgent) {
-      await emitEvent({
-        type: 'swarm.handoff',
+      await InterAgentCommunication.publishHandoff({
         runId: state.runId,
         projectId: state.projectId,
         chainId: state.threadId,
-        actor: { type: 'system', id: 'swarm' },
-        payload: {
-          pipelineId,
-          fromAgentId: fromAgent,
-          toAgentId: toAgent,
-          toStageId: String(nextStage.id || '').trim(),
-          toStageTitle: String(nextStage.title || nextStage.name || nextStage.id || '').trim(),
-        },
+        pipelineId,
+        fromAgentId: fromAgent,
+        toAgentId: toAgent,
+        toStageId: String(nextStage.id || '').trim(),
+        toStageTitle: String(nextStage.title || nextStage.name || nextStage.id || '').trim(),
       });
     }
   }
