@@ -75,7 +75,7 @@ export function registerChainProjectRoutes(app: express.Express, deps: ChainProj
     const projectLabel = String(req.body?.projectLabel || '').trim();
     const worktreePath = String(req.body?.worktreePath || '').trim();
     const agentContextPath = String(req.body?.agentContextPath || '').trim();
-    const onboardingMode = String(req.body?.onboardingMode || '').trim().toLowerCase() === 'repository' ? 'repository' : 'local';
+    const onboardingMode = String(req.body?.onboardingMode || '').trim().toLowerCase() === 'local' ? 'local' : 'repository';
     const repositoryUrl = String(req.body?.repositoryUrl || '').trim();
     const onboardingAuthMode = String(req.body?.onboardingAuthMode || '').trim().toLowerCase();
     const onboardingBootstrapMode = String(req.body?.onboardingBootstrapMode || '').trim().toLowerCase();

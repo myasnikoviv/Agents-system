@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ChevronLeft, ShieldCheck } from 'lucide-react';
-import { fetchJsonSafe } from '../../lib/http';
+import { fetchJsonSafe, fetchJsonStrict } from '../../lib/http';
 
 type RuleItem = { id: string; metadata?: { name?: string }; disabled?: boolean; effectiveEnabled?: boolean };
 type LoopItem = { id: string; kind: string; disabled?: boolean };
@@ -11,6 +11,7 @@ type ArtifactItem = { category: string; relativePath: string; exists: boolean };
 
 export function GovernanceCenterPage() {
   const [loading, setLoading] = useState(true);
+  const [mutatingId, setMutatingId] = useState('');
   const [error, setError] = useState('');
   const [rules, setRules] = useState<RuleItem[]>([]);
   const [loops, setLoops] = useState<LoopItem[]>([]);
@@ -45,6 +46,42 @@ export function GovernanceCenterPage() {
     void load();
   }, []);
 
+  const toggleRule = async (rule: RuleItem) => {
+    const nextDisabled = rule.effectiveEnabled;
+    setMutatingId(`rule:${rule.id}`);
+    setError('');
+    try {
+      await fetchJsonStrict(`/api/governance/rules/${encodeURIComponent(rule.id)}/disable`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ disabled: nextDisabled }),
+      });
+      await load();
+    } catch (e: any) {
+      setError(String(e?.message || 'Failed to update rule'));
+    } finally {
+      setMutatingId('');
+    }
+  };
+
+  const toggleLoop = async (loop: LoopItem) => {
+    const nextDisabled = !loop.disabled;
+    setMutatingId(`loop:${loop.id}`);
+    setError('');
+    try {
+      await fetchJsonStrict(`/api/governance/loops/${encodeURIComponent(loop.id)}/disable`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ disabled: nextDisabled }),
+      });
+      await load();
+    } catch (e: any) {
+      setError(String(e?.message || 'Failed to update loop'));
+    } finally {
+      setMutatingId('');
+    }
+  };
+
   const card = 'rounded-xl border border-slate-700 bg-slate-900 p-3';
 
   return (
@@ -74,7 +111,17 @@ export function GovernanceCenterPage() {
                 {rules.slice(0, 12).map((row) => (
                   <div key={row.id} className="flex items-center justify-between">
                     <span>{row.metadata?.name || row.id}</span>
-                    <span>{row.effectiveEnabled ? 'enabled' : row.disabled ? 'disabled' : 'inactive'}</span>
+                    <div className="flex items-center gap-2">
+                      <span>{row.effectiveEnabled ? 'enabled' : row.disabled ? 'disabled' : 'inactive'}</span>
+                      <button
+                        type="button"
+                        className="rounded border border-slate-600 bg-slate-800 px-2 py-0.5 text-[11px] text-slate-100"
+                        disabled={mutatingId === `rule:${row.id}`}
+                        onClick={() => void toggleRule(row)}
+                      >
+                        {row.effectiveEnabled ? 'Disable' : 'Enable'}
+                      </button>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -85,7 +132,17 @@ export function GovernanceCenterPage() {
                 {loops.slice(0, 12).map((row) => (
                   <div key={row.id} className="flex items-center justify-between">
                     <span>{row.id}</span>
-                    <span>{row.disabled ? 'disabled' : row.kind}</span>
+                    <div className="flex items-center gap-2">
+                      <span>{row.disabled ? 'disabled' : row.kind}</span>
+                      <button
+                        type="button"
+                        className="rounded border border-slate-600 bg-slate-800 px-2 py-0.5 text-[11px] text-slate-100"
+                        disabled={mutatingId === `loop:${row.id}`}
+                        onClick={() => void toggleLoop(row)}
+                      >
+                        {row.disabled ? 'Enable' : 'Disable'}
+                      </button>
+                    </div>
                   </div>
                 ))}
               </div>
