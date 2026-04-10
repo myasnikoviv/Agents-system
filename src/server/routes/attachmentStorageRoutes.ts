@@ -1,11 +1,21 @@
 import type express from 'express';
 
 interface AttachmentStorageRouteDeps {
-  objectStorageList: (input: { bucket?: string; projectId?: string; threadId?: string; limit?: number }) => Promise<any[]>;
-  objectStorageGet: (id: string) => Promise<any | null>;
+  getAuthContext: (req: express.Request) => { userId: string; tenantId: string; workspaceId: string; role: string } | null;
+  objectStorageList: (input: {
+    bucket?: string;
+    tenantId?: string;
+    workspaceId?: string;
+    projectId?: string;
+    threadId?: string;
+    limit?: number;
+  }) => Promise<any[]>;
+  objectStorageGet: (id: string, scope?: { tenantId?: string; workspaceId?: string }) => Promise<any | null>;
   objectStoragePut: (input: {
     bucket: string;
     key?: string;
+    tenantId?: string;
+    workspaceId?: string;
     projectId: string;
     threadId: string;
     mimeType: string;
@@ -23,6 +33,8 @@ interface AttachmentStorageRouteDeps {
 
 export function registerAttachmentStorageRoutes(app: express.Express, deps: AttachmentStorageRouteDeps): void {
   app.post('/api/cockpit/attachments/upload', async (req, res) => {
+    const auth = deps.getAuthContext(req);
+    if (!auth) return res.status(401).json({ success: false, error: 'unauthorized' });
     const body = req.body || {};
     const projectId = String(body.projectId || '').trim() || 'default';
     const threadId = String(body.threadId || '').trim() || 'default';
@@ -41,6 +53,8 @@ export function registerAttachmentStorageRoutes(app: express.Express, deps: Atta
         const originalName = String(file.originalName || file.name || '').trim() || `attachment-${idx + 1}`;
         const stored = await deps.objectStoragePut({
           bucket: 'attachments',
+          tenantId: auth.tenantId,
+          workspaceId: auth.workspaceId,
           key: `${projectId}/${threadId}/${originalName}`,
           projectId,
           threadId,
@@ -85,11 +99,15 @@ export function registerAttachmentStorageRoutes(app: express.Express, deps: Atta
   });
 
   app.get('/api/cockpit/attachments', async (req, res) => {
+    const auth = deps.getAuthContext(req);
+    if (!auth) return res.status(401).json({ success: false, error: 'unauthorized' });
     const projectId = typeof req.query.projectId === 'string' ? req.query.projectId.trim() : '';
     const threadId = typeof req.query.threadId === 'string' ? req.query.threadId.trim() : '';
     const limit = typeof req.query.limit === 'string' ? Number(req.query.limit) : undefined;
     const items = await deps.objectStorageList({
       bucket: 'attachments',
+      tenantId: auth.tenantId,
+      workspaceId: auth.workspaceId,
       projectId: projectId || undefined,
       threadId: threadId || undefined,
       limit,
@@ -98,7 +116,12 @@ export function registerAttachmentStorageRoutes(app: express.Express, deps: Atta
   });
 
   app.get('/api/cockpit/attachments/:id', async (req, res) => {
-    const item = await deps.objectStorageGet(String(req.params.id || '').trim());
+    const auth = deps.getAuthContext(req);
+    if (!auth) return res.status(401).json({ success: false, error: 'unauthorized' });
+    const item = await deps.objectStorageGet(String(req.params.id || '').trim(), {
+      tenantId: auth.tenantId,
+      workspaceId: auth.workspaceId,
+    });
     if (!item || item.bucket !== 'attachments') {
       return res.status(404).json({ success: false, error: 'attachment_not_found' });
     }
@@ -106,7 +129,12 @@ export function registerAttachmentStorageRoutes(app: express.Express, deps: Atta
   });
 
   app.get('/api/cockpit/attachments/:id/content', async (req, res) => {
-    const item = await deps.objectStorageGet(String(req.params.id || '').trim());
+    const auth = deps.getAuthContext(req);
+    if (!auth) return res.status(401).json({ success: false, error: 'unauthorized' });
+    const item = await deps.objectStorageGet(String(req.params.id || '').trim(), {
+      tenantId: auth.tenantId,
+      workspaceId: auth.workspaceId,
+    });
     if (!item || item.bucket !== 'attachments') {
       return res.status(404).json({ success: false, error: 'attachment_not_found' });
     }
@@ -117,16 +145,30 @@ export function registerAttachmentStorageRoutes(app: express.Express, deps: Atta
   });
 
   app.get('/api/cockpit/storage/objects', async (req, res) => {
+    const auth = deps.getAuthContext(req);
+    if (!auth) return res.status(401).json({ success: false, error: 'unauthorized' });
     const bucket = typeof req.query.bucket === 'string' ? req.query.bucket.trim() : undefined;
     const projectId = typeof req.query.projectId === 'string' ? req.query.projectId.trim() : undefined;
     const threadId = typeof req.query.threadId === 'string' ? req.query.threadId.trim() : undefined;
     const limit = typeof req.query.limit === 'string' ? Number(req.query.limit) : undefined;
-    const items = await deps.objectStorageList({ bucket, projectId, threadId, limit });
+    const items = await deps.objectStorageList({
+      bucket,
+      tenantId: auth.tenantId,
+      workspaceId: auth.workspaceId,
+      projectId,
+      threadId,
+      limit,
+    });
     return res.json({ success: true, items });
   });
 
   app.get('/api/cockpit/storage/objects/:id', async (req, res) => {
-    const item = await deps.objectStorageGet(String(req.params.id || '').trim());
+    const auth = deps.getAuthContext(req);
+    if (!auth) return res.status(401).json({ success: false, error: 'unauthorized' });
+    const item = await deps.objectStorageGet(String(req.params.id || '').trim(), {
+      tenantId: auth.tenantId,
+      workspaceId: auth.workspaceId,
+    });
     if (!item) {
       return res.status(404).json({ success: false, error: 'object_not_found' });
     }

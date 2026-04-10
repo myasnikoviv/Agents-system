@@ -4087,6 +4087,7 @@ app.get('/api/events/stream', (req, res) => {
 });
 
 registerAttachmentStorageRoutes(app, {
+  getAuthContext,
   objectStorageList: async (input) => {
     if (await shouldUsePostgresObjects()) {
       const pgItems = await postgresObjectStorage.listObjects(input);
@@ -4094,12 +4095,12 @@ registerAttachmentStorageRoutes(app, {
     }
     return objectStorage.listObjects(input);
   },
-  objectStorageGet: async (id) => {
+  objectStorageGet: async (id, scope) => {
     if (await shouldUsePostgresObjects()) {
-      const pgObject = await postgresObjectStorage.getObject(id);
+      const pgObject = await postgresObjectStorage.getObject(id, scope);
       if (pgObject) return pgObject;
     }
-    return objectStorage.getObject(id);
+    return objectStorage.getObject(id, scope);
   },
   objectStoragePut: async (input) => {
     const sqliteStored = objectStorage.putObject(input);
