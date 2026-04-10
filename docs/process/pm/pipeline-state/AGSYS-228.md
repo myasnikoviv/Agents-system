@@ -12,6 +12,6 @@
 4. verify: Run backend smoke + frontend build + UI behavior checks.
 
 ## Current Focus
-- Remove fabricated ticket fallback.
+- Remove fabricated ticket default.
 - Ensure pm-entry does not force premature finalize.
 - Render persistent agent roster with live status/task fields.

@@ -29,7 +29,7 @@ export function logPipelineUsageGate(input: PipelineUsageInput) {
       ticket: input.ticketId,
       runId: input.runId,
       chainId: input.chainId,
-      detail: `low_confidence_fallback: confidence=${input.confidence.toFixed(2)}`,
+      detail: `low_confidence_default: confidence=${input.confidence.toFixed(2)}`,
     });
   } else {
     logGovernance({

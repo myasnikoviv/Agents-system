@@ -6,12 +6,12 @@ Validate that approve flow remains operational when upstream LLM returns OpenAI 
 ## Test Cases & Results
 | Test ID | Description | Result | Evidence |
 |---|---|---|---|
-| TC-59-1 | QA node receives quota error from executor | PASS | Fallback marker present in QA artifact log |
+| TC-59-1 | QA node receives quota error from executor | PASS | Default marker present in QA artifact log |
 | TC-59-2 | Approve-style continuation (`pilotGraph.invoke(null)`) at QA interrupt | PASS | No unhandled throw during second resume |
-| TC-59-3 | Provider error classification into `insufficient_quota` | PASS | Log contains `[fallback:insufficient_quota]` |
+| TC-59-3 | Provider error classification into `insufficient_quota` | PASS | Log contains `[recovery:insufficient_quota]` |
 
 ## Execution Command
-- `npx jest src/runtime/__tests__/pilot_approve_quota_fallback.test.ts --runInBand`
+- `npx jest src/runtime/__tests__/pilot_approve_quota_default.test.ts --runInBand`
 
 ## Pass/Fail Status
 - STATUS: PASS

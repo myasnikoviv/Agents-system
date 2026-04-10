@@ -35,7 +35,7 @@ Multiple Agents
 ❌ Removed
 	•	mock mode — видалити повністю
 	•	quasi-linear — видалити повністю
-	•	всі згадки, налаштування, fallback-и — видалити
+	•	всі згадки, налаштування, default-и — видалити
 
 Consequences
 	•	❗ спрощення архітектури
@@ -46,7 +46,7 @@ Consequences
 UI Impact
 	•	runtime mode selector → ❌ видалити
 	•	execution mode → ❌ видалити
-	•	fallback logic → ❌ видалити
+	•	default logic → ❌ видалити
 
 ⸻
 
@@ -370,7 +370,7 @@ Must delete:
 	•	quasi-linear runtime
 	•	runtime mode selector
 	•	all related flags
-	•	fallback logic
+	•	default logic
 
 ⸻
 

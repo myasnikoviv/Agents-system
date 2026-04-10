@@ -15,7 +15,7 @@ function buildManifest(): ProjectRuntimeManifest {
       {
         id: 'new-feature',
         source: 'docs/pipelines/new-feature.md',
-        fallback: true,
+        default: true,
         stages: [
           { id: 'intake-1', role: 'pm-orchestrator', requiredGates: ['git-preflight'], outputs: [] },
           { id: 'developer-2', role: 'developer', requiredGates: ['git-preflight'], outputs: [] },

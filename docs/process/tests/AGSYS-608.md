@@ -23,6 +23,6 @@ Shared queue async path introduction and multiple-agents runtime wiring.
   on queue/worker/runtime suites (3 suites, 28 tests).
 
 ## Notes
-- Async queue test added for sqlite fallback compatibility path.
+- Async queue test added for sqlite default compatibility path.
 - Redis backend mode is feature-flagged by env and is backward-compatible when disabled.
 - Added `DynamicWorkerSpawnManager.clearAsync()` and updated worker tests to avoid shared-state residue between runs in redis mode.

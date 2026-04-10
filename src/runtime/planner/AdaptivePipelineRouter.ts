@@ -18,6 +18,6 @@ export async function resolveAdaptivePipelineRoute(input: {
   const adaptive = await selectPipelineForProject(input.message, input.workspacePath);
   return {
     pipeline: adaptive.selectedPipeline || 'unified-task-intake',
-    reason: `adaptive_fallback:${adaptive.reason}`,
+    reason: `adaptive_default:${adaptive.reason}`,
   };
 }

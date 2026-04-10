@@ -27,13 +27,13 @@ function toSchedulerMode(mode: 'parallel' | 'exclusive' | 'isolated'): Workbench
   return 'exclusive';
 }
 
-function summarize(content: unknown, fallback: string): string {
+function summarize(content: unknown, defaultValue: string): string {
   if (typeof content === 'string') return content.length > 200 ? `${content.slice(0, 199)}…` : content;
   try {
     const serialized = JSON.stringify(content);
     return serialized.length > 200 ? `${serialized.slice(0, 199)}…` : serialized;
   } catch {
-    return fallback;
+    return defaultValue;
   }
 }
 

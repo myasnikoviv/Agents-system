@@ -20,7 +20,7 @@ Resolve execution blockers autonomously before involving the user, while preserv
 3. Run autonomous recovery loop (minimum 3 attempts):
    - Attempt 1: native tool/MCP path.
    - Attempt 2: direct API/CLI path.
-   - Attempt 3: infra/data fallback path (for example DB-level or environment-level workaround).
+   - Attempt 3: infra/data default path (for example DB-level or environment-level workaround).
 4. For each attempt, record:
    - hypothesis
    - command/action

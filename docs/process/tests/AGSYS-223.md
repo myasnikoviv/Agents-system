@@ -12,7 +12,7 @@
    - Observed:
      - explicit required checks for `agent` and `pipeline`
      - explicit check for empty pipeline stages
-     - fallback to first stage when stage id is empty
+     - default to first stage when stage id is empty
 
 2. Runtime proof bootstrap
    - File: `scripts/final_agentic_proof.ts`

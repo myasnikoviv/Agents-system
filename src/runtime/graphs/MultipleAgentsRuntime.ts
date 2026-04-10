@@ -8,9 +8,9 @@ import { DynamicWorkerSpawnManager } from '../workers/DynamicWorkerSpawnManager'
 import { executeRunContextInSubprocess } from '../workers/WorkerProcessExecutor';
 import type { PilotState } from './UnifiedSwarmGraph';
 
-function asString(value: unknown, fallback: string): string {
+function asString(value: unknown, defaultValue: string): string {
   const normalized = String(value || '').trim();
-  return normalized || fallback;
+  return normalized || defaultValue;
 }
 
 function buildUserInput(initialState: Partial<PilotState>): string {

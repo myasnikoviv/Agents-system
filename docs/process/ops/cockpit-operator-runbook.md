@@ -11,7 +11,7 @@ Operate the Agent Cockpit as the single entry point for task execution.
 5. Confirm DB path for shared worktree runtime:
    - `echo $STRATEGY_DB_PATH` (optional explicit path)
    - `echo $TRADE_BOT_SHARED_DATA_DIR` (optional shared root)
-   - default fallback: `~/development/.trade_bot_data/db/strategies.db`.
+   - default default: `~/development/.trade_bot_data/db/strategies.db`.
 
 ## Modes
 ### Linear
@@ -44,7 +44,7 @@ If MCP calls return 401 in-session:
 1. Validate MCP env keys (`PLANE_API_KEY`, `PLANE_WORKSPACE_SLUG`, `PLANE_API_HOST_URL`).
 2. Confirm token validity in Plane UI.
 3. Restart Codex session to reload MCP server env.
-4. Use Plane REST fallback only as temporary mitigation, then restore MCP path.
+4. Use Plane REST default only as temporary mitigation, then restore MCP path.
 
 ## Incident Handling
 1. Open/transition corresponding Plane ticket.

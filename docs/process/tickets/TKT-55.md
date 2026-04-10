@@ -1,7 +1,7 @@
-# TKT-55: Voice Interface Hardening (Web Speech API & Whisper Fallback)
+# TKT-55: Voice Interface Hardening (Web Speech API & Whisper Default)
 
 ## Business Context
-The current Voice Input is a simple proxy to Whisper. This adds latency and cost for simple commands. We need a hybrid model that uses the browser's native `webkitSpeechRecognition` for instant feedback and OpenAI Whisper only for high-fidelity needs or fallbacks.
+The current Voice Input is a simple proxy to Whisper. This adds latency and cost for simple commands. We need a hybrid model that uses the browser's native `webkitSpeechRecognition` for instant feedback and OpenAI Whisper only for high-fidelity needs or defaults.
 
 ## Technical Scope
 1. **Frontend (CockpitPage.tsx)**:
@@ -24,4 +24,4 @@ The current Voice Input is a simple proxy to Whisper. This adds latency and cost
 ## Acceptance Criteria
 - Latency reduced for simple verbal commands.
 - Live "ghost text" appears in chat input during speech.
-- Successful fallback to Whisper on browser SpeechRecognition failure.
+- Successful default to Whisper on browser SpeechRecognition failure.

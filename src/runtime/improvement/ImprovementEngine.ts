@@ -39,12 +39,12 @@ export interface LearningTrendKpiResult {
   regressionAlarmPath?: string;
 }
 
-function readJson<T>(filePath: string, fallback: T): T {
-  if (!fs.existsSync(filePath)) return fallback;
+function readJson<T>(filePath: string, defaultValue: T): T {
+  if (!fs.existsSync(filePath)) return defaultValue;
   try {
     return JSON.parse(fs.readFileSync(filePath, 'utf-8')) as T;
   } catch {
-    return fallback;
+    return defaultValue;
   }
 }
 

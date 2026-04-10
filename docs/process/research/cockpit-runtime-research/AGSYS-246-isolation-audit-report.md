@@ -42,8 +42,8 @@ Scope: Research only (no implementation)
 - Evidence: `src/runtime/events/EventBus.ts:23-44`
 - Risk: consumers must rely on filtering by thread/run metadata; stream itself is shared.
 
-3. Context assembly default fallbacks may blur boundaries:
-- RunContext defaults (`threadId: 'default-thread'`, `projectId` fallback) if explicit memory/context is missing.
+3. Context assembly default defaults may blur boundaries:
+- RunContext defaults (`threadId: 'default-thread'`, `projectId` default) if explicit memory/context is missing.
 - Evidence: `src/runtime/context/RunContext.ts:143-146`
 - Risk: malformed/missing identifiers can route execution into shared defaults.
 

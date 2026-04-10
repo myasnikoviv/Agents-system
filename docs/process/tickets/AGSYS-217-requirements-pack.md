@@ -24,7 +24,7 @@ Integrate OpenHands SDK into the Cockpit agent infrastructure as a third executi
    - Secure storage for API Keys (no plain text in config).
 4. **Backend Integration**:
    - Create `OpenHandsExecutionProvider` adapter.
-   - Support SDK mode as primary (CLI as fallback).
+   - Support SDK mode as primary (CLI as default).
    - Normalize errors and execution results into unified internal format.
 5. **LangGraph Integration**:
    - Add `OpenHandsExecutorNode` to the orchestration graph.

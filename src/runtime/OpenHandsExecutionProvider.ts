@@ -31,12 +31,12 @@ export class OpenHandsExecutionProvider {
     if (model.startsWith('openai/')) return 'openai';
     if (model.startsWith('anthropic/')) return 'anthropic';
     if (model.startsWith('google/')) return 'google';
-    return 'anthropic'; // default fallback
+    return 'anthropic'; // default defaultValue
   }
 
-  private parsePositiveInt(value: string | undefined, fallback: number): number {
+  private parsePositiveInt(value: string | undefined, defaultValue: number): number {
     const parsed = Number(value);
-    if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
+    if (!Number.isFinite(parsed) || parsed <= 0) return defaultValue;
     return Math.floor(parsed);
   }
 

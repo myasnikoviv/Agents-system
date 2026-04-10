@@ -32,7 +32,7 @@ Ensure safe branch, commit, and merge lifecycle.
 3. Perform at least 3 autonomous recovery attempts before escalating to user:
    - Attempt 1: canonical git-flow path (`fetch/rebase/resolve`).
    - Attempt 2: alternate integration path (`cherry-pick` or controlled rebranch/worktree recovery).
-   - Attempt 3: safe infra/data fallback (scripted recovery via `scripts/git/*`).
+   - Attempt 3: safe infra/data default (scripted recovery via `scripts/git/*`).
 4. Log evidence per attempt (commands, outputs, conflict signatures, timestamps).
 5. Escalate only after 3 failed distinct attempts, with clear recovery options and evidence.
 

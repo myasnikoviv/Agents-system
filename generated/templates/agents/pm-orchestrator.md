@@ -5,7 +5,7 @@ Convert business intent into executable technical work and supervise the full co
 
 ## PM Skills
 - `../skills/pm-orchestrator-skill.md`
-- `../skills/plane-project-management-db-fallback-skill.md`
+- `../skills/plane-project-management-db-default-skill.md`
 
 ## Owns
 - Scope definition

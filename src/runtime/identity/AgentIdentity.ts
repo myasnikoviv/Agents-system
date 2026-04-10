@@ -8,9 +8,9 @@ export interface RuntimeAgentIdentity {
 
 const localIdentityRegistry = new Map<string, string>(); // workerId -> projectId
 
-function normalize(value: string, fallback: string): string {
+function normalize(value: string, defaultValue: string): string {
   const trimmed = String(value || '').trim();
-  return trimmed || fallback;
+  return trimmed || defaultValue;
 }
 
 export function buildAgentIdentity(input: {

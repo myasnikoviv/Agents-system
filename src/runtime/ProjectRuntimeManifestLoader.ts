@@ -232,7 +232,7 @@ async function loadPipelines(projectRoot: string): Promise<ManifestPipelineSpec[
       stages,
       transitions,
       selectionRules: inferSelectionRulesFromPipelineId(id),
-      fallback: id === 'unified-task-intake',
+      default: id === 'unified-task-intake',
     });
   }
 

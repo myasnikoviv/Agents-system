@@ -20,7 +20,7 @@ function baseManifest(): ProjectRuntimeManifest {
       {
         id: 'unified-task-intake',
         source: 'docs/pipelines/unified-task-intake.md',
-        fallback: true,
+        default: true,
         stages: [
           {
             id: 'intake-1',

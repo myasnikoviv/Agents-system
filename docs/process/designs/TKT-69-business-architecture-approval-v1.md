@@ -59,7 +59,7 @@ User Request -> PM pipeline selection -> Pipeline state card -> LangGraph stage 
 - Mitigation: governance-first contracts validated in CI and runtime stage guards.
 
 - Risk: partial MCP failures break handoff chain.
-- Mitigation: retry/fallback policy plus explicit blocked-state transitions.
+- Mitigation: retry/default policy plus explicit blocked-state transitions.
 
 ## 8. Approval Gate
 If approved, this document becomes baseline for TRADE-70 backlog decomposition and TRADE-71 pilot execution.

@@ -5,7 +5,7 @@ Branch: `codex/AGSYS-13-plane-cycle-fix`
 
 ## Scope
 - Validate AGSYS cycle feature flag and API creation path.
-- Validate worktree-safe `.env` fallback behavior for plane cycle script.
+- Validate worktree-safe `.env` default behavior for plane cycle script.
 
 ## Commands
 1. `node -e "JSON.parse(require('fs').readFileSync('package.json','utf8'))"`

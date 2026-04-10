@@ -59,8 +59,8 @@ export async function fetchJsonStrict<T>(path: string, init?: RequestInit): Prom
   if (primary.parsed && !primary.isHtml) return primary.parsed;
 
   if (API_BASE === '/api') {
-    const fallback = await tryRequest(`${API_FALLBACK_BASE}${path}`);
-    if (fallback.parsed && !fallback.isHtml) return fallback.parsed;
+    const defaultValue = await tryRequest(`${API_FALLBACK_BASE}${path}`);
+    if (defaultValue.parsed && !defaultValue.isHtml) return defaultValue.parsed;
   }
 
   if (primary.isHtml) {

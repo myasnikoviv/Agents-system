@@ -7,7 +7,7 @@ This repository uses a role-based agent system for product work, strategy logic 
 1. PM Orchestrator / Supervisor
    - Callsign: `Сокіл-Координатор (PM Orchestrator)`
    - File: `./generated/templates/agents/pm-orchestrator.md`
-   - Skill: `./generated/templates/skills/pm-orchestrator-skill.md, ./generated/templates/skills/plane-project-management-db-fallback-skill.md`
+   - Skill: `./generated/templates/skills/pm-orchestrator-skill.md, ./generated/templates/skills/plane-project-management-db-default-skill.md`
 2. Research Agent
    - Callsign: `Дослідник Шляху (Research Agent)`
    - File: `./generated/templates/agents/research-agent.md`

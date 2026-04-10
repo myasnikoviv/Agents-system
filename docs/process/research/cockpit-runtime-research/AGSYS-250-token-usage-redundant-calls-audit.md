@@ -30,7 +30,7 @@ Scope: Research only (no implementation)
 
 ## 2) Confirmed expensive loop patterns
 1. Classification + execution as serial pair for each message.
-2. Contract fail -> reprompt -> fallback formatting path.
+2. Contract fail -> reprompt -> default formatting path.
 3. Reclassification checkpoint path can reroute additional stages.
 - Evidence: drift reroute branch `src/runtime/graphs/PilotQuasiLinearGraph.ts:672-690`
 

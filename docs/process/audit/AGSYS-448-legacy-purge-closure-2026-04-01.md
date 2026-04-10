@@ -6,7 +6,7 @@ Remove runtime legacy event-contract drift and keep only canonical runtime contr
 ## Completed
 
 1. Runtime event contract made strict canonical in EventBus.
-- Removed legacy compatibility fallback for event field aliases.
+- Removed legacy compatibility default for event field aliases.
 - Enforced canonical required fields and known event-type validation.
 
 2. Runtime core state naming migrated.

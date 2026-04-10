@@ -65,7 +65,7 @@ interface PipelineSpec {
     keywords: string[];
     scoreWeight?: number;
   }[];
-  fallback?: boolean;        // one pipeline should be fallback=true
+  default?: boolean;        // one pipeline should be default=true
 }
 
 interface StageSpec {
@@ -113,14 +113,14 @@ interface GateSpec {
   - every pipeline stage role exists in agents
   - every required gate exists
   - transitions form executable DAG/graph with at least one terminal stage
-  - exactly one fallback pipeline
+  - exactly one default pipeline
 
 ### 2.3 `PipelineResolver`
 - Input: user message + manifest selection rules.
 - Output: `{pipelineId, confidence, reason}`.
 - Behavior:
   - compute weighted score from project rules
-  - fallback to pipeline flagged `fallback=true`
+  - default to pipeline flagged `default=true`
   - no hardcoded platform keyword tables
 
 ### 2.4 `DynamicGraphBuilder`

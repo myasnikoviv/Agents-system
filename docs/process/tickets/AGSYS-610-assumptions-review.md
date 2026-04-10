@@ -9,8 +9,8 @@
 
 ## Assumptions
 1. `PostgresControlPlaneStore` can be extended without breaking standalone mode.
-2. Some local/sqlite paths must remain as compatibility fallback until full migration completes.
-3. API consumers can accept explicit `source`/`fallback` metadata in responses.
+2. Some local/sqlite paths must remain as compatibility default until full migration completes.
+3. API consumers can accept explicit `source`/`default` metadata in responses.
 
 ## Risks
 - Partial rollout may create inconsistent source precedence.
@@ -19,4 +19,4 @@
 ## Mitigations
 - Canonical source precedence encoded in helper functions.
 - Health + source metadata exposed in relevant APIs.
-- Regression checks in both pg-enabled and fallback modes.
+- Regression checks in both pg-enabled and default modes.

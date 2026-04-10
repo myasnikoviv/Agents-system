@@ -27,8 +27,8 @@ Maintain stable local infrastructure and deployment tooling for project executio
 2. Mark active ticket status as `Blocked` and link blocker artifact/ticket.
 3. Perform at least 3 autonomous recovery attempts before escalating to user:
    - Attempt 1: standard infra path (service/script restart + baseline checks).
-   - Attempt 2: alternate runtime/API path (direct API, alternate endpoint, fallback service).
-   - Attempt 3: data/system fallback path (DB-level or host-level remediation with safety guard).
+   - Attempt 2: alternate runtime/API path (direct API, alternate endpoint, default service).
+   - Attempt 3: data/system default path (DB-level or host-level remediation with safety guard).
 4. Record each attempt with command/evidence/error signature/timestamp.
 5. Escalate only after 3 failed distinct attempts, providing concise options and artifacts.
 

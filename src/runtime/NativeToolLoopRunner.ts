@@ -22,19 +22,19 @@ export class NativeToolLoopRunner {
 
   constructor(private adapter: ExecutionAdapter) {}
 
-  private summarizeToolContent(content: unknown, fallback: string): string {
-    if (content === null || content === undefined) return fallback;
+  private summarizeToolContent(content: unknown, defaultValue: string): string {
+    if (content === null || content === undefined) return defaultValue;
     if (typeof content === 'string') {
       const normalized = content.replace(/\s+/g, ' ').trim();
-      if (!normalized) return fallback;
+      if (!normalized) return defaultValue;
       return normalized.length > 260 ? `${normalized.slice(0, 259)}…` : normalized;
     }
     try {
       const json = JSON.stringify(content);
-      if (!json) return fallback;
+      if (!json) return defaultValue;
       return json.length > 260 ? `${json.slice(0, 259)}…` : json;
     } catch {
-      return fallback;
+      return defaultValue;
     }
   }
 

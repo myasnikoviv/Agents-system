@@ -1466,7 +1466,7 @@ export function CockpitPage() {
                 const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
                 stream.getTracks().forEach(track => track.stop());
                 
-                // Final refined transcription fallback (Whisper)
+                // Final refined transcription default (Whisper)
                 const formData = new FormData();
                 formData.append('audio', audioBlob, 'voice.webm');
                 
@@ -1488,7 +1488,7 @@ export function CockpitPage() {
                         console.log('[Whisper] Feedback:', data.text);
                     }
                 } catch (e) {
-                    console.error("Transcribe fallback failed:", e);
+                    console.error("Transcribe default-path failed:", e);
                 } finally {
                     setIsProcessing(false);
                 }
@@ -2413,11 +2413,11 @@ export function CockpitPage() {
                                                     type="button"
                                                     className={`runtime-picker-option ${selectedProvider === provider ? 'active' : ''}`}
                                                     onClick={() => {
-                                                        const fallbackModel = providerModelPresets[provider]?.[0] || 'auto';
+                                                        const defaultModel = providerModelPresets[provider]?.[0] || 'auto';
                                                         setSelectedProvider(provider);
-                                                        setSelectedModel(fallbackModel);
+                                                        setSelectedModel(defaultModel);
                                                         setRuntimePickerOpen(null);
-                                                        void applyRuntimeSelection(provider, fallbackModel);
+                                                        void applyRuntimeSelection(provider, defaultModel);
                                                     }}
                                                 >
                                                     {provider}
@@ -3064,7 +3064,7 @@ export function CockpitPage() {
                                         onChange={(e) => setProjectBootstrapMode(e.target.value as 'none' | 'auto-template' | 'read-only')}
                                         className="cockpit-modal-input"
                                     >
-                                        <option value="read-only">Read-only fallback</option>
+                                        <option value="read-only">Read-only default</option>
                                         <option value="auto-template">Auto template</option>
                                         <option value="none">None</option>
                                     </select>

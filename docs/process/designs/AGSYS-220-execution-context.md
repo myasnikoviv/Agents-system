@@ -38,4 +38,4 @@ This trace demonstrates the lifecycle of a typical user request ("Implement user
 ## Key Trace Observations
 - **Consistency**: Each agent receives the exact output of the previous agent via `state.artifactLogs`.
 - **Dynamic Routing**: If the user had asked a simple question, the `RouterNode` would have mapped it to `intent="conversational"`, bypassing the swarm loop entirely and going to `conversationalNode`.
-- **Error Recovery**: If an agent fails, the `SafeRoleResult` ensures the loop doesn't crash but instead logs a fallback message and continues or retries.
+- **Error Recovery**: If an agent fails, the `SafeRoleResult` ensures the loop doesn't crash but instead logs a default message and continues or retries.

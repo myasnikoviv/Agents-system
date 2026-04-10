@@ -42,7 +42,7 @@ Translate business request into executable and testable work package with planni
 7. Approve implementation plan and handoff order.
 8. Trigger retrospective and knowledge updates after completion.
 9. If blocker appears: run `./blocker-recovery-skill.md` (create blocker ticket, block current ticket, run 3-attempt recovery, escalate only with evidence).
-10. If Plane MCP/API ticket operations are unavailable, run `./plane-project-management-db-fallback-skill.md` and reconcile state via official channel when restored.
+10. If Plane MCP/API ticket operations are unavailable, run `./plane-project-management-db-default-skill.md` and reconcile state via official channel when restored.
 
 ## Validation Checklist
 - Pipeline selected and declared
@@ -66,7 +66,7 @@ Translate business request into executable and testable work package with planni
 - `./research-agent-skill.md`
 - `./knowledge-curator-skill.md`
 - `./blocker-recovery-skill.md`
-- `./plane-project-management-db-fallback-skill.md`
+- `./plane-project-management-db-default-skill.md`
 
 ## Mandatory Branch/Worktree Guard
 - Never execute mutating actions on `main`.

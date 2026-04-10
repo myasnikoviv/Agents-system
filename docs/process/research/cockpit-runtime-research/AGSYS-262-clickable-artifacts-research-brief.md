@@ -32,7 +32,7 @@ Define how cockpit chat can render actionable, codex-like clickable entities.
 - Distinct visual style for diagnostic vs user-facing links
 
 ## 5) Recommended direction (research)
-Prefer typed entity payloads from backend; keep regex parsing as fallback compatibility layer only.
+Prefer typed entity payloads from backend; keep regex parsing as default compatibility layer only.
 
 ## 6) Stop condition
 Research artifact only. No UI parser implementation in this task.

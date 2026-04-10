@@ -1,4 +1,4 @@
 # AGSYS-238 Assumptions Review
 
-- Inconsistent labels are caused by mixed event payload vs registry fallbacks.
+- Inconsistent labels are caused by mixed event payload vs registry defaults.
 - Task pollution comes from raw `data.task`/payload text being rendered directly.

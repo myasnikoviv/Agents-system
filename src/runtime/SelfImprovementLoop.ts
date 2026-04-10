@@ -21,9 +21,9 @@ function scoreFromLogs(status: string, logs: string[]): { score: number; finding
   const findings: string[] = [];
   let score = status === 'done' || status === 'completed' ? 85 : 55;
   const lowered = logs.join('\n').toLowerCase();
-  if (lowered.includes('fallback')) {
+  if (lowered.includes('default')) {
     score -= 15;
-    findings.push('fallback_used');
+    findings.push('default_used');
   }
   if (lowered.includes('blocked')) {
     score -= 20;
@@ -42,14 +42,14 @@ function scoreFromLogs(status: string, logs: string[]): { score: number; finding
 
 function actionsFromFindings(findings: string[]): string[] {
   const actions: string[] = [];
-  if (findings.includes('fallback_used')) {
+  if (findings.includes('default_used')) {
     actions.push('Add provider resiliency decision tree before stage execution.');
   }
   if (findings.includes('blocked_stage_detected')) {
     actions.push('Create blocker ticket automatically and enforce 3-attempt autonomous recovery.');
   }
   if (findings.includes('quota_risk_detected')) {
-    actions.push('Add quota precheck + provider fallback preflight gate.');
+    actions.push('Add quota precheck + provider backup preflight gate.');
   }
   if (findings.includes('git_cleanup_evidence_missing')) {
     actions.push('Enforce post-sprint git closure verification gate in pipeline termination.');

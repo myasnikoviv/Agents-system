@@ -178,7 +178,7 @@ describe('ProjectDispatchQueue', () => {
     expect(secondPickup?.taskId).toBe(high.taskId);
   });
 
-  it('supports async queue API with sqlite fallback', async () => {
+  it('supports async queue API with sqlite default', async () => {
     const queued = await ProjectDispatchQueue.enqueueAsync({
       runId: 'r11',
       projectId: 'proj-a',
@@ -223,7 +223,7 @@ describe('ProjectDispatchQueue', () => {
     expect(await ProjectDispatchQueue.depthAsync('proj-a', 'developer')).toBe(1);
   });
 
-  it('supports async control APIs with sqlite fallback', async () => {
+  it('supports async control APIs with sqlite default', async () => {
     const queued = await ProjectDispatchQueue.enqueueAsync({
       runId: 'r12',
       projectId: 'proj-a',

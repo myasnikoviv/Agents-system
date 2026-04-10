@@ -5,7 +5,7 @@
 - Pipeline: new-feature
 
 ## Assumptions
-1. Synthetic ticket IDs are introduced by runtime prompt/context fallback logic, not by Plane creation flow.
+1. Synthetic ticket IDs are introduced by runtime prompt/context default logic, not by Plane creation flow.
 2. pm-entry premature finalization is caused by graph routing conditions, not by provider runtime.
 3. Agent statuses can be derived from real SSE events and discovery registry without hardcoding fixed role lists.
 4. Side panel can represent agent roster independently of event history rendering.

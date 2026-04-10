@@ -22,7 +22,7 @@ Branch: codex/TRADE-167-main-merge
 
 4. Voice selector (`Auto/UA/EN`)
 - Status: Partial functional
-- Implemented: changes recognition language and whisper fallback payload language.
+- Implemented: changes recognition language and whisper default payload language.
 - Missing backend: true auto detection and robust per-provider voice pipeline.
 
 5. Provider selector
@@ -33,7 +33,7 @@ Branch: codex/TRADE-167-main-merge
 6. Model selector
 - Status: Functional (API-backed with preset list)
 - Implemented: runtime model switch (`POST /api/cockpit/providers/select`).
-- Missing backend: dynamic model discovery by provider/capability; fallback strategy.
+- Missing backend: dynamic model discovery by provider/capability; default strategy.
 
 7. Plus button (catalog picker)
 - Status: Partial

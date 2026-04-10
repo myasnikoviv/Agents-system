@@ -262,7 +262,7 @@ Backend
 	•	quasi-linear execution paths
 	•	mock runtime logic
 	•	runtime switching logic
-	•	fallback mode logic
+	•	default mode logic
 
 ⸻
 
@@ -422,7 +422,7 @@ Control Plane
 
 Legacy
 	•	нічого не залишилось
-	•	немає fallback логіки
+	•	немає default логіки
 
 ⸻
 

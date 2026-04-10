@@ -121,12 +121,12 @@ export function registerProviderSettingsRoutes(app: express.Express, deps: Provi
       deps.setRuntimeSelection(runtimeFromSettings);
       deps.saveRuntimeState('runtime_selection', runtimeFromSettings);
     } else if (!deps.isRuntimeProvider(deps.getRuntimeSelection().provider)) {
-      const fallback = {
+      const defaultValue = {
         provider: 'codex-cli',
         model: deps.providerModelCatalog['codex-cli'][0],
       };
-      deps.setRuntimeSelection(fallback);
-      deps.saveRuntimeState('runtime_selection', fallback);
+      deps.setRuntimeSelection(defaultValue);
+      deps.saveRuntimeState('runtime_selection', defaultValue);
     }
 
     res.json({

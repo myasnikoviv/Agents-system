@@ -50,7 +50,7 @@ export async function getIssueFromPlane(issueId: string): Promise<PlaneIssue> {
             name = res.data.name || '';
             state_id = res.data.state || res.data.state_id || '';
         } catch (e: any) {
-            console.warn(`Issue UUID ${issueId} not found API. Returning fallback shell.`);
+            console.warn(`Issue UUID ${issueId} not found API. Returning default shell.`);
             name = 'Unknown or Chat Task';
         }
     }

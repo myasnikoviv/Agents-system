@@ -40,7 +40,7 @@ A project-agnostic orchestration engine where runtime behavior is derived from p
 3. `ManifestValidator`
    - schema + semantic checks (missing roles, broken transitions, unresolved gates)
 4. `PipelineResolver`
-   - selects pipeline using manifest rules + confidence + fallback
+   - selects pipeline using manifest rules + confidence + default
 5. `DynamicGraphBuilder`
    - compiles selected pipeline to runtime execution graph
 6. `GateEngine`

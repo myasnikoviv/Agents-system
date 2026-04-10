@@ -97,7 +97,7 @@ def _resolve_provider(model: str) -> str:
         return "anthropic"
     if "gemini" in model:
         return "google"
-    return "openai"  # fallback
+    return "openai"  # default
 
 
 def _bare_model_name(model: str) -> str:

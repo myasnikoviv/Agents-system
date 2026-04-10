@@ -16,7 +16,7 @@
 3. Added config-driven provider selection in backend (`src/server/agentSystemBackend.ts`):
 - `COCKPIT_SECRETS_BACKEND=postgres`
 - `COCKPIT_OBJECT_STORAGE_BACKEND=postgres`
-- SQLite remains explicit fallback/mirror
+- SQLite remains explicit default/mirror
 
 4. Switched secrets and attachment routes to async provider-aware flow:
 - `src/server/routes/secretsRoutes.ts`
@@ -35,4 +35,4 @@ Run with:
 - `COCKPIT_OBJECT_STORAGE_BACKEND=postgres`
 - valid `POSTGRES_URL`/`DATABASE_URL`
 
-In that mode, secrets/object storage are externalized with SQLite fallback only.
+In that mode, secrets/object storage are externalized with SQLite default only.

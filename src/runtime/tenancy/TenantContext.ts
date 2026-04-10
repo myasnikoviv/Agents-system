@@ -16,9 +16,9 @@ export interface TenantScope {
   agentSlug?: string;
 }
 
-function normalize(value: string | undefined, fallback: string): string {
+function normalize(value: string | undefined, defaultValue: string): string {
   const v = String(value || '').trim();
-  return v || fallback;
+  return v || defaultValue;
 }
 
 export function resolveTenantScope(input: TenantScopeInput): TenantScope {

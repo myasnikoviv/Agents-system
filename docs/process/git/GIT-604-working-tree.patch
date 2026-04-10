@@ -643,7 +643,7 @@ index a52feb8..85541a6 100644
  
 -        let best: AdaptiveLeg | null = pickBestResultLeg(false);
 +        let best: AdaptiveLeg | null = pickCanonicalResultLeg(false);
-         // Directional-ratio fallback:
+         // Directional-ratio default:
          // when the active/right retrace leg is strong and long, allow pairing
          // with structurally valid opposite base leg even if that base leg
          // misses directional ratio by a small margin.

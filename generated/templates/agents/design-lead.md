@@ -53,7 +53,7 @@ Own UI/UX quality gates, design direction, and visual consistency before and aft
    - validate key states (default, loading, error, empty, success),
    - record concrete findings with element-level references.
 2. If task is Figma-driven, compare Playwright-observed UI with Figma screenshot/design context before sign-off.
-3. If Playwright is temporarily unavailable, use equivalent visual MCP and mark fallback in report.
+3. If Playwright is temporarily unavailable, use equivalent visual MCP and mark default in report.
 4. Any design sign-off without visual MCP evidence is invalid.
 
 ## Playwright MCP Checklist

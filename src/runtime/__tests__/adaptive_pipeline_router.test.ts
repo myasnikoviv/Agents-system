@@ -34,6 +34,6 @@ describe('AdaptivePipelineRouter', () => {
       workspacePath: process.cwd(),
     });
     expect(route.pipeline).toBeTruthy();
-    expect(route.reason.startsWith('adaptive_fallback:')).toBe(true);
+    expect(route.reason.startsWith('adaptive_default:')).toBe(true);
   });
 });

@@ -20,15 +20,15 @@ export function defaultChainsState(): CockpitChainsState {
   };
 }
 
-export function loadChainsState(filePath: string, fallback: CockpitChainsState): CockpitChainsState {
+export function loadChainsState(filePath: string, defaultValue: CockpitChainsState): CockpitChainsState {
   try {
-    if (!fs.existsSync(filePath)) return fallback;
+    if (!fs.existsSync(filePath)) return defaultValue;
     const parsed = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
     const loaded = parsed?.threadsByProject;
-    if (!loaded || typeof loaded !== 'object') return fallback;
+    if (!loaded || typeof loaded !== 'object') return defaultValue;
     return { threadsByProject: loaded as Record<string, CockpitThreadEntry[]> };
   } catch {
-    return fallback;
+    return defaultValue;
   }
 }
 

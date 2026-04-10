@@ -107,7 +107,7 @@ describe('MultipleAgentsRuntime', () => {
     });
   });
 
-  it('runs dedicated multiple_agents engine without unified swarm fallback', async () => {
+  it('runs dedicated multiple_agents engine without unified swarm default', async () => {
     const { executeUnifiedSwarmRun } = require('../graphs/UnifiedSwarmGraph');
     const { executeRunContextInSubprocess } = require('../workers/WorkerProcessExecutor');
     const { RunContextAssembler } = require('../context/RunContext');
@@ -188,7 +188,7 @@ describe('MultipleAgentsRuntime', () => {
     ).rejects.toThrow('multiple_agents_enforced_skills_missing');
   });
 
-  it('keeps queue/dispatch/lifecycle path working without LLM fallback call', async () => {
+  it('keeps queue/dispatch/lifecycle path working without LLM default call', async () => {
     const runSpy = jest.spyOn(AgentExecutor.prototype as any, 'run');
     process.env.RUNTIME_MULTIPLE_AGENTS_PARALLELISM = '2';
     const result = await executeMultipleAgentsRun({

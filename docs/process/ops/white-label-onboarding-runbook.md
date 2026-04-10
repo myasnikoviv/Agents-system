@@ -7,7 +7,7 @@ Onboard Agent Cockpit runtime for a new project folder with predictable validati
 1. Project-level agent/pipeline/skill docs are discoverable.
 2. Runtime can select pipeline from project context.
 3. Cockpit can run send -> approval -> continue loop.
-4. Operator has clear fallback and rollback actions.
+4. Operator has clear default and rollback actions.
 
 ## Preconditions
 1. Work in dedicated ticket worktree + branch (never mutate `main`).
@@ -51,7 +51,7 @@ cd frontend && npm run dev:cockpit
 
 ## Verification Checklist
 - [ ] Project docs detected (agents/skills/pipelines non-empty).
-- [ ] Pipeline selection resolved (fallback only when expected).
+- [ ] Pipeline selection resolved (default only when expected).
 - [ ] Event feed shows role/stage transitions.
 - [ ] Approval gate works end-to-end.
 - [ ] Runtime artifacts recorded (`docs/process/pm/pipeline-state`, `docs/process/runs/ledger`).
@@ -64,7 +64,7 @@ Action:
 2. Switch to ticket branch/worktree.
 3. Confirm preflight token matches branch+worktree.
 
-### Symptom: `Manifest unavailable, fallback to legacy selector`
+### Symptom: `Manifest unavailable, default to legacy selector`
 Cause: canonical bundle missing/unreadable.
 Action:
 1. Ensure `docs/runtime/project-runtime-manifest.v1.json` exists.

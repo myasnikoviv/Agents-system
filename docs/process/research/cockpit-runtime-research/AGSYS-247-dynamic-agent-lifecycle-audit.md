@@ -10,12 +10,12 @@ Scope: Research only (no implementation)
 - Evidence: `src/runtime/registries/AgentRegistry.ts:17-30`
 
 ### Creation path
-- On discovery, agent profiles are rebuilt from manifest-linked files (or docs fallback) and re-registered.
+- On discovery, agent profiles are rebuilt from manifest-linked files (or docs default) and re-registered.
 - Discovery calls `AgentRegistry.clear()` then registers all agents again.
 - Evidence: `src/runtime/DynamicDiscoveryService.ts:15-24`, `40-42`, `80-82`, `114-115`
 
 ### Runtime usage path
-- Graph resolves stage agent slug, then resolves profile from `AgentRegistry`; fallback profile synthesized if missing.
+- Graph resolves stage agent slug, then resolves profile from `AgentRegistry`; default profile synthesized if missing.
 - Evidence: `src/runtime/graphs/PilotQuasiLinearGraph.ts:499-516`
 
 ## 2) When agent is "same" vs "new"
@@ -47,8 +47,8 @@ Scope: Research only (no implementation)
 2. Discovery replacement drift:
 - Re-discovery can replace runtime profiles while other threads are active.
 
-3. Fallback profile path:
-- If registry miss occurs, synthesized fallback agent profile is used, which can hide catalog drift.
+3. Default profile path:
+- If registry miss occurs, synthesized default agent profile is used, which can hide catalog drift.
 
 ## 5) Entity lifecycle diagram
 
@@ -59,7 +59,7 @@ flowchart LR
   C --> D["Graph stage selects agent slug"]
   D --> E["AgentRegistry.getAgent(slug)"]
   E -->|found| F["Use discovered profile"]
-  E -->|missing| G["Synthesize fallback profile"]
+  E -->|missing| G["Synthesize default profile"]
 ```
 
 ## 6) Confirmed vs assumed
