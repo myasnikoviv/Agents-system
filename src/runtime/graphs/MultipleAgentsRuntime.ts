@@ -4,6 +4,7 @@ import { emitEvent } from '../events/EventBus';
 import { AgentRegistry } from '../registries/AgentRegistry';
 import { PipelineRegistry } from '../registries/PipelineRegistry';
 import { ProjectDispatchQueue } from '../queue/ProjectDispatchQueue';
+import { QueueAbstractionLayer } from '../queue/QueueAbstractionLayer';
 import { DynamicWorkerSpawnManager } from '../workers/DynamicWorkerSpawnManager';
 import { executeRunContextInSubprocess } from '../workers/WorkerProcessExecutor';
 import type { PilotState } from './UnifiedSwarmGraph';
@@ -229,6 +230,16 @@ export async function executeMultipleAgentsRun(initialState: Partial<PilotState>
         artifact: formatStageResult(stage.id, agent.title || agent.slug, resultText),
       };
     } catch (error: any) {
+      const retryLimit = Math.max(0, Number(process.env.RUNTIME_TASK_CRASH_RETRIES || 0));
+      const retryCount = Number((pickedTask.payload as any)?.retryCount || 0);
+      if (retryCount >= retryLimit) {
+        await QueueAbstractionLayer.toDlq({
+          task: pickedTask,
+          reason: String(error?.message || 'execution_failed'),
+          retriesExhausted: retryLimit,
+          actorId: 'runtime-system',
+        }).catch(() => undefined);
+      }
       await DynamicWorkerSpawnManager.markFailed(
         {
           runId,

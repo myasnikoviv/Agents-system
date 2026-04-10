@@ -939,6 +939,29 @@ async function swarmNode(state: PilotState): Promise<Partial<PilotState>> {
         throw error;
       }
     } else {
+      const dlqTask = await QueueAbstractionLayer.toDlq({
+        task: pickedTask,
+        reason: errMsg,
+        retriesExhausted: retryLimit,
+        actorId: 'runtime-system',
+      }).catch(() => null);
+      if (dlqTask) {
+        await emitEvent({
+          type: 'system.thought',
+          runId: state.runId,
+          projectId: state.projectId,
+          chainId: state.threadId,
+          actor: { type: 'system', id: 'dispatch-dlq' },
+          payload: {
+            sourceTaskId: pickedTask.taskId,
+            dlqId: dlqTask.dlqId,
+            stageId: pickedTask.stageId,
+            agentSlug: pickedTask.agentSlug,
+            reason: errMsg,
+            retriesExhausted: retryLimit,
+          },
+        }).catch(() => undefined);
+      }
       stopHeartbeat();
       console.error(`[PilotGraph:Swarm] Stage ${nextStage.id} failed for agent ${runContext.agent.slug}:`, errMsg);
       return {

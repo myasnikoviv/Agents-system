@@ -4304,6 +4304,70 @@ app.get('/api/cockpit/environments/status', async (req, res) => {
   }
 });
 
+app.get('/api/cockpit/runtime/dlq', async (req, res) => {
+  const auth = requireRole(req, res, 'member');
+  if (!auth) return;
+  const scopeCheck = enforceRequestedScopeMatchesAuth(req, auth);
+  if (!scopeCheck.ok) {
+    res.status(scopeCheck.status).json({ success: false, error: scopeCheck.error, message: scopeCheck.message });
+    return;
+  }
+  try {
+    const projectId = String(req.query?.projectId || '').trim() || undefined;
+    const { ProjectDispatchQueue } = await import('../runtime/queue/ProjectDispatchQueue');
+    const tasks = await ProjectDispatchQueue.listDlqAsync(projectId);
+    res.json({
+      success: true,
+      dlq: tasks,
+      summary: {
+        total: tasks.length,
+        projectId: projectId || null,
+      },
+    });
+  } catch (error: any) {
+    res.status(500).json({
+      success: false,
+      error: 'dlq_list_failed',
+      message: error?.message || 'Failed to list DLQ tasks',
+    });
+  }
+});
+
+app.post('/api/cockpit/runtime/dlq/requeue', async (req, res) => {
+  const auth = requireRole(req, res, 'member');
+  if (!auth) return;
+  const scopeCheck = enforceRequestedScopeMatchesAuth(req, auth);
+  if (!scopeCheck.ok) {
+    res.status(scopeCheck.status).json({ success: false, error: scopeCheck.error, message: scopeCheck.message });
+    return;
+  }
+  try {
+    const projectId = String(req.body?.projectId || '').trim();
+    const dlqId = String(req.body?.dlqId || '').trim();
+    if (!projectId || !dlqId) {
+      res.status(400).json({ success: false, error: 'projectId_and_dlqId_required' });
+      return;
+    }
+    const { ProjectDispatchQueue } = await import('../runtime/queue/ProjectDispatchQueue');
+    const requeued = await ProjectDispatchQueue.requeueDlqAsync({
+      projectId,
+      dlqId,
+      actorId: auth.userId,
+    });
+    if (!requeued) {
+      res.status(404).json({ success: false, error: 'dlq_task_not_found' });
+      return;
+    }
+    res.json({ success: true, task: requeued });
+  } catch (error: any) {
+    res.status(500).json({
+      success: false,
+      error: 'dlq_requeue_failed',
+      message: error?.message || 'Failed to requeue DLQ task',
+    });
+  }
+});
+
 app.get('/api/cockpit/environments/telemetry', async (req, res) => {
   const auth = requireRole(req, res, 'member');
   if (!auth) return;

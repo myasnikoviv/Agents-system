@@ -16,6 +16,14 @@ export interface DispatchQueueTask {
   enqueuedAt: number;
 }
 
+export interface DlqQueueTask extends DispatchQueueTask {
+  dlqId: string;
+  failedAt: number;
+  failureReason: string;
+  sourceTaskId: string;
+  retriesExhausted: number;
+}
+
 let db: Database.Database | null = null;
 
 function getDb(): Database.Database {
@@ -39,6 +47,24 @@ function getDb(): Database.Database {
     CREATE INDEX IF NOT EXISTS idx_dispatch_queue_project_agent ON dispatch_queue(project_id, agent_slug);
     CREATE INDEX IF NOT EXISTS idx_dispatch_queue_project ON dispatch_queue(project_id);
     CREATE INDEX IF NOT EXISTS idx_dispatch_queue_enqueued ON dispatch_queue(enqueued_at);
+    CREATE TABLE IF NOT EXISTS dispatch_dlq (
+      dlq_id TEXT PRIMARY KEY,
+      source_task_id TEXT NOT NULL,
+      run_id TEXT NOT NULL,
+      project_id TEXT NOT NULL,
+      chain_id TEXT NOT NULL,
+      pipeline_id TEXT NOT NULL,
+      stage_id TEXT NOT NULL,
+      agent_slug TEXT NOT NULL,
+      payload_json TEXT,
+      enqueued_at INTEGER NOT NULL,
+      failed_at INTEGER NOT NULL,
+      failure_reason TEXT NOT NULL,
+      retries_exhausted INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_dispatch_dlq_project ON dispatch_dlq(project_id);
+    CREATE INDEX IF NOT EXISTS idx_dispatch_dlq_project_agent ON dispatch_dlq(project_id, agent_slug);
+    CREATE INDEX IF NOT EXISTS idx_dispatch_dlq_failed_at ON dispatch_dlq(failed_at);
   `);
   return db;
 }
@@ -74,6 +100,8 @@ function rowToTask(row: any): DispatchQueueTask {
 
 const REDIS_TASK_HASH_KEY = 'runtime:dispatch:tasks';
 const REDIS_QUEUE_KEY_PREFIX = 'runtime:dispatch:queue';
+const REDIS_DLQ_HASH_KEY = 'runtime:dispatch:dlq:tasks';
+const REDIS_DLQ_KEY_PREFIX = 'runtime:dispatch:dlq';
 
 function useRedisSharedQueue(): boolean {
   return resolveRuntimeInfrastructureProfile().dispatchQueueBackend === 'redis';
@@ -93,6 +121,10 @@ function redisQueueKeyForScope(projectId: string, agentSlug: string, environment
   return `${REDIS_QUEUE_KEY_PREFIX}:${projectId}:${normalizedEnvironmentSegment(environmentId)}:${agentSlug}`;
 }
 
+function redisDlqKeyForScope(projectId: string, agentSlug: string, environmentId?: string): string {
+  return `${REDIS_DLQ_KEY_PREFIX}:${projectId}:${normalizedEnvironmentSegment(environmentId)}:${agentSlug}`;
+}
+
 function queueMetricKey(task: DispatchQueueTask): string {
   const environmentId = queueEnvironmentIdFromPayload(task.payload);
   return environmentId
@@ -106,7 +138,118 @@ function redisPriorityScore(task: DispatchQueueTask): number {
   return normalized * 1_000_000_000_000 + task.enqueuedAt;
 }
 
+function toDlqRow(task: DispatchQueueTask, reason: string, retriesExhausted: number): DlqQueueTask {
+  const dlqId = `dlq:${task.taskId}:${Date.now().toString(36)}:${Math.random().toString(36).slice(2, 8)}`;
+  return {
+    ...task,
+    dlqId,
+    failedAt: Date.now(),
+    failureReason: String(reason || 'retry_exhausted').trim() || 'retry_exhausted',
+    sourceTaskId: task.taskId,
+    retriesExhausted: Math.max(0, Number(retriesExhausted || 0)),
+  };
+}
+
 export class ProjectDispatchQueue {
+  static moveToDlq(input: {
+    task: DispatchQueueTask;
+    reason: string;
+    retriesExhausted: number;
+    actorId?: string;
+  }): DlqQueueTask {
+    const task = input.task;
+    const dlqTask = toDlqRow(task, input.reason, input.retriesExhausted);
+    const db = getDb();
+    db.prepare(
+      `INSERT INTO dispatch_dlq (
+        dlq_id, source_task_id, run_id, project_id, chain_id, pipeline_id, stage_id, agent_slug, payload_json, enqueued_at, failed_at, failure_reason, retries_exhausted
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(
+      dlqTask.dlqId,
+      dlqTask.sourceTaskId,
+      dlqTask.runId,
+      dlqTask.projectId,
+      dlqTask.chainId,
+      dlqTask.pipelineId,
+      dlqTask.stageId,
+      dlqTask.agentSlug,
+      JSON.stringify({
+        ...(dlqTask.payload || {}),
+        dlqAt: new Date(dlqTask.failedAt).toISOString(),
+        dlqReason: dlqTask.failureReason,
+        dlqBy: input.actorId || 'runtime-system',
+      }),
+      dlqTask.enqueuedAt,
+      dlqTask.failedAt,
+      dlqTask.failureReason,
+      dlqTask.retriesExhausted,
+    );
+    return dlqTask;
+  }
+
+  static listDlq(projectId?: string): DlqQueueTask[] {
+    const db = getDb();
+    const rows = (projectId
+      ? db.prepare(
+          `SELECT dlq_id, source_task_id, run_id, project_id, chain_id, pipeline_id, stage_id, agent_slug, payload_json, enqueued_at, failed_at, failure_reason, retries_exhausted
+           FROM dispatch_dlq WHERE project_id = ?`,
+        ).all(projectId)
+      : db.prepare(
+          `SELECT dlq_id, source_task_id, run_id, project_id, chain_id, pipeline_id, stage_id, agent_slug, payload_json, enqueued_at, failed_at, failure_reason, retries_exhausted
+           FROM dispatch_dlq`,
+        ).all()) as Array<any>;
+    return rows
+      .map((row) => ({
+        dlqId: String(row.dlq_id),
+        sourceTaskId: String(row.source_task_id),
+        runId: String(row.run_id),
+        projectId: String(row.project_id),
+        chainId: String(row.chain_id),
+        pipelineId: String(row.pipeline_id),
+        stageId: String(row.stage_id),
+        agentSlug: String(row.agent_slug),
+        payload: safeJson(row.payload_json),
+        enqueuedAt: Number(row.enqueued_at || Date.now()),
+        failedAt: Number(row.failed_at || Date.now()),
+        failureReason: String(row.failure_reason || 'retry_exhausted'),
+        retriesExhausted: Number(row.retries_exhausted || 0),
+        taskId: String(row.source_task_id),
+      }))
+      .sort((a, b) => Number(a.failedAt || 0) - Number(b.failedAt || 0));
+  }
+
+  static requeueDlq(input: { projectId: string; dlqId: string; actorId?: string }): DispatchQueueTask | null {
+    const projectId = String(input.projectId || '').trim();
+    const dlqId = String(input.dlqId || '').trim();
+    if (!projectId || !dlqId) return null;
+    const db = getDb();
+    const found = db
+      .prepare(
+        `SELECT dlq_id, source_task_id, run_id, project_id, chain_id, pipeline_id, stage_id, agent_slug, payload_json, enqueued_at, failed_at, failure_reason, retries_exhausted
+         FROM dispatch_dlq WHERE project_id = ? AND dlq_id = ?`,
+      )
+      .get(projectId, dlqId) as any;
+    if (!found) return null;
+    const task = {
+      runId: String(found.run_id),
+      projectId: String(found.project_id),
+      chainId: String(found.chain_id),
+      pipelineId: String(found.pipeline_id),
+      stageId: String(found.stage_id),
+      agentSlug: String(found.agent_slug),
+      payload: {
+        ...safeJson(found.payload_json),
+        requeuedFromDlqId: String(found.dlq_id),
+        requeuedFromTaskId: String(found.source_task_id),
+        requeuedAt: new Date().toISOString(),
+        requeuedBy: input.actorId || 'cockpit-user',
+        retryCount: 0,
+      },
+    };
+    db.prepare(`DELETE FROM dispatch_dlq WHERE dlq_id = ?`).run(dlqId);
+    return this.enqueue(task);
+  }
+
   private static async getTaskByIdAsync(projectId: string, taskId: string): Promise<DispatchQueueTask | null> {
     if (!useRedisSharedQueue()) {
       const db = getDb();
@@ -381,12 +524,14 @@ export class ProjectDispatchQueue {
     const db = getDb();
     const row = db.prepare(`SELECT COUNT(*) as c FROM dispatch_queue WHERE project_id = ?`).get(projectId) as any;
     db.prepare(`DELETE FROM dispatch_queue WHERE project_id = ?`).run(projectId);
+    db.prepare(`DELETE FROM dispatch_dlq WHERE project_id = ?`).run(projectId);
     return Number(row?.c || 0);
   }
 
   static clear(): void {
     const db = getDb();
     db.prepare(`DELETE FROM dispatch_queue`).run();
+    db.prepare(`DELETE FROM dispatch_dlq`).run();
   }
 
   static async enqueueAsync(task: Omit<DispatchQueueTask, 'taskId' | 'enqueuedAt'>): Promise<DispatchQueueTask> {
@@ -672,6 +817,19 @@ export class ProjectDispatchQueue {
         await tx.exec();
       }
     } while (cursor !== '0');
+    cursor = '0';
+    do {
+      const reply = await redis.scan(cursor, 'MATCH', `${REDIS_DLQ_KEY_PREFIX}:${projectId}:*`, 'COUNT', 200);
+      cursor = String(reply[0] || '0');
+      const keys = Array.isArray(reply[1]) ? (reply[1] as string[]) : [];
+      for (const key of keys) {
+        const ids = await redis.zrange(key, 0, -1);
+        const tx = redis.multi();
+        if (ids.length > 0) tx.hdel(REDIS_DLQ_HASH_KEY, ...ids);
+        tx.del(key);
+        await tx.exec();
+      }
+    } while (cursor !== '0');
     return removed;
   }
 
@@ -690,6 +848,94 @@ export class ProjectDispatchQueue {
         await redis.del(...keys);
       }
     } while (cursor !== '0');
+    cursor = '0';
+    do {
+      const reply = await redis.scan(cursor, 'MATCH', `${REDIS_DLQ_KEY_PREFIX}:*`, 'COUNT', 500);
+      cursor = String(reply[0] || '0');
+      const keys = Array.isArray(reply[1]) ? (reply[1] as string[]) : [];
+      if (keys.length > 0) {
+        await redis.del(...keys);
+      }
+    } while (cursor !== '0');
     await redis.del(REDIS_TASK_HASH_KEY);
+    await redis.del(REDIS_DLQ_HASH_KEY);
+  }
+
+  static async moveToDlqAsync(input: {
+    task: DispatchQueueTask;
+    reason: string;
+    retriesExhausted: number;
+    actorId?: string;
+  }): Promise<DlqQueueTask> {
+    if (!useRedisSharedQueue()) {
+      return this.moveToDlq(input);
+    }
+    const dlqTask = toDlqRow(input.task, input.reason, input.retriesExhausted);
+    const redis = getRedisClient();
+    const serialized = JSON.stringify({
+      ...dlqTask,
+      payload: {
+        ...(dlqTask.payload || {}),
+        dlqAt: new Date(dlqTask.failedAt).toISOString(),
+        dlqReason: dlqTask.failureReason,
+        dlqBy: input.actorId || 'runtime-system',
+      },
+    });
+    const zkey = redisDlqKeyForScope(dlqTask.projectId, dlqTask.agentSlug, queueEnvironmentIdFromPayload(dlqTask.payload));
+    const score = Number(dlqTask.failedAt || Date.now());
+    await redis.multi().hset(REDIS_DLQ_HASH_KEY, dlqTask.dlqId, serialized).zadd(zkey, score, dlqTask.dlqId).exec();
+    return dlqTask;
+  }
+
+  static async listDlqAsync(projectId?: string): Promise<DlqQueueTask[]> {
+    if (!useRedisSharedQueue()) {
+      return this.listDlq(projectId);
+    }
+    const redis = getRedisClient();
+    const raw = await redis.hgetall(REDIS_DLQ_HASH_KEY);
+    const out: DlqQueueTask[] = [];
+    for (const value of Object.values(raw || {})) {
+      const parsed = safeJson(String(value || '')) as any;
+      if (!parsed || typeof parsed !== 'object') continue;
+      const task = parsed as DlqQueueTask;
+      if (projectId && String(task.projectId || '') !== projectId) continue;
+      out.push(task);
+    }
+    return out.sort((a, b) => Number(a.failedAt || 0) - Number(b.failedAt || 0));
+  }
+
+  static async requeueDlqAsync(input: { projectId: string; dlqId: string; actorId?: string }): Promise<DispatchQueueTask | null> {
+    if (!useRedisSharedQueue()) {
+      return this.requeueDlq(input);
+    }
+    const projectId = String(input.projectId || '').trim();
+    const dlqId = String(input.dlqId || '').trim();
+    if (!projectId || !dlqId) return null;
+    const redis = getRedisClient();
+    const raw = await redis.hget(REDIS_DLQ_HASH_KEY, dlqId);
+    if (!raw) return null;
+    const task = safeJson(raw) as DlqQueueTask;
+    if (!task || String(task.projectId || '') !== projectId) return null;
+    await redis
+      .multi()
+      .zrem(redisDlqKeyForScope(task.projectId, task.agentSlug, queueEnvironmentIdFromPayload(task.payload)), dlqId)
+      .hdel(REDIS_DLQ_HASH_KEY, dlqId)
+      .exec();
+    return this.enqueueAsync({
+      runId: task.runId,
+      projectId: task.projectId,
+      chainId: task.chainId,
+      pipelineId: task.pipelineId,
+      stageId: task.stageId,
+      agentSlug: task.agentSlug,
+      payload: {
+        ...(task.payload || {}),
+        requeuedFromDlqId: task.dlqId,
+        requeuedFromTaskId: task.sourceTaskId,
+        requeuedAt: new Date().toISOString(),
+        requeuedBy: input.actorId || 'cockpit-user',
+        retryCount: 0,
+      },
+    });
   }
 }

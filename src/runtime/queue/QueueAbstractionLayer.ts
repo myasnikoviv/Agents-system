@@ -1,4 +1,4 @@
-import { DispatchQueueTask, ProjectDispatchQueue } from './ProjectDispatchQueue';
+import { DispatchQueueTask, DlqQueueTask, ProjectDispatchQueue } from './ProjectDispatchQueue';
 
 export interface QueueLease {
   leaseId: string;
@@ -82,6 +82,23 @@ export class QueueAbstractionLayer {
     return ProjectDispatchQueue.retryTaskAsync(input);
   }
 
+  static async toDlq(input: {
+    task: DispatchQueueTask;
+    reason: string;
+    retriesExhausted: number;
+    actorId?: string;
+  }): Promise<DlqQueueTask> {
+    return ProjectDispatchQueue.moveToDlqAsync(input);
+  }
+
+  static async listDlq(projectId?: string): Promise<DlqQueueTask[]> {
+    return ProjectDispatchQueue.listDlqAsync(projectId);
+  }
+
+  static async requeueDlq(input: { projectId: string; dlqId: string; actorId?: string }): Promise<DispatchQueueTask | null> {
+    return ProjectDispatchQueue.requeueDlqAsync(input);
+  }
+
   static async setPriority(input: {
     projectId: string;
     taskId: string;
@@ -104,4 +121,3 @@ export class QueueAbstractionLayer {
     return inflight.size;
   }
 }
-

@@ -84,5 +84,35 @@ describe('QueueAbstractionLayer', () => {
     });
     expect(lease?.task.taskId).toBe(task.taskId);
   });
-});
 
+  it('supports DLQ lifecycle via abstraction API', async () => {
+    const queued = await QueueAbstractionLayer.enqueue({
+      runId: 'r4',
+      projectId: 'proj-a',
+      chainId: 'c4',
+      pipelineId: 'feature-change',
+      stageId: 'dev',
+      agentSlug: 'developer',
+      payload: { retryCount: 5 },
+    });
+    const dlq = await QueueAbstractionLayer.toDlq({
+      task: queued,
+      reason: 'retry_budget_exhausted',
+      retriesExhausted: 5,
+      actorId: 'runtime-test',
+    });
+    expect(dlq.dlqId).toBeTruthy();
+
+    const dlqList = await QueueAbstractionLayer.listDlq('proj-a');
+    expect(dlqList.length).toBe(1);
+    expect(dlqList[0]?.dlqId).toBe(dlq.dlqId);
+
+    const requeued = await QueueAbstractionLayer.requeueDlq({
+      projectId: 'proj-a',
+      dlqId: dlq.dlqId,
+      actorId: 'tester',
+    });
+    expect(requeued?.taskId).toBeTruthy();
+    expect((requeued?.payload as any)?.requeuedFromDlqId).toBe(dlq.dlqId);
+  });
+});
