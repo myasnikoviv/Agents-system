@@ -64,8 +64,27 @@ const apiMetricsState = {
   totalLatencyMs: 0,
 };
 
+const apiTraceSpans: Array<{
+  traceId: string;
+  spanId: string;
+  parentSpanId?: string;
+  runId?: string;
+  method: string;
+  path: string;
+  statusCode: number;
+  durationMs: number;
+  startedAt: string;
+  finishedAt: string;
+}> = [];
+
 app.use((req, res, next) => {
   const startedAt = Date.now();
+  const traceId = String(req.header('x-trace-id') || req.header('x-request-id') || crypto.randomUUID());
+  const spanId = crypto.randomUUID().slice(0, 16);
+  const parentSpanId = String(req.header('x-parent-span-id') || '').trim() || undefined;
+  const runId = String(req.header('x-run-id') || req.query?.runId || req.body?.runId || '').trim() || undefined;
+  res.setHeader('x-trace-id', traceId);
+  res.setHeader('x-span-id', spanId);
   res.on('finish', () => {
     const routeKey = `${req.method} ${req.path}`;
     const statusClass = `${Math.floor((res.statusCode || 0) / 100)}xx`;
@@ -74,6 +93,21 @@ app.use((req, res, next) => {
     apiMetricsState.totalLatencyMs += Math.max(0, Date.now() - startedAt);
     apiMetricsState.byRoute.set(routeKey, Number(apiMetricsState.byRoute.get(routeKey) || 0) + 1);
     apiMetricsState.byStatusClass.set(statusClass, Number(apiMetricsState.byStatusClass.get(statusClass) || 0) + 1);
+    apiTraceSpans.push({
+      traceId,
+      spanId,
+      ...(parentSpanId ? { parentSpanId } : {}),
+      ...(runId ? { runId } : {}),
+      method: req.method,
+      path: req.path,
+      statusCode: Number(res.statusCode || 0),
+      durationMs: Math.max(0, Date.now() - startedAt),
+      startedAt: new Date(startedAt).toISOString(),
+      finishedAt: new Date().toISOString(),
+    });
+    if (apiTraceSpans.length > 5000) {
+      apiTraceSpans.splice(0, apiTraceSpans.length - 5000);
+    }
   });
   next();
 });
@@ -560,6 +594,20 @@ const getMetricsOverview = async (input: { projectId?: string; limit?: number })
     },
     generatedAt: new Date().toISOString(),
   };
+};
+
+const listApiTraceSpans = async (input: { traceId?: string; runId?: string; limit?: number }) => {
+  const limit = Math.max(1, Math.min(5000, Number(input.limit || 500)));
+  let rows = apiTraceSpans.slice();
+  if (input.traceId) {
+    const traceId = String(input.traceId).trim();
+    rows = rows.filter((row) => row.traceId === traceId);
+  }
+  if (input.runId) {
+    const runId = String(input.runId).trim();
+    rows = rows.filter((row) => String(row.runId || '') === runId);
+  }
+  return rows.slice(-limit);
 };
 
 const appendPolicyMetadata = (input: {
@@ -2675,6 +2723,7 @@ registerTelemetryRoutes(app, {
   normalizeAuditRow,
   verifyAuditIntegrity: verifyControlActionAuditIntegrity,
   getMetricsOverview,
+  listApiTraceSpans,
   readRunLedgerEvents,
   normalizeRuntimeEvent,
 });

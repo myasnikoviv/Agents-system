@@ -26,6 +26,7 @@ interface TelemetryRouteDeps {
     billing: Record<string, any>;
     generatedAt: string;
   }>;
+  listApiTraceSpans?: (input: { traceId?: string; runId?: string; limit?: number }) => Promise<Array<Record<string, any>>>;
   readRunLedgerEvents: (input: { runId?: string; projectId?: string; limit?: number }) => Promise<any[]>;
   normalizeRuntimeEvent: (row: any) => UnifiedTelemetryEvent;
 }
@@ -275,6 +276,36 @@ export function registerTelemetryRoutes(app: express.Express, deps: TelemetryRou
         success: false,
         error: 'run_trace_fetch_failed',
         message: error?.message || 'Failed to build run trace',
+      });
+    }
+  });
+
+  app.get('/api/cockpit/telemetry/traces', async (req, res) => {
+    try {
+      const traceId = String(req.query?.traceId || '').trim() || undefined;
+      const runId = String(req.query?.runId || '').trim() || undefined;
+      const limit = Math.max(1, Math.min(5000, Number(req.query?.limit || 500)));
+      const apiSpans = deps.listApiTraceSpans
+        ? await deps.listApiTraceSpans({ traceId, runId, limit })
+        : [];
+      const runtimeEvents = runId
+        ? (await deps.readRunLedgerEvents({ runId, limit })).map(deps.normalizeRuntimeEvent)
+        : [];
+      res.json({
+        success: true,
+        query: { traceId: traceId || null, runId: runId || null, limit },
+        apiSpans,
+        runtimeEvents,
+        counts: {
+          apiSpans: apiSpans.length,
+          runtimeEvents: runtimeEvents.length,
+        },
+      });
+    } catch (error: any) {
+      res.status(500).json({
+        success: false,
+        error: 'trace_fetch_failed',
+        message: error?.message || 'Failed to fetch trace data',
       });
     }
   });
