@@ -36,6 +36,7 @@ import { ServiceLifecycleEventBus } from '../runtime/control-plane/ServiceLifecy
 import { BillingService } from '../runtime/billing/BillingService';
 import { BillingPaymentService } from '../runtime/billing/BillingPaymentService';
 import { StripeMvpProvider } from '../runtime/billing/PaymentProvider';
+import { DEFAULT_ABAC_POLICIES, evaluateAbacPolicyAccess, type AbacRole } from '../runtime/policy/AbacPolicyEngine';
 
 dotenv.config();
 
@@ -747,6 +748,36 @@ const requireAuthForRuntimeIfEnabled = (
   const auth = getAuthContext(req);
   if (AUTH_MODE === 'required' && !auth) {
     res.status(401).json({ success: false, error: 'unauthorized', message: 'Authentication required (AUTH_MODE=required)' });
+    return null;
+  }
+  return auth;
+};
+
+const requireAccess = (
+  req: express.Request,
+  res: express.Response,
+  input: { minRole: AuthRole; action: string },
+): { userId: string; email: string; tenantId: string; workspaceId: string; role: string; token: string } | null => {
+  const auth = requireRole(req, res, input.minRole);
+  if (!auth) return null;
+  const requestedTenantId = String(req.body?.tenantId || req.query?.tenantId || '').trim();
+  const requestedWorkspaceId = String(req.body?.workspaceId || req.query?.workspaceId || '').trim();
+  const decision = evaluateAbacPolicyAccess({
+    action: input.action,
+    role: String(auth.role || 'member').trim().toLowerCase() as AbacRole,
+    authTenantId: auth.tenantId,
+    authWorkspaceId: auth.workspaceId,
+    requestedTenantId: requestedTenantId || undefined,
+    requestedWorkspaceId: requestedWorkspaceId || undefined,
+  });
+  if (!decision.allowed) {
+    res.status(403).json({
+      success: false,
+      error: 'abac_forbidden',
+      message: `ABAC policy denied action ${input.action}`,
+      policyId: decision.policyId,
+      reason: decision.reason,
+    });
     return null;
   }
   return auth;
@@ -2361,7 +2392,7 @@ app.post('/api/governance/rules/:ruleId/disable', async (req, res) => {
 });
 
 app.delete('/api/governance/rules/:ruleId', async (req, res) => {
-  if (!requireRole(req, res, 'owner')) return;
+  if (!requireAccess(req, res, { minRole: 'owner', action: 'governance:write' })) return;
   try {
     const ruleId = String(req.params?.ruleId || '').trim();
     const force = String(req.query?.force || '').trim() === 'true';
@@ -2395,7 +2426,7 @@ app.get('/api/governance/evaluators', async (_req, res) => {
 });
 
 app.post('/api/governance/evaluators/register', async (req, res) => {
-  if (!requireRole(req, res, 'owner')) return;
+  if (!requireAccess(req, res, { minRole: 'owner', action: 'governance:write' })) return;
   try {
     const evaluatorType = String(req.body?.evaluatorType || '').trim();
     const aliasTo = String(req.body?.aliasTo || '').trim();
@@ -2704,6 +2735,33 @@ app.get('/api/auth/rbac/matrix', (req, res) => {
   });
 });
 
+app.get('/api/auth/abac/policies', (req, res) => {
+  const auth = requireRole(req, res, 'member');
+  if (!auth) return;
+  res.json({ success: true, policies: DEFAULT_ABAC_POLICIES });
+});
+
+app.post('/api/auth/abac/evaluate', (req, res) => {
+  const auth = requireRole(req, res, 'member');
+  if (!auth) return;
+  const action = String(req.body?.action || '').trim();
+  if (!action) {
+    res.status(400).json({ success: false, error: 'action_required' });
+    return;
+  }
+  const requestedTenantId = String(req.body?.tenantId || '').trim();
+  const requestedWorkspaceId = String(req.body?.workspaceId || '').trim();
+  const decision = evaluateAbacPolicyAccess({
+    action,
+    role: String(auth.role || 'member').trim().toLowerCase() as AbacRole,
+    authTenantId: auth.tenantId,
+    authWorkspaceId: auth.workspaceId,
+    requestedTenantId: requestedTenantId || undefined,
+    requestedWorkspaceId: requestedWorkspaceId || undefined,
+  });
+  res.json({ success: true, decision });
+});
+
 app.post('/api/auth/login', (req, res) => {
   const email = String(req.body?.email || '').trim().toLowerCase();
   const password = String(req.body?.password || '');
@@ -2765,7 +2823,7 @@ app.get('/api/auth/sso/providers', (req, res) => {
 });
 
 app.post('/api/auth/sso/providers', (req, res) => {
-  const auth = requireRole(req, res, 'admin');
+  const auth = requireAccess(req, res, { minRole: 'admin', action: 'config:write' });
   if (!auth) return;
   const name = String(req.body?.name || '').trim();
   const protocolRaw = String(req.body?.protocol || '').trim().toLowerCase();
