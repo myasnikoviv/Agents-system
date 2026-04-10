@@ -6,6 +6,7 @@ import { WorkerLifecycleState, applyLifecycleTransition } from './WorkerLifecycl
 import { resolveWorkerHeatMode } from './EnvironmentWorkerHeatPolicy';
 import { resolveRuntimeInfrastructureProfile } from '../infrastructure/RuntimeInfrastructureProfile';
 import { getRedisClient } from '../redisClient';
+import { resolveTenantScope, tenantNamespace } from '../tenancy/TenantContext';
 
 export interface RuntimeWorkerRecord {
   projectId: string;
@@ -44,6 +45,8 @@ export interface EnsureWorkerInput {
   runId: string;
   projectId: string;
   environmentId?: string;
+  tenantId?: string;
+  workspaceId?: string;
   chainId: string;
   agentSlug: string;
   workerId?: string;
@@ -248,8 +251,49 @@ function pausedProjectsClear(): void {
   getDb().prepare(`DELETE FROM runtime_paused_projects`).run();
 }
 
-function taskMemoryNamespace(projectId: string, agentSlug: string, taskId: string): string {
-  return `memory:${projectId}:${agentSlug}:task:${taskId}`;
+function scopedMemoryNamespace(input: {
+  tenantId?: string;
+  workspaceId?: string;
+  projectId: string;
+  environmentId?: string;
+  runId: string;
+  agentSlug: string;
+}): string {
+  const hasExplicitTenantScope =
+    String(input.tenantId || '').trim().length > 0 ||
+    String(input.workspaceId || '').trim().length > 0 ||
+    String(input.environmentId || '').trim().length > 0;
+  if (!hasExplicitTenantScope) {
+    return `memory:${input.projectId}:${input.agentSlug}`;
+  }
+  const scope = resolveTenantScope({
+    tenantId: input.tenantId,
+    workspaceId: input.workspaceId,
+    projectId: input.projectId,
+    environmentId: input.environmentId,
+    runId: input.runId,
+    agentSlug: input.agentSlug,
+  });
+  return `${tenantNamespace(scope, 'memory')}:agent:${input.agentSlug}`;
+}
+
+function taskMemoryNamespace(input: {
+  tenantId?: string;
+  workspaceId?: string;
+  projectId: string;
+  environmentId?: string;
+  runId: string;
+  agentSlug: string;
+  taskId: string;
+}): string {
+  const hasExplicitTenantScope =
+    String(input.tenantId || '').trim().length > 0 ||
+    String(input.workspaceId || '').trim().length > 0 ||
+    String(input.environmentId || '').trim().length > 0;
+  if (!hasExplicitTenantScope) {
+    return `memory:${input.projectId}:${input.agentSlug}:task:${input.taskId}`;
+  }
+  return `${scopedMemoryNamespace(input)}:task:${input.taskId}`;
 }
 
 async function emitRuntimeEvent(event: {
@@ -428,11 +472,15 @@ export class DynamicWorkerSpawnManager {
           stageId: input.stageId,
           pipelineId: input.pipelineId,
           runId: input.runId,
-          taskMemoryNamespace: taskMemoryNamespace(
+          taskMemoryNamespace: taskMemoryNamespace({
+            tenantId: input.tenantId,
+            workspaceId: input.workspaceId,
             projectId,
+            environmentId: input.environmentId,
+            runId: input.runId,
             agentSlug,
-            String(input.taskId || `${input.projectId}:${input.agentSlug}:${input.runId}`),
-          ),
+            taskId: String(input.taskId || `${input.projectId}:${input.agentSlug}:${input.runId}`),
+          }),
         };
         if (Number(input.retryCount || 0) > 0) {
           existing.retryTaskCount += Number(input.retryCount || 0);
@@ -525,14 +573,26 @@ export class DynamicWorkerSpawnManager {
         stageId: input.stageId,
         pipelineId: input.pipelineId,
         runId: input.runId,
-        taskMemoryNamespace: taskMemoryNamespace(
+        taskMemoryNamespace: taskMemoryNamespace({
+          tenantId: input.tenantId,
+          workspaceId: input.workspaceId,
           projectId,
+          environmentId: input.environmentId,
+          runId: input.runId,
           agentSlug,
-          String(input.taskId || `${input.projectId}:${input.agentSlug}:${input.runId}`),
-        ),
+          taskId: String(input.taskId || `${input.projectId}:${input.agentSlug}:${input.runId}`),
+        }),
       },
       manuallyPaused: false,
     };
+      record.memoryNamespace = scopedMemoryNamespace({
+        tenantId: input.tenantId,
+        workspaceId: input.workspaceId,
+        projectId,
+        environmentId: input.environmentId,
+        runId: input.runId,
+        agentSlug,
+      });
       poolSet(key, record);
       await sharedPoolSet(key, record);
       await this.transitionState(record, 'starting', input, emitEvents);

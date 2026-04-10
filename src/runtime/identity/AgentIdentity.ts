@@ -17,15 +17,24 @@ export function buildAgentIdentity(input: {
   projectId: string;
   agentSlug: string;
   workerId?: string;
+  tenantId?: string;
+  workspaceId?: string;
+  environmentId?: string;
 }): RuntimeAgentIdentity {
   const projectId = normalize(input.projectId, 'default');
   const agentSlug = normalize(input.agentSlug, 'system-core');
+  const tenantId = normalize(input.tenantId || '', '');
+  const workspaceId = normalize(input.workspaceId || '', '');
+  const environmentId = normalize(input.environmentId || '', '');
   const workerId = normalize(
     input.workerId || `${projectId}-${agentSlug}-pid${process.pid}-${Date.now().toString(36)}`,
     `${agentSlug}-pid${process.pid}`,
   );
   const identityKey = `${projectId}:${agentSlug}:${workerId}`;
-  const memoryNamespace = `memory:${projectId}:${agentSlug}`;
+  const memoryNamespace =
+    tenantId || workspaceId || environmentId
+      ? `memory:tenant:${tenantId || `tenant:${projectId}`}:workspace:${workspaceId || `workspace:${projectId}`}:project:${projectId}:environment:${environmentId || `env:tenant:${tenantId || `tenant:${projectId}`}:workspace:${workspaceId || `workspace:${projectId}`}:project:${projectId}`}:agent:${agentSlug}`
+      : `memory:${projectId}:${agentSlug}`;
   return { projectId, agentSlug, workerId, identityKey, memoryNamespace };
 }
 

@@ -671,6 +671,9 @@ async function swarmNode(state: PilotState): Promise<Partial<PilotState>> {
   const workerLease = await DynamicWorkerSpawnManager.ensureWorker({
     runId: state.runId,
     projectId: state.projectId,
+    tenantId: String((state as any).tenantId || '').trim() || undefined,
+    workspaceId: String((state as any).workspaceId || '').trim() || undefined,
+    environmentId: String((state as any).environmentId || '').trim() || undefined,
     chainId: state.threadId,
     agentSlug: String(nextStage.agent || '').trim() || 'system-core',
     taskId: pickedTask.taskId,
@@ -726,7 +729,15 @@ async function swarmNode(state: PilotState): Promise<Partial<PilotState>> {
       executionPipelineDef as any,
       nextStage.id,
       state.artifactLogs[0] || 'Execute project task',
-      { history, threadId: state.threadId, runId: state.runId, workerId },
+      {
+        history,
+        threadId: state.threadId,
+        runId: state.runId,
+        workerId,
+        tenantId: String((state as any).tenantId || '').trim() || undefined,
+        workspaceId: String((state as any).workspaceId || '').trim() || undefined,
+        environmentId: String((state as any).environmentId || '').trim() || undefined,
+      },
       { preferredLanguage: state.preferredLanguage },
       { projectId: state.projectId, workspacePath: state.workspacePath }
     );
