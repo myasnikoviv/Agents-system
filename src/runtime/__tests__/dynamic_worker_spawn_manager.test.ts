@@ -34,8 +34,12 @@ describe('DynamicWorkerSpawnManager', () => {
     );
 
     expect(one.worker.identityKey).not.toBe(two.worker.identityKey);
-    expect(one.worker.memoryNamespace).toBe('memory:proj-a:developer');
-    expect(two.worker.memoryNamespace).toBe('memory:proj-b:developer');
+    expect(one.worker.memoryNamespace).toBe(
+      'tenant:tenant:proj-a:workspace:workspace:proj-a:project:proj-a:environment:env:tenant:proj-a:workspace:proj-a:project:proj-a:memory:agent:developer',
+    );
+    expect(two.worker.memoryNamespace).toBe(
+      'tenant:tenant:proj-b:workspace:workspace:proj-b:project:proj-b:environment:env:tenant:proj-b:workspace:proj-b:project:proj-b:memory:agent:developer',
+    );
   });
 
   it('creates isolated workers per environment in same project/agent', async () => {
@@ -69,8 +73,12 @@ describe('DynamicWorkerSpawnManager', () => {
     );
 
     expect(devFirst.worker.workerId).not.toBe(qaFirst.worker.workerId);
-    expect(devFirst.worker.memoryNamespace).toBe('memory:proj-a:developer');
-    expect(qaFirst.worker.memoryNamespace).toBe('memory:proj-a:tdd-qa');
+    expect(devFirst.worker.memoryNamespace).toBe(
+      'tenant:tenant:proj-a:workspace:workspace:proj-a:project:proj-a:environment:env:tenant:proj-a:workspace:proj-a:project:proj-a:memory:agent:developer',
+    );
+    expect(qaFirst.worker.memoryNamespace).toBe(
+      'tenant:tenant:proj-a:workspace:workspace:proj-a:project:proj-a:environment:env:tenant:proj-a:workspace:proj-a:project:proj-a:memory:agent:tdd-qa',
+    );
     expect(devSecond.worker.workerId).toBe(devFirst.worker.workerId);
     expect(devSecond.worker.workerId).not.toBe(qaFirst.worker.workerId);
   });
@@ -98,8 +106,12 @@ describe('DynamicWorkerSpawnManager', () => {
       { emitEvents: false },
     );
 
-    expect(first.worker.assignedTask?.taskMemoryNamespace).toBe('memory:proj-a:developer:task:task-1');
-    expect(second.worker.assignedTask?.taskMemoryNamespace).toBe('memory:proj-a:developer:task:task-2');
+    expect(first.worker.assignedTask?.taskMemoryNamespace).toBe(
+      'tenant:tenant:proj-a:workspace:workspace:proj-a:project:proj-a:environment:env:tenant:proj-a:workspace:proj-a:project:proj-a:memory:agent:developer:task:task-1',
+    );
+    expect(second.worker.assignedTask?.taskMemoryNamespace).toBe(
+      'tenant:tenant:proj-a:workspace:workspace:proj-a:project:proj-a:environment:env:tenant:proj-a:workspace:proj-a:project:proj-a:memory:agent:developer:task:task-2',
+    );
   });
 
   it('uses tenant/workspace/environment in memory namespace when provided', async () => {
