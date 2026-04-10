@@ -38,6 +38,12 @@ import { BillingPaymentService } from '../runtime/billing/BillingPaymentService'
 import { StripeMvpProvider } from '../runtime/billing/PaymentProvider';
 import { DEFAULT_ABAC_POLICIES, evaluateAbacPolicyAccess, type AbacRole } from '../runtime/policy/AbacPolicyEngine';
 import { registerAccessEnforcementMiddleware } from './AuthAccessMiddleware';
+import {
+  buildAuditHashMaterialFromRow,
+  computeAuditChainHash,
+  computeAuditPayloadHash,
+  verifyAuditHashChain,
+} from './audit/AuditIntegrity';
 
 dotenv.config();
 
@@ -401,6 +407,11 @@ const normalizeAuditRow = (row: any): UnifiedTelemetryEvent => {
       target: row?.target || {},
       result: row?.result || {},
       rawAction: action,
+      integrity: {
+        prevHash: row?.prevHash ? String(row.prevHash) : '',
+        payloadHash: row?.payloadHash ? String(row.payloadHash) : '',
+        hash: row?.hash ? String(row.hash) : '',
+      },
     },
   };
 };
@@ -422,6 +433,9 @@ const appendControlActionAudit = (input: {
     reason: input.reason || '',
     target: input.target || {},
     result: input.result || {},
+    prevHash: '',
+    payloadHash: '',
+    hash: '',
   };
   void postgresStore.recordAuditAction({
     action: row.action,
@@ -442,10 +456,36 @@ const appendControlActionAudit = (input: {
   }
   try {
     fs.mkdirSync(path.dirname(CONTROL_ACTION_AUDIT_FILE), { recursive: true });
+    const lines = fs.existsSync(CONTROL_ACTION_AUDIT_FILE)
+      ? fs.readFileSync(CONTROL_ACTION_AUDIT_FILE, 'utf-8').split('\n').filter(Boolean)
+      : [];
+    const previousLine = lines.length > 0 ? lines[lines.length - 1] : '';
+    let prevHash = 'genesis';
+    if (previousLine) {
+      try {
+        const prevRow = JSON.parse(previousLine);
+        prevHash = String(prevRow?.hash || '') || 'genesis';
+      } catch {
+        prevHash = 'genesis';
+      }
+    }
+    row.prevHash = prevHash;
+    row.payloadHash = computeAuditPayloadHash(buildAuditHashMaterialFromRow(row));
+    row.hash = computeAuditChainHash({ prevHash: row.prevHash, payloadHash: row.payloadHash });
     fs.appendFileSync(CONTROL_ACTION_AUDIT_FILE, `${JSON.stringify(row)}\n`, 'utf-8');
   } catch {
     // non-blocking audit mirror
   }
+};
+
+const verifyControlActionAuditIntegrity = async (): Promise<{
+  ok: boolean;
+  checked: number;
+  brokenAtId?: string;
+  reason?: string;
+}> => {
+  const rows = await readControlActionAuditRows();
+  return verifyAuditHashChain(rows);
 };
 
 const appendPolicyMetadata = (input: {
@@ -2559,6 +2599,7 @@ registerTelemetryRoutes(app, {
   fetchRecentEvents,
   readControlActionAuditRows,
   normalizeAuditRow,
+  verifyAuditIntegrity: verifyControlActionAuditIntegrity,
   readRunLedgerEvents,
   normalizeRuntimeEvent,
 });
