@@ -20,6 +20,12 @@ interface TelemetryRouteDeps {
   readControlActionAuditRows: (projectId?: string) => Promise<any[]>;
   normalizeAuditRow: (row: any) => UnifiedTelemetryEvent;
   verifyAuditIntegrity?: () => Promise<{ ok: boolean; checked: number; brokenAtId?: string; reason?: string }>;
+  getMetricsOverview?: (input: { projectId?: string; limit?: number }) => Promise<{
+    runtime: Record<string, any>;
+    api: Record<string, any>;
+    billing: Record<string, any>;
+    generatedAt: string;
+  }>;
   readRunLedgerEvents: (input: { runId?: string; projectId?: string; limit?: number }) => Promise<any[]>;
   normalizeRuntimeEvent: (row: any) => UnifiedTelemetryEvent;
 }
@@ -155,6 +161,34 @@ export function registerTelemetryRoutes(app: express.Express, deps: TelemetryRou
         success: false,
         error: 'audit_integrity_check_failed',
         message: error?.message || 'Failed to verify audit integrity',
+      });
+    }
+  });
+
+  app.get('/api/cockpit/metrics/overview', async (req, res) => {
+    try {
+      if (!deps.getMetricsOverview) {
+        return res.json({
+          success: true,
+          runtime: {},
+          api: {},
+          billing: {},
+          generatedAt: new Date().toISOString(),
+          source: 'metrics_overview_not_configured',
+        });
+      }
+      const projectId = String(req.query?.projectId || '').trim() || undefined;
+      const limit = Math.max(1, Math.min(1000, Number(req.query?.limit || 200)));
+      const overview = await deps.getMetricsOverview({ projectId, limit });
+      return res.json({
+        success: true,
+        ...overview,
+      });
+    } catch (error: any) {
+      return res.status(500).json({
+        success: false,
+        error: 'metrics_overview_fetch_failed',
+        message: error?.message || 'Failed to build metrics overview',
       });
     }
   });
