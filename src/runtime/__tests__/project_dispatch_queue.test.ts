@@ -1,8 +1,9 @@
 import { ProjectDispatchQueue } from '../queue/ProjectDispatchQueue';
 
 describe('ProjectDispatchQueue', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     ProjectDispatchQueue.clear();
+    await ProjectDispatchQueue.clearAsync();
   });
 
   it('keeps project and agent scoped queues isolated', () => {
@@ -239,7 +240,62 @@ describe('ProjectDispatchQueue', () => {
       environmentId: 'env-a',
     });
     expect((pulled?.payload as any)?.environmentId).toBe('env-a');
-    expect(await ProjectDispatchQueue.depthAsync('proj-a', 'developer')).toBe(1);
+    expect(await ProjectDispatchQueue.depthAsync('proj-a', 'developer', { environmentId: 'env-a' })).toBe(0);
+    expect(await ProjectDispatchQueue.depthAsync('proj-a', 'developer', { environmentId: 'env-b' })).toBe(1);
+  });
+
+  it('keeps parallel environment-scoped claims isolated under load', async () => {
+    const scopeA = {
+      environmentId: 'env:tenant-a:workspace-a:project-shared',
+      tenantId: 'tenant-a',
+      workspaceId: 'workspace-a',
+    };
+    const scopeB = {
+      environmentId: 'env:tenant-b:workspace-b:project-shared',
+      tenantId: 'tenant-b',
+      workspaceId: 'workspace-b',
+    };
+
+    const enqueueBatch = async (scope: Record<string, string>, prefix: string) => {
+      for (let i = 0; i < 10; i += 1) {
+        await ProjectDispatchQueue.enqueueAsync({
+          runId: `${prefix}-run-${i}`,
+          projectId: 'proj-a',
+          chainId: `${prefix}-chain-${i}`,
+          pipelineId: 'feature-change',
+          stageId: 'dev',
+          agentSlug: 'developer',
+          payload: {
+            ...scope,
+            marker: `${prefix}-${i}`,
+          },
+        });
+      }
+    };
+
+    await Promise.all([enqueueBatch(scopeA, 'a'), enqueueBatch(scopeB, 'b')]);
+
+    const pullAll = async (environmentId: string, workerPrefix: string): Promise<string[]> => {
+      const markers: string[] = [];
+      for (let i = 0; i < 10; i += 1) {
+        const pulled = await ProjectDispatchQueue.pickupForWorkerAsync('proj-a', 'developer', `${workerPrefix}-${i}`, {
+          environmentId,
+        });
+        expect(pulled).toBeTruthy();
+        markers.push(String((pulled?.payload as any)?.marker || ''));
+        expect(String((pulled?.payload as any)?.environmentId || '')).toBe(environmentId);
+      }
+      return markers;
+    };
+
+    const [markersA, markersB] = await Promise.all([
+      pullAll(scopeA.environmentId, 'worker-a'),
+      pullAll(scopeB.environmentId, 'worker-b'),
+    ]);
+
+    expect(markersA.every((m) => m.startsWith('a-'))).toBe(true);
+    expect(markersB.every((m) => m.startsWith('b-'))).toBe(true);
+    expect(await ProjectDispatchQueue.depthAsync('proj-a', 'developer')).toBe(0);
   });
 
   it('supports async control APIs with sqlite default', async () => {
