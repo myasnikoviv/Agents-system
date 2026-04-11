@@ -40,6 +40,7 @@ describe('ProjectDispatchQueue', () => {
     });
     const picked = ProjectDispatchQueue.pickup('proj-a', 'developer');
     expect(picked?.taskId).toBe(queued.taskId);
+    expect((picked?.payload as any)?.idempotencyKey).toBe(queued.taskId);
     expect(ProjectDispatchQueue.depth('proj-a', 'developer')).toBe(0);
   });
 
@@ -101,7 +102,25 @@ describe('ProjectDispatchQueue', () => {
     expect(retry?.agentSlug).toBe('developer');
     expect((retry?.payload as any)?.retryCount).toBe(2);
     expect((retry?.payload as any)?.retryOfTaskId).toBe(queued.taskId);
+    expect((retry?.payload as any)?.idempotencyKey).toBe(queued.taskId);
     expect(ProjectDispatchQueue.depth('proj-a', 'developer')).toBe(2);
+  });
+
+  it('defers pickup while retryNotBefore is in the future', async () => {
+    await ProjectDispatchQueue.enqueueAsync({
+      runId: 'r-backoff-1',
+      projectId: 'proj-a',
+      chainId: 'c-backoff-1',
+      pipelineId: 'feature-change',
+      stageId: 'dev',
+      agentSlug: 'developer',
+      payload: {
+        retryCount: 1,
+        retryNotBefore: Date.now() + 60_000,
+      },
+    });
+    const early = await ProjectDispatchQueue.pickupForWorkerAsync('proj-a', 'developer', 'worker-backoff');
+    expect(early).toBeNull();
   });
 
   it('lists queued tasks in enqueue order', () => {
