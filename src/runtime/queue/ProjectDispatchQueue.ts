@@ -98,6 +98,15 @@ function rowToTask(row: any): DispatchQueueTask {
   };
 }
 
+function withDefaultIdempotency(payload: Record<string, any> | undefined, taskId: string): Record<string, any> {
+  const next = { ...(payload || {}) } as Record<string, any>;
+  const current = String((next as any).idempotencyKey || '').trim();
+  if (!current) {
+    next.idempotencyKey = taskId;
+  }
+  return next;
+}
+
 const REDIS_TASK_HASH_KEY = 'runtime:dispatch:tasks';
 const REDIS_QUEUE_KEY_PREFIX = 'runtime:dispatch:queue';
 const REDIS_DLQ_HASH_KEY = 'runtime:dispatch:dlq:tasks';
@@ -278,6 +287,7 @@ export class ProjectDispatchQueue {
       ...task,
       taskId: `${task.projectId}:${envPart}:${task.agentSlug}:${Date.now().toString(36)}:${nonce}`,
       enqueuedAt: Date.now(),
+      payload: task.payload,
     };
     const db = getDb();
     db.prepare(
@@ -292,9 +302,10 @@ export class ProjectDispatchQueue {
       full.pipelineId,
       full.stageId,
       full.agentSlug,
-      JSON.stringify(full.payload || {}),
+      JSON.stringify(withDefaultIdempotency(full.payload, full.taskId)),
       full.enqueuedAt,
     );
+    full.payload = withDefaultIdempotency(full.payload, full.taskId);
     return full;
   }
 
@@ -310,10 +321,13 @@ export class ProjectDispatchQueue {
         .all(pId, aSlug) as Array<any>;
       if (!rows.length) return null;
       const eligible = rows.filter((row) => {
-        if (!expectedEnvironmentId) return true;
         const payload = safeJson(row.payload_json);
+        const retryNotBefore = Number((payload as any)?.retryNotBefore || 0);
+        if (Number.isFinite(retryNotBefore) && retryNotBefore > Date.now()) return false;
+        if (!expectedEnvironmentId) return true;
         const environmentId = String((payload as any)?.environmentId || '').trim();
-        return !environmentId || environmentId === expectedEnvironmentId;
+        if (environmentId && environmentId !== expectedEnvironmentId) return false;
+        return true;
       });
       if (!eligible.length) return null;
       eligible.sort((a, b) => {
@@ -544,8 +558,10 @@ export class ProjectDispatchQueue {
       ...task,
       taskId: `${task.projectId}:${envPart}:${task.agentSlug}:${Date.now().toString(36)}:${nonce}`,
       enqueuedAt: Date.now(),
+      payload: task.payload,
     };
     const redis = getRedisClient();
+    full.payload = withDefaultIdempotency(full.payload, full.taskId);
     const serialized = JSON.stringify(full);
     const zkey = redisQueueKeyForScope(full.projectId, full.agentSlug, queueEnvironmentIdFromPayload(full.payload));
     const score = redisPriorityScore(full);
@@ -575,6 +591,10 @@ export class ProjectDispatchQueue {
       const task = parsed as DispatchQueueTask;
       const taskEnvironmentId = String((task.payload as any)?.environmentId || '').trim();
       if (expectedEnvironmentId && taskEnvironmentId && taskEnvironmentId !== expectedEnvironmentId) {
+        continue;
+      }
+      const retryNotBefore = Number((task.payload as any)?.retryNotBefore || 0);
+      if (Number.isFinite(retryNotBefore) && retryNotBefore > Date.now()) {
         continue;
       }
       const removed = await redis.zrem(zkey, id);

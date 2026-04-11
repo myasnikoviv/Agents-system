@@ -196,6 +196,15 @@ function extractRetrySeconds(text: string): string | null {
   return null;
 }
 
+function computeRetryBackoffMs(retryAttempt: number): number {
+  const baseMs = Math.max(50, Number(process.env.RUNTIME_TASK_RETRY_BASE_MS || 500));
+  const factor = Math.max(1, Number(process.env.RUNTIME_TASK_RETRY_BACKOFF_FACTOR || 2));
+  const capMs = Math.max(baseMs, Number(process.env.RUNTIME_TASK_RETRY_CAP_MS || 15000));
+  const attempt = Math.max(1, Number(retryAttempt || 1));
+  const raw = baseMs * Math.pow(factor, Math.max(0, attempt - 1));
+  return Math.max(baseMs, Math.min(capMs, Math.round(raw)));
+}
+
 function summarizeExecutionError(language: DetectedLanguage, rawError: string, providerLabel = 'Execution provider'): string {
   const text = String(rawError || '').trim();
   const lower = text.toLowerCase();
@@ -868,6 +877,9 @@ async function swarmNode(state: PilotState): Promise<Partial<PilotState>> {
     const retryCount = Number((pickedTask.payload as any)?.retryCount || 0);
 
     if (retryCount < retryLimit) {
+      const nextRetryAttempt = retryCount + 1;
+      const backoffMs = computeRetryBackoffMs(nextRetryAttempt);
+      const retryNotBefore = Date.now() + backoffMs;
       const retryTask = await QueueAbstractionLayer.enqueue({
         runId: state.runId,
         projectId: state.projectId,
@@ -877,9 +889,14 @@ async function swarmNode(state: PilotState): Promise<Partial<PilotState>> {
         agentSlug: pickedTask.agentSlug,
         payload: {
           ...((pickedTask.payload as Record<string, any>) || {}),
-          retryCount: retryCount + 1,
+          retryCount: nextRetryAttempt,
           retryOfTaskId: pickedTask.taskId,
           retryReason: errMsg,
+          retryBackoffMs: backoffMs,
+          retryNotBefore,
+          idempotencyKey:
+            String(((pickedTask.payload as any)?.idempotencyKey || '')).trim() ||
+            String((pickedTask as any)?.taskId || '').trim(),
         },
       });
       await emitEvent({
@@ -892,10 +909,15 @@ async function swarmNode(state: PilotState): Promise<Partial<PilotState>> {
           taskId: retryTask.taskId,
           stageId: retryTask.stageId,
           agentSlug: retryTask.agentSlug,
-          retryCount: retryCount + 1,
+          retryCount: nextRetryAttempt,
+          retryBackoffMs: backoffMs,
+          retryNotBefore,
           queueDepth: await QueueAbstractionLayer.depth(state.projectId, retryTask.agentSlug),
         },
       });
+      if (backoffMs > 0) {
+        await new Promise((resolve) => setTimeout(resolve, backoffMs));
+      }
       const retryLease = await QueueAbstractionLayer.dequeue({
         projectId: state.projectId,
         agentSlug: retryTask.agentSlug,
@@ -915,7 +937,7 @@ async function swarmNode(state: PilotState): Promise<Partial<PilotState>> {
             taskId: retryPicked.taskId,
             stageId: retryPicked.stageId,
             agentSlug: retryPicked.agentSlug,
-            retryCount: retryCount + 1,
+            retryCount: nextRetryAttempt,
             queuedForMs: Math.max(0, Date.now() - retryPicked.enqueuedAt),
             queueDepthAfterPickup: await QueueAbstractionLayer.depth(state.projectId, retryPicked.agentSlug),
           },
