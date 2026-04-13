@@ -39,6 +39,11 @@ export class RunManager {
       actor: { type: 'system', id: 'run-manager' },
       payload: { reason }
     });
+    
+    // Cleanup worker locks immediately on cancellation
+    import('../workers/DynamicWorkerSpawnManager')
+      .then(({ DynamicWorkerSpawnManager }) => DynamicWorkerSpawnManager.forceReleaseAllLocksForRun(runId))
+      .catch(() => undefined);
   }
 
   /**

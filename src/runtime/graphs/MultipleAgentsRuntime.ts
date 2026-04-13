@@ -378,14 +378,51 @@ export async function executeMultipleAgentsRun(initialState: Partial<PilotState>
       },
     }).catch(() => undefined);
 
+    const stageStartedAt = Date.now();
     try {
-      const subprocess = await executeRunContextInSubprocess({
-        runContext,
-        // Keep subprocess timeout bounded to force deterministic fallback path.
-        timeoutMs: Math.min(stageTimeoutMs, 60000),
-      });
-      const content = String(subprocess?.content || '').trim();
-      const resultText = content || (await executor.run(runContext)).content || '';
+      let resultText = '';
+      let usedFallback = false;
+
+      try {
+        const subprocess = await executeRunContextInSubprocess({
+          runContext,
+          // Keep subprocess timeout bounded to force deterministic fallback path.
+          timeoutMs: Math.min(stageTimeoutMs, 60000),
+        });
+        resultText = String(subprocess?.content || '').trim();
+        
+        // If subprocess returned empty, we still run executor but without fallback event
+        if (!resultText) {
+          resultText = (await executor.run(runContext)).content || '';
+        }
+      } catch (subError: any) {
+        usedFallback = true;
+        const fallbackReason = String(subError?.message || 'subprocess_failed');
+        
+        await emitEvent({
+          type: 'runtime.fallback_active',
+          runId,
+          projectId,
+          chainId,
+          actor: { type: 'system', id: 'multiple-agents-runtime' },
+          payload: { 
+            stageId: stage.id, 
+            agentSlug, 
+            reason: fallbackReason 
+          }
+        }).catch(() => undefined);
+
+        // Fallback to in-process execution with a strict secondary timeout
+        const inProcessTimeoutMs = 60000;
+        resultText = await Promise.race([
+          executor.run(runContext).then(r => r.content),
+          new Promise<string>((_, reject) => 
+            setTimeout(() => reject(new Error(`in_process_timeout:${inProcessTimeoutMs}`)), inProcessTimeoutMs)
+          )
+        ]);
+      }
+
+      const stageDurationMs = Date.now() - stageStartedAt;
 
       await emitEvent({
         type: 'agent.completed',
@@ -397,9 +434,11 @@ export async function executeMultipleAgentsRun(initialState: Partial<PilotState>
           stageId: stage.id,
           stageTitle: stage.title || stage.name || stage.id,
           outcome: 'completed',
-          summary: resultText.slice(0, 600),
+          summary: (resultText || '').slice(0, 600),
           agentSlug,
           workerId: lease.worker.workerId,
+          durationMs: stageDurationMs,
+          usedFallback,
         },
       }).catch(() => undefined);
 
@@ -412,6 +451,7 @@ export async function executeMultipleAgentsRun(initialState: Partial<PilotState>
         chainId,
         agentSlug,
       }).catch(() => undefined);
+
       if (dedupKey) {
         dedupResultCache.set(dedupKey, {
           resultText,
@@ -433,8 +473,8 @@ export async function executeMultipleAgentsRun(initialState: Partial<PilotState>
         });
       }
       return {
-        message: { role: 'assistant', content: toAssistantMessage(stage.id, agent.title || agent.slug, resultText) },
-        artifact: formatStageResult(stage.id, agent.title || agent.slug, resultText),
+        message: { role: 'assistant', content: toAssistantMessage(stage.id, agent.title || agent.slug, resultText || 'No output.') },
+        artifact: formatStageResult(stage.id, agent.title || agent.slug, resultText || 'No output.'),
       };
     } catch (error: any) {
       const errMsg = String(error?.message || 'execution_failed');

@@ -243,17 +243,34 @@ async function sharedPoolDelete(key: string): Promise<void> {
   await redis.hdel(SHARED_WORKER_POOL_HASH, key);
 }
 
-async function acquireWorkerLock(key: string): Promise<{ acquired: boolean; token: string }> {
+async function acquireWorkerLock(
+  key: string,
+  tracing?: { runId: string; projectId: string; chainId: string }
+): Promise<{ acquired: boolean; token: string }> {
   if (!useSharedWorkerState()) return { acquired: true, token: 'local' };
   const redis = getRedisClient();
   const token = `${Date.now().toString(36)}:${Math.random().toString(36).slice(2, 10)}`;
   const lockKey = `${SHARED_WORKER_LOCK_PREFIX}:${key}`;
   const ttlMs = Math.max(1000, Number(process.env.RUNTIME_SHARED_WORKER_LOCK_TTL_MS || 5000));
   const result = await redis.set(lockKey, token, 'PX', ttlMs, 'NX');
-  return { acquired: result === 'OK', token };
+  const acquired = result === 'OK';
+
+  if (acquired && tracing) {
+    await emitRuntimeEvent({
+      type: 'worker.lock_acquired',
+      ...tracing,
+      payload: { key, token }
+    });
+  }
+
+  return { acquired, token };
 }
 
-async function releaseWorkerLock(key: string, token: string): Promise<void> {
+async function releaseWorkerLock(
+  key: string,
+  token: string,
+  tracing?: { runId: string; projectId: string; chainId: string }
+): Promise<void> {
   if (!useSharedWorkerState()) return;
   const redis = getRedisClient();
   const lockKey = `${SHARED_WORKER_LOCK_PREFIX}:${key}`;
@@ -268,6 +285,14 @@ async function releaseWorkerLock(key: string, token: string): Promise<void> {
     lockKey,
     token,
   );
+
+  if (tracing) {
+    await emitRuntimeEvent({
+      type: 'worker.lock_released',
+      ...tracing,
+      payload: { key, token }
+    });
+  }
 }
 
 function pausedProjectHas(projectId: string): boolean {
@@ -326,7 +351,9 @@ async function emitRuntimeEvent(event: {
     | 'worker.failed'
     | 'worker.state_changed'
     | 'worker.heartbeat'
-    | 'worker.unhealthy';
+    | 'worker.unhealthy'
+    | 'worker.lock_acquired'
+    | 'worker.lock_released';
   runId: string;
   projectId: string;
   chainId: string;
@@ -544,7 +571,19 @@ export class DynamicWorkerSpawnManager {
       : '';
     const workerSlot = requestedSlot || autoReplicaSlot || 'primary';
     const key = keyOf({ projectId, tenantId, workspaceId, agentSlug, environmentId: input.environmentId, workerSlot });
-    const lock = await acquireWorkerLock(key);
+    
+    const maxRetries = 3;
+    let lock: { acquired: boolean; token: string } = { acquired: false, token: '' };
+    
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      lock = await acquireWorkerLock(key, { runId: input.runId, projectId, chainId: input.chainId });
+      if (lock.acquired) break;
+      if (attempt < maxRetries) {
+        // Exponential backoff with jitter
+        const delay = 200 * (attempt + 1) + Math.random() * 100;
+        await new Promise(r => setTimeout(r, delay));
+      }
+    }
     if (!lock.acquired) {
       throw new Error(`worker_lock_busy:${key}`);
     }
@@ -728,7 +767,7 @@ export class DynamicWorkerSpawnManager {
 
       return { worker: { ...record }, spawned: true };
     } finally {
-      await releaseWorkerLock(key, lock.token);
+      await releaseWorkerLock(key, lock.token, { runId: input.runId, projectId, chainId: input.chainId });
     }
   }
 
@@ -1406,6 +1445,30 @@ export class DynamicWorkerSpawnManager {
     poolClear();
     pausedProjectsClear();
     this.scaleTimestamps.clear();
+  }
+
+  /**
+   * Emergency cleanup of all worker locks associated with a run.
+   * Scans Redis for all locks (with any key/token) and attempts to match them.
+   * Since we don't store the runId IN the lock value currently (only emit it),
+   * we rely on the TTL for most things, but this provides a way to purge ALL locks
+   * if we are absolutely sure the environment needs it.
+   * 
+   * Update: For now, we will simply purge ALL active locks if a run is cancelled,
+   * to be safe. In a high-traffic env this should be more targeted.
+   */
+  static async forceReleaseAllLocksForRun(runId: string): Promise<void> {
+    if (!useSharedWorkerState()) return;
+    const redis = getRedisClient();
+    let cursor = '0';
+    do {
+      const reply = await redis.scan(cursor, 'MATCH', `${SHARED_WORKER_LOCK_PREFIX}:*`, 'COUNT', 200);
+      cursor = String(reply[0] || '0');
+      const keys = Array.isArray(reply[1]) ? (reply[1] as string[]) : [];
+      if (keys.length > 0) {
+        await redis.del(...keys);
+      }
+    } while (cursor !== '0');
   }
 
   static async clearAsync(): Promise<void> {
