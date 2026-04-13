@@ -69,6 +69,9 @@ function readYamlRules(workspacePath?: string): GovernanceRule[] {
           tags: Array.isArray(rule.metadata?.tags) ? rule.metadata?.tags : [],
           createdAt: rule.metadata?.createdAt || new Date().toISOString(),
           updatedAt: rule.metadata?.updatedAt || new Date().toISOString(),
+          riskLevel: rule.metadata?.riskLevel || 'medium',
+          impactArea: rule.metadata?.impactArea || ['reliability'],
+          complianceDomain: rule.metadata?.complianceDomain || ['internal'],
         },
       };
     }) as GovernanceRule[];
@@ -114,6 +117,9 @@ function readCatalogRules(workspacePath?: string): GovernanceRule[] {
           tags: Array.isArray(rule.metadata?.tags) ? rule.metadata?.tags : [],
           createdAt: rule.metadata?.createdAt || new Date().toISOString(),
           updatedAt: rule.metadata?.updatedAt || new Date().toISOString(),
+          riskLevel: rule.metadata?.riskLevel || 'medium',
+          impactArea: rule.metadata?.impactArea || ['reliability'],
+          complianceDomain: rule.metadata?.complianceDomain || ['internal'],
         },
       };
     }) as GovernanceRule[];
@@ -180,88 +186,100 @@ export function getRuleById(ruleId: GovernanceRule['id'], workspacePath?: string
   return loadGovernanceRules(workspacePath).find((r) => r.id === ruleId);
 }
 
-export function createGovernanceRule(
-  input: Omit<GovernanceRule, 'metadata' | 'is_enabled' | 'scope'> & { 
-    metadata?: Partial<GovernanceRule['metadata']>;
-    scope?: Partial<GovernanceRule['scope']>;
-    is_enabled?: boolean;
-  },
-  workspacePath?: string,
-): GovernanceRule {
-  const existing = loadGovernanceRules(workspacePath);
-  if (existing.some((rule) => rule.id === input.id)) {
-    throw new GovernanceRegistryError(`governance_rule_exists:${input.id}`);
+/**
+ * Creates a new governance rule and persists it to YAML.
+ * AGSYS-2403: Rule Create API
+ */
+export function createGovernanceRule(data: Partial<GovernanceRule>, workspacePath?: string): GovernanceRule {
+  const rules = loadGovernanceRules(workspacePath);
+  const id = data.id || `rule_${Date.now()}`;
+  
+  if (rules.some(r => r.id === id)) {
+    throw new GovernanceRegistryError(`governance_rule_exists:${id}`);
   }
+
   const now = new Date().toISOString();
-  const nextRule: GovernanceRule = {
-    ...input,
-    disabled: input.is_enabled === false || input.disabled === true,
-    is_enabled: input.is_enabled !== false && input.disabled !== true,
-    scope: {
-      level: input.scope?.level || 'global',
-      projectId: input.scope?.projectId,
-      sessionId: input.scope?.sessionId,
-    },
+  
+  const newRule: GovernanceRule = {
+    id,
+    triggerPhases: data.triggerPhases || ['pre_execution'],
+    evidence: data.evidence || [],
+    evaluationType: data.evaluationType || 'deterministic',
+    enforcementMode: data.enforcementMode || 'soft',
+    enabledByDefault: data.enabledByDefault !== false,
+    is_enabled: data.is_enabled !== false,
+    disabled: data.is_enabled === false,
+    scope: data.scope || { level: 'global' },
     metadata: {
-      name: input.metadata?.name || input.id,
-      description: input.metadata?.description || '',
-      version: input.metadata?.version || '1.0.0',
-      owner: input.metadata?.owner || 'user',
-      tags: Array.isArray(input.metadata?.tags) ? input.metadata?.tags : [],
-      createdAt: input.metadata?.createdAt || now,
+      name: data.metadata?.name || id,
+      description: data.metadata?.description || '',
+      version: data.metadata?.version || '1.0.0',
+      owner: data.metadata?.owner || 'system',
+      tags: data.metadata?.tags || [],
+      createdAt: now,
       updatedAt: now,
+      riskLevel: data.metadata?.riskLevel || 'medium',
+      impactArea: data.metadata?.impactArea || ['reliability'],
+      complianceDomain: data.metadata?.complianceDomain || ['internal'],
     },
-  } as GovernanceRule;
-  writeCatalogRules([...existing, nextRule], workspacePath);
+    thresholds: data.thresholds || {},
+    deterministicCheck: data.deterministicCheck,
+  };
+
+  rules.push(newRule);
+  writeCatalogRules(rules, workspacePath);
   appendRuleHistory(
-    { action: 'create', ruleId: nextRule.id, actorId: 'api-user', before: null, after: nextRule },
+    { action: 'create', ruleId: newRule.id, actorId: 'api-user', before: null, after: newRule },
     workspacePath,
   );
-  return nextRule;
+  return newRule;
 }
 
+/**
+ * Updates an existing rule and persists the change.
+ * AGSYS-2404: Rule Update API
+ * AGSYS-2406/2407: Extend Rule Schema & Metadata Persistence
+ */
 export function updateGovernanceRule(
-  ruleId: string,
-  patch: Partial<GovernanceRule>,
-  workspacePath?: string,
+  id: string, 
+  updates: Partial<GovernanceRule>,
+  workspacePath?: string
 ): GovernanceRule {
-  const current = loadGovernanceRules(workspacePath);
-  const hit = current.find((rule) => rule.id === ruleId);
-  if (!hit) {
-    throw new GovernanceRegistryError(`governance_rule_not_found:${ruleId}`);
+  const rules = loadGovernanceRules(workspacePath);
+  const index = rules.findIndex((r) => r.id === id);
+  if (index === -1) {
+    throw new GovernanceRegistryError(`governance_rule_not_found:${id}`);
   }
+
+  const existing = rules[index];
   const now = new Date().toISOString();
-  const nextVersion = patch.metadata?.version
-    ? patch.metadata.version
-    : bumpPatchVersion(hit.metadata?.version);
 
-  const disabled = patch.is_enabled !== undefined 
-    ? !patch.is_enabled 
-    : (patch.disabled !== undefined ? patch.disabled : hit.disabled);
+  // Deep merge updates
+  const updatedMetadata = updates.metadata ? {
+    ...existing.metadata,
+    ...updates.metadata,
+    updatedAt: now,
+  } : {
+    ...existing.metadata,
+    updatedAt: now,
+  };
 
-  const updated: GovernanceRule = {
-    ...hit,
-    ...patch,
-    id: ruleId,
-    disabled,
-    is_enabled: !disabled,
-    metadata: {
-      name: patch.metadata?.name || hit.metadata.name,
-      description: patch.metadata?.description ?? hit.metadata.description,
-      version: nextVersion,
-      owner: patch.metadata?.owner || hit.metadata.owner,
-      tags: patch.metadata?.tags || hit.metadata.tags,
-      createdAt: hit.metadata.createdAt,
-      updatedAt: now,
-    },
-  } as GovernanceRule;
-  const next = current.map((rule) => (rule.id === ruleId ? updated : rule));
-  writeCatalogRules(next, workspacePath);
+  const updatedRule: GovernanceRule = {
+    ...existing,
+    ...updates,
+    id: existing.id, // ID cannot change
+    disabled: updates.is_enabled !== undefined ? !updates.is_enabled : existing.disabled,
+    is_enabled: updates.is_enabled !== undefined ? updates.is_enabled : existing.is_enabled,
+    metadata: updatedMetadata,
+  };
+
+  rules[index] = updatedRule;
+  writeCatalogRules(rules, workspacePath);
   appendRuleHistory(
-    { action: 'update', ruleId, actorId: 'api-user', before: hit, after: updated },
+    { action: 'update', ruleId: id, actorId: 'api-user', before: existing, after: updatedRule },
     workspacePath,
   );
-  return updated;
+  return updatedRule;
 }
 
 export function disableGovernanceRule(

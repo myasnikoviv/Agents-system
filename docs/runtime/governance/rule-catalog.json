@@ -1,0 +1,250 @@
+{
+  "rules": [
+    {
+      "id": "git_preflight",
+      "triggerPhases": [
+        "BEFORE_RUN"
+      ],
+      "evidence": [
+        "docs/process/git/preflights/<ticket>.env"
+      ],
+      "evaluationType": "deterministic",
+      "deterministicCheck": "preflight_token",
+      "enforcementMode": "hard",
+      "enabledByDefault": true,
+      "is_enabled": true,
+      "disabled": false,
+      "scope": {
+        "level": "global"
+      },
+      "metadata": {
+        "name": "git_preflight",
+        "description": "",
+        "version": "1.0.0",
+        "owner": "system",
+        "tags": [],
+        "createdAt": "2026-04-13T20:01:00.264Z",
+        "updatedAt": "2026-04-13T20:01:00.264Z"
+      }
+    },
+    {
+      "id": "ticket_context_required",
+      "triggerPhases": [
+        "BEFORE_RUN"
+      ],
+      "evidence": [
+        "runtime ticket context"
+      ],
+      "evaluationType": "deterministic",
+      "deterministicCheck": "ticket_context_present",
+      "enforcementMode": "hard",
+      "enabledByDefault": true,
+      "is_enabled": true,
+      "disabled": false,
+      "scope": {
+        "level": "global"
+      },
+      "metadata": {
+        "name": "ticket_context_required",
+        "description": "",
+        "version": "1.0.0",
+        "owner": "system",
+        "tags": [],
+        "createdAt": "2026-04-13T20:01:00.265Z",
+        "updatedAt": "2026-04-13T20:01:00.265Z"
+      }
+    },
+    {
+      "id": "postflight_evidence",
+      "triggerPhases": [
+        "AFTER_RUN"
+      ],
+      "evidence": [
+        "docs/process/tests/<ticket>.md"
+      ],
+      "evaluationType": "deterministic",
+      "deterministicCheck": "postflight_report",
+      "enforcementMode": "hard",
+      "enabledByDefault": true,
+      "is_enabled": true,
+      "disabled": false,
+      "scope": {
+        "level": "global"
+      },
+      "metadata": {
+        "name": "postflight_evidence",
+        "description": "",
+        "version": "1.0.0",
+        "owner": "system",
+        "tags": [],
+        "createdAt": "2026-04-13T20:01:00.265Z",
+        "updatedAt": "2026-04-13T20:01:00.265Z"
+      }
+    },
+    {
+      "id": "improvement_loop",
+      "triggerPhases": [
+        "AFTER_RUN"
+      ],
+      "evidence": [
+        "docs/process/retrospectives/**",
+        "docs/knowledge/lessons-learned/**"
+      ],
+      "evaluationType": "deterministic",
+      "deterministicCheck": "improvement_artifact",
+      "enforcementMode": "soft",
+      "enabledByDefault": true,
+      "is_enabled": true,
+      "disabled": false,
+      "scope": {
+        "level": "global"
+      },
+      "metadata": {
+        "name": "improvement_loop",
+        "description": "",
+        "version": "1.0.0",
+        "owner": "system",
+        "tags": [],
+        "createdAt": "2026-04-13T20:01:00.265Z",
+        "updatedAt": "2026-04-13T20:01:00.265Z"
+      }
+    },
+    {
+      "id": "required_agent_usage",
+      "triggerPhases": [
+        "AFTER_STEP"
+      ],
+      "evidence": [
+        "agent.started events"
+      ],
+      "evaluationType": "deterministic",
+      "deterministicCheck": "agent_usage_events",
+      "enforcementMode": "soft",
+      "enabledByDefault": true,
+      "is_enabled": true,
+      "disabled": false,
+      "scope": {
+        "level": "global"
+      },
+      "metadata": {
+        "name": "required_agent_usage",
+        "description": "",
+        "version": "1.0.0",
+        "owner": "system",
+        "tags": [],
+        "createdAt": "2026-04-13T20:01:00.265Z",
+        "updatedAt": "2026-04-13T20:01:00.265Z"
+      }
+    },
+    {
+      "id": "required_pipeline_usage",
+      "triggerPhases": [
+        "AFTER_STEP"
+      ],
+      "evidence": [
+        "stage.started events"
+      ],
+      "evaluationType": "deterministic",
+      "deterministicCheck": "pipeline_usage_events",
+      "enforcementMode": "soft",
+      "enabledByDefault": true,
+      "is_enabled": true,
+      "disabled": false,
+      "scope": {
+        "level": "global"
+      },
+      "metadata": {
+        "name": "required_pipeline_usage",
+        "description": "",
+        "version": "1.0.0",
+        "owner": "system",
+        "tags": [],
+        "createdAt": "2026-04-13T20:01:00.265Z",
+        "updatedAt": "2026-04-13T20:01:00.265Z"
+      }
+    },
+    {
+      "id": "cost_guard_light",
+      "triggerPhases": [
+        "AFTER_RUN"
+      ],
+      "evidence": [
+        "token telemetry"
+      ],
+      "evaluationType": "deterministic",
+      "deterministicCheck": "cost_guard_tokens",
+      "enforcementMode": "advisory",
+      "enabledByDefault": true,
+      "is_enabled": true,
+      "disabled": false,
+      "scope": {
+        "level": "global"
+      },
+      "metadata": {
+        "name": "cost_guard_light",
+        "description": "",
+        "version": "1.0.0",
+        "owner": "system",
+        "tags": [],
+        "createdAt": "2026-04-13T20:01:00.265Z",
+        "updatedAt": "2026-04-13T20:01:00.265Z"
+      }
+    },
+    {
+      "id": "loop_guard_hard",
+      "triggerPhases": [
+        "AFTER_RUN"
+      ],
+      "evidence": [
+        "guard.retry events",
+        "governance.rule_check events"
+      ],
+      "evaluationType": "deterministic",
+      "deterministicCheck": "loop_pressure_hard",
+      "enforcementMode": "hard",
+      "enabledByDefault": true,
+      "is_enabled": true,
+      "disabled": false,
+      "scope": {
+        "level": "global"
+      },
+      "metadata": {
+        "name": "loop_guard_hard",
+        "description": "",
+        "version": "1.0.0",
+        "owner": "system",
+        "tags": [],
+        "createdAt": "2026-04-13T20:01:00.265Z",
+        "updatedAt": "2026-04-13T20:01:00.265Z"
+      }
+    },
+    {
+      "id": "test_rule_v2",
+      "triggerPhases": [
+        "pre_execution"
+      ],
+      "evidence": [],
+      "evaluationType": "deterministic",
+      "enforcementMode": "hard",
+      "enabledByDefault": true,
+      "is_enabled": true,
+      "disabled": false,
+      "scope": {
+        "level": "global"
+      },
+      "metadata": {
+        "name": "Test Rule v2",
+        "description": "A rule for testing metadata persistence",
+        "version": "2.1.0",
+        "owner": "qa-team",
+        "tags": [
+          "test",
+          "v2"
+        ],
+        "createdAt": "2026-04-13T20:01:00.265Z",
+        "updatedAt": "2026-04-13T20:01:00.265Z"
+      },
+      "thresholds": {}
+    }
+  ]
+}

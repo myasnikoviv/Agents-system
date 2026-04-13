@@ -34,7 +34,7 @@ function makeWorkspace(): string {
       '    enabledByDefault: true',
       '  - id: improvement_loop',
       '    triggerPhases: [AFTER_RUN]',
-      '    evidence: [docs/process/retrospectives/**]',
+      '    evidence: [docs/process/retrospectives/.*]',
       '    evaluationType: deterministic',
       '    deterministicCheck: improvement_artifact',
       '    enforcementMode: soft',

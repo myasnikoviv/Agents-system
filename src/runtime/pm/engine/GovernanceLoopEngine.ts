@@ -51,6 +51,14 @@ export class GovernanceLoopEngine {
         return updatedTask;
       }
 
+      if (phase.retrySuggested) {
+        // If governance suggests a retry (Soft Mode), move back to pending
+        const currentRetries = task.autoRetryCount || 0;
+        updatedTask.status = 'pending';
+        updatedTask.autoRetryCount = currentRetries + 1;
+        return updatedTask;
+      }
+
       // ENF-002 — Task Closure Postflight Hard Gate
       // Blocks moving to 'done' unless evidence exists.
       enforcePostflightGate({

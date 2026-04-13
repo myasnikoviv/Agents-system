@@ -14,6 +14,10 @@ export type GovernanceEnforcementMode = 'hard' | 'soft' | 'advisory';
 export type GovernanceDeterministicCheck = string;
 export type GovernanceScopeLevel = 'global' | 'project' | 'session';
 
+export type GovernanceRiskLevel = 'low' | 'medium' | 'high' | 'critical';
+export type GovernanceImpactArea = 'cost' | 'security' | 'architecture' | 'legal' | 'reliability';
+export type GovernanceComplianceDomain = 'internal' | 'gdpr' | 'soc2' | 'hipaa' | 'financial';
+
 export interface GovernanceRuleMetadata {
   name: string;
   description: string;
@@ -22,6 +26,9 @@ export interface GovernanceRuleMetadata {
   tags: string[];
   createdAt: string;
   updatedAt: string;
+  riskLevel?: GovernanceRiskLevel;
+  impactArea?: GovernanceImpactArea[];
+  complianceDomain?: GovernanceComplianceDomain[];
 }
 
 export interface GovernanceRuleScope {
