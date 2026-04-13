@@ -1,4 +1,5 @@
 import { assetRegistryV2 } from '../registries/AssetRegistryV2';
+import { generateAssetId, calculateAssetChecksum } from '../registries/AssetDomainModel';
 import { assetStore } from '../registries/AssetStore';
 import { closeRedisClient } from '../redisClient';
 import { AgentRegistry } from '../registries/AgentRegistry';
@@ -74,5 +75,51 @@ describe('AssetRegistryV2', () => {
     } else {
       console.log('Note: AgentRegistry instance in test is different from runtime, relying on isHydrated()');
     }
+  });
+
+  it('should detect corruption and enter Safe Mode', async () => {
+    const slug = 'corrupt-agent';
+    const proj = `corrupt-proj-${Date.now()}`;
+    
+    // 1. Register valid asset
+    await assetRegistryV2.registerAsset({
+      type: 'agent',
+      slug,
+      path: '/dev/null',
+      name: 'Corrupt Test',
+      tenantId: 'default',
+      projectId: proj,
+      attributes: {
+        callsign: 'ORIGINAL',
+        mission: 'Testing integrity',
+        guardrails: []
+      }
+    });
+
+    // 2. Manually corrupt data in store (bypass registry)
+    const asset = await assetRegistryV2.getAsset(generateAssetId({
+      tenant_id: 'default',
+      workspace_id: 'default',
+      project_id: proj,
+      asset_type: 'agent',
+      slug
+    }));
+    
+    if (asset) {
+      asset.attributes.callsign = 'CORRUPTED'; // Change data but keep same checksum in metadata
+      // Using store directly to simulate external corruption
+      const { assetStore } = require('../registries/AssetStore');
+      await assetStore.save(asset);
+    }
+
+    // 3. Clear Registry & Initialize
+    AgentRegistry.clear();
+    process.env.PROJECT_ID = proj;
+    
+    // This should trigger Safe Mode because of checksum mismatch
+    await assetRegistryV2.initialize();
+
+    // 4. Verify Safe Mode
+    expect(assetRegistryV2.isInSafeMode()).toBe(true);
   });
 });
