@@ -2,7 +2,7 @@ import { logGovernance } from './GovernanceLogger';
 import { evaluateDeterministic } from './DeterministicEvaluationEngine';
 import { runHybridVerifier } from './LlmVerifierWrapper';
 import { isBypassAllowed, isGlobalGovernanceDisabled } from './EmergencyBrake';
-import { resolveEnabledRules } from './ProjectPolicyBinding';
+import { getProjectPolicy, resolveEnabledRules } from './ProjectPolicyBinding';
 import { loadGovernanceRules } from './RuleRegistry';
 import { resolveManualOverride } from './ManualOverrideRegistry';
 import { resolveScopedRules } from './ScopeResolutionEngine';
@@ -88,8 +88,13 @@ export async function runGovernancePhase(
 
   const registryRules = loadGovernanceRules(ctx.workspacePath);
   const executionPolicy = loadExecutionPolicy(ctx.workspacePath);
-  const enabled = resolveEnabledRules(ctx.projectId || 'default', ctx.workspacePath);
-  const scopedRules = resolveScopedRules({ rules: registryRules, context: ctx });
+  const projectPolicy = getProjectPolicy(ctx.projectId || 'default', ctx.workspacePath);
+  const enabled = new Set(projectPolicy.enabledRules);
+  const scopedRules = resolveScopedRules({ 
+    rules: registryRules, 
+    context: ctx, 
+    projectOverrides: projectPolicy.ruleOverrides 
+  });
   const rules = scopedRules.filter((r) => !r.disabled && enabled.has(r.id) && r.triggerPhases.includes(normalizedPhase));
   const entries = [] as GovernancePhaseResult['entries'];
 

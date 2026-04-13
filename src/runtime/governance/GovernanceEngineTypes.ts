@@ -15,13 +15,13 @@ export type GovernanceDeterministicCheck = string;
 export type GovernanceScopeLevel = 'global' | 'project' | 'session';
 
 export interface GovernanceRuleMetadata {
-  name?: string;
-  description?: string;
-  version?: string;
-  owner?: string;
-  tags?: string[];
-  createdAt?: string;
-  updatedAt?: string;
+  name: string;
+  description: string;
+  version: string;
+  owner: string;
+  tags: string[];
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface GovernanceRuleScope {
@@ -38,10 +38,12 @@ export interface GovernanceRule {
   deterministicCheck?: GovernanceDeterministicCheck;
   enforcementMode: GovernanceEnforcementMode;
   enabledByDefault: boolean;
+  is_enabled: boolean;
   disabled?: boolean;
-  scope?: GovernanceRuleScope;
-  metadata?: GovernanceRuleMetadata;
+  scope: GovernanceRuleScope;
+  metadata: GovernanceRuleMetadata;
   thresholds?: Record<string, number>;
+  project_overrides?: Record<string, Partial<GovernanceRule>>;
 }
 
 export interface GovernanceEngineContext {

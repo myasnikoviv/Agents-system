@@ -23,20 +23,36 @@ function isRuleInScope(rule: GovernanceRule, ctx: GovernanceEngineContext): bool
 export function resolveScopedRules(input: {
   rules: GovernanceRule[];
   context: GovernanceEngineContext;
+  projectOverrides?: Record<string, { evidence?: string[]; thresholds?: Record<string, number> }>;
 }): GovernanceRule[] {
   const scoped = input.rules.filter((rule) => isRuleInScope(rule, input.context));
   const dedup = new Map<string, GovernanceRule>();
-  for (const rule of scoped) {
-    const existing = dedup.get(rule.id);
-    if (!existing) {
-      dedup.set(rule.id, rule);
-      continue;
+
+  // Sort by precedence so highest overlaps lowest
+  const sorted = [...scoped].sort((a, b) => 
+    precedence(a.scope?.level || 'global') - precedence(b.scope?.level || 'global')
+  );
+
+  for (const rule of sorted) {
+    const level = rule.scope?.level || 'global';
+    let effectiveRule = { ...rule };
+
+    // Apply project-level overrides from policy binding if applicable
+    if (level === 'global' && input.projectOverrides?.[rule.id]) {
+      const override = input.projectOverrides[rule.id];
+      effectiveRule = {
+        ...effectiveRule,
+        evidence: override.evidence || effectiveRule.evidence,
+        thresholds: {
+          ...(effectiveRule.thresholds || {}),
+          ...(override.thresholds || {}),
+        },
+      };
     }
-    const currentScore = precedence(rule.scope?.level || 'global');
-    const prevScore = precedence(existing.scope?.level || 'global');
-    if (currentScore >= prevScore) {
-      dedup.set(rule.id, rule);
-    }
+
+    dedup.set(rule.id, effectiveRule);
   }
+
+  // Final pass to ensure session rules (higher precedence) fully replace global/project entries
   return Array.from(dedup.values());
 }
