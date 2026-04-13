@@ -6,14 +6,14 @@
 
 1.1 Registry Coverage
 	•	Чи всі declarative assets реєструються в registry?
-	•	agents
-	•	pipelines
-	•	skills
-	•	loops
-	•	governance profiles
-	•	meeting specs
-	•	templates
-	•	Чи є хоч один asset, який використовується runtime, але відсутній у registry?
+	•	agents: [PASS]
+	•	pipelines: [PASS]
+	•	skills: [PASS]
+	•	loops: [FAIL] - registered in legacy registry only
+	•	governance profiles: [FAIL] - registered in legacy registry only
+	•	meeting specs: [FAIL] - registered in legacy registry only
+	•	templates: [PASS]
+	•	Чи є хоч один asset, який використовується runtime, але відсутній у registry? [ТАК: loops, meeting specs]
 
 👉 PASS: всі assets мають registry entry
 👉 FAIL: хоча б один asset існує тільки як файл
@@ -24,8 +24,8 @@
 	•	Чи можливе використання asset без registry lookup?
 	•	Чи є код, який читає asset напряму з FS, оминаючи registry?
 
-👉 PASS: registry = єдине джерело істини
-👉 FAIL: runtime читає файли напряму
+👉 PASS: registry = єдине джерело істини [FAIL - MeetingSpec/LoopRegistry still use direct FS read]
+👉 FAIL (meeting-spec, loot-registry)
 
 ⸻
 
@@ -33,8 +33,8 @@
 	•	Чи кожен asset має стабільний asset_id?
 	•	Чи однакові assets не створюють дублікати?
 
-👉 PASS: немає дублювання / колізій
-👉 FAIL: asset дублюється або губиться
+👉 PASS: немає дублювання / колізій [PASS]
+👉 FAIL: N/A
 
 ⸻
 
@@ -46,8 +46,8 @@
 	•	Чи можна визначити, з якого template створений asset?
 	•	Чи зберігається source_template_version?
 
-👉 PASS: lineage повністю відновлюється
-👉 FAIL: походження asset невідоме
+👉 PASS: lineage повністю відновлюється [PASS]
+👉 FAIL: N/A
 
 ⸻
 
@@ -57,16 +57,16 @@
 	•	modified
 	•	custom?
 
-👉 PASS: всі 3 стани визначаються
-👉 FAIL: всі assets виглядають однаково
+👉 PASS: всі 3 стани визначаються [PASS]
+👉 FAIL: N/A
 
 ⸻
 
 2.3 Template Safety
 	•	Чи зміна template НЕ змінює існуючі проекти автоматично?
 
-👉 PASS: backward compatibility
-👉 FAIL: template mutation ламає існуючі проекти
+👉 PASS: backward compatibility [PASS]
+👉 FAIL: N/A
 
 ⸻
 
@@ -80,8 +80,8 @@
 	•	які pipelines використовують skill?
 	•	які meeting specs використовують agents?
 
-👉 PASS: dependency graph існує
-👉 FAIL: залежності тільки імпліцитні
+👉 PASS: dependency graph існує [FAIL - loops/meeting-specs missing]
+👉 FAIL: залежності тільки імпліцитні (meeting-spec)
 
 ⸻
 
@@ -91,16 +91,16 @@
 	•	replace
 	•	edit?
 
-👉 PASS: є impact report
-👉 FAIL: зміни виконуються “всліпу”
+👉 PASS: є impact report [PASS - backend logic exists]
+👉 FAIL: зміни виконуються “всліпу” [FAIL - not integrated in UI/CLI workflows]
 
 ⸻
 
 3.3 Safe Delete
 	•	Чи можна видалити asset, який використовується?
 
-👉 PASS: delete блокується
-👉 FAIL: система дозволяє і ламається
+👉 PASS: delete блокується [FAIL - logic missing]
+👉 FAIL: система дозволяє і ламається [ТАК]
 
 ⸻
 

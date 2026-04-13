@@ -151,6 +151,17 @@ export function parseMeetingSpecFromContent(
 }
 
 export function resolveMeetingSpec(workspacePath = process.cwd()): MeetingSpec {
+  // AGSYS-35R: Source of Truth Enforcement
+  try {
+    const { assetRegistryV2 } = require('../registries/AssetRegistryV2');
+    const fromRegistry = assetRegistryV2.listByType('meeting_spec');
+    if (fromRegistry.length > 0) {
+      return fromRegistry[0].attributes as MeetingSpec;
+    }
+  } catch (e) {
+    // Registry not available or hasn't been initialized yet
+  }
+
   const candidates = [
     path.join(workspacePath, 'docs/runtime/meetings/meeting-spec.yaml'),
     path.join(workspacePath, 'docs/runtime/meetings/meeting-spec.yml'),

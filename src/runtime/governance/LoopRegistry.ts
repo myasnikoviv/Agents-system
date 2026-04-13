@@ -75,6 +75,16 @@ function writeCatalog(loops: GovernanceLoopEntity[], workspacePath?: string): vo
 }
 
 export function loadGovernanceLoops(workspacePath?: string): GovernanceLoopEntity[] {
+  // AGSYS-35R: Source of Truth Enforcement
+  try {
+    const { assetRegistryV2 } = require('../registries/AssetRegistryV2');
+    const fromRegistry = assetRegistryV2.listByType('loop');
+    if (fromRegistry.length > 0) {
+      return fromRegistry.map((asset: any) => asset.attributes as GovernanceLoopEntity);
+    }
+  } catch (e) {
+    // Registry not available
+  }
   return readCatalog(workspacePath);
 }
 
