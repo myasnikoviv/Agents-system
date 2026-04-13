@@ -54,20 +54,24 @@ function readYamlRules(workspacePath?: string): GovernanceRule[] {
     if (parsed.length === 0) {
       throw new GovernanceRegistryError(`governance_rule_registry_invalid:${filePath}`);
     }
-    return parsed.map((rule) => ({
-      ...rule,
-      disabled: rule.disabled === true,
-      scope: rule.scope || { level: 'global' },
-      metadata: {
-        name: rule.metadata?.name || rule.id,
-        description: rule.metadata?.description || '',
-        version: rule.metadata?.version || '1.0.0',
-        owner: rule.metadata?.owner || 'system',
-        tags: Array.isArray(rule.metadata?.tags) ? rule.metadata?.tags : [],
-        createdAt: rule.metadata?.createdAt || new Date().toISOString(),
-        updatedAt: rule.metadata?.updatedAt || new Date().toISOString(),
-      },
-    }));
+    return parsed.map((rule) => {
+      const is_enabled = rule.disabled !== true;
+      return {
+        ...rule,
+        is_enabled,
+        disabled: rule.disabled === true,
+        scope: rule.scope || { level: 'global' },
+        metadata: {
+          name: rule.metadata?.name || rule.id,
+          description: rule.metadata?.description || '',
+          version: rule.metadata?.version || '1.0.0',
+          owner: rule.metadata?.owner || 'system',
+          tags: Array.isArray(rule.metadata?.tags) ? rule.metadata?.tags : [],
+          createdAt: rule.metadata?.createdAt || new Date().toISOString(),
+          updatedAt: rule.metadata?.updatedAt || new Date().toISOString(),
+        },
+      };
+    }) as GovernanceRule[];
   } catch (error) {
     if (error instanceof GovernanceRegistryError) {
       throw error;
@@ -95,20 +99,24 @@ function readCatalogRules(workspacePath?: string): GovernanceRule[] {
   try {
     const raw = JSON.parse(fs.readFileSync(filePath, 'utf-8')) as GovernanceRuleRegistryFile;
     const list = Array.isArray(raw?.rules) ? raw.rules : [];
-    return normalizeRules(list).map((rule) => ({
-      ...rule,
-      disabled: rule.disabled === true,
-      scope: rule.scope || { level: 'global' },
-      metadata: {
-        name: rule.metadata?.name || rule.id,
-        description: rule.metadata?.description || '',
-        version: rule.metadata?.version || '1.0.0',
-        owner: rule.metadata?.owner || 'system',
-        tags: Array.isArray(rule.metadata?.tags) ? rule.metadata?.tags : [],
-        createdAt: rule.metadata?.createdAt || new Date().toISOString(),
-        updatedAt: rule.metadata?.updatedAt || new Date().toISOString(),
-      },
-    }));
+    return normalizeRules(list).map((rule) => {
+      const is_enabled = rule.disabled !== true;
+      return {
+        ...rule,
+        is_enabled,
+        disabled: rule.disabled === true,
+        scope: rule.scope || { level: 'global' },
+        metadata: {
+          name: rule.metadata?.name || rule.id,
+          description: rule.metadata?.description || '',
+          version: rule.metadata?.version || '1.0.0',
+          owner: rule.metadata?.owner || 'system',
+          tags: Array.isArray(rule.metadata?.tags) ? rule.metadata?.tags : [],
+          createdAt: rule.metadata?.createdAt || new Date().toISOString(),
+          updatedAt: rule.metadata?.updatedAt || new Date().toISOString(),
+        },
+      };
+    }) as GovernanceRule[];
   } catch {
     return [];
   }
@@ -173,7 +181,11 @@ export function getRuleById(ruleId: GovernanceRule['id'], workspacePath?: string
 }
 
 export function createGovernanceRule(
-  input: Omit<GovernanceRule, 'metadata'> & { metadata?: GovernanceRule['metadata'] },
+  input: Omit<GovernanceRule, 'metadata' | 'is_enabled' | 'scope'> & { 
+    metadata?: Partial<GovernanceRule['metadata']>;
+    scope?: Partial<GovernanceRule['scope']>;
+    is_enabled?: boolean;
+  },
   workspacePath?: string,
 ): GovernanceRule {
   const existing = loadGovernanceRules(workspacePath);
@@ -183,7 +195,13 @@ export function createGovernanceRule(
   const now = new Date().toISOString();
   const nextRule: GovernanceRule = {
     ...input,
-    scope: input.scope || { level: 'global' },
+    disabled: input.is_enabled === false || input.disabled === true,
+    is_enabled: input.is_enabled !== false && input.disabled !== true,
+    scope: {
+      level: input.scope?.level || 'global',
+      projectId: input.scope?.projectId,
+      sessionId: input.scope?.sessionId,
+    },
     metadata: {
       name: input.metadata?.name || input.id,
       description: input.metadata?.description || '',
@@ -193,7 +211,7 @@ export function createGovernanceRule(
       createdAt: input.metadata?.createdAt || now,
       updatedAt: now,
     },
-  };
+  } as GovernanceRule;
   writeCatalogRules([...existing, nextRule], workspacePath);
   appendRuleHistory(
     { action: 'create', ruleId: nextRule.id, actorId: 'api-user', before: null, after: nextRule },
@@ -216,17 +234,27 @@ export function updateGovernanceRule(
   const nextVersion = patch.metadata?.version
     ? patch.metadata.version
     : bumpPatchVersion(hit.metadata?.version);
+
+  const disabled = patch.is_enabled !== undefined 
+    ? !patch.is_enabled 
+    : (patch.disabled !== undefined ? patch.disabled : hit.disabled);
+
   const updated: GovernanceRule = {
     ...hit,
     ...patch,
     id: ruleId,
+    disabled,
+    is_enabled: !disabled,
     metadata: {
-      ...(hit.metadata || {}),
-      ...(patch.metadata || {}),
+      name: patch.metadata?.name || hit.metadata.name,
+      description: patch.metadata?.description ?? hit.metadata.description,
       version: nextVersion,
+      owner: patch.metadata?.owner || hit.metadata.owner,
+      tags: patch.metadata?.tags || hit.metadata.tags,
+      createdAt: hit.metadata.createdAt,
       updatedAt: now,
     },
-  };
+  } as GovernanceRule;
   const next = current.map((rule) => (rule.id === ruleId ? updated : rule));
   writeCatalogRules(next, workspacePath);
   appendRuleHistory(
@@ -250,8 +278,9 @@ export function disableGovernanceRule(
   const updated: GovernanceRule = {
     ...hit,
     disabled,
+    is_enabled: !disabled,
     metadata: {
-      ...(hit.metadata || {}),
+      ...hit.metadata,
       updatedAt: new Date().toISOString(),
     },
   };
