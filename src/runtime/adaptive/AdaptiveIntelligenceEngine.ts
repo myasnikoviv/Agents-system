@@ -32,7 +32,29 @@ interface ModelRoutingPolicy {
   defaultTier?: ModelTier;
   taskTypeToTier?: Record<string, ModelTier>;
   tierToModel?: Record<ModelTier, string>;
+  fallbackByTier?: Record<ModelTier, string[]>;
+  unavailableModels?: string[];
   planTierCaps?: Record<string, ModelTier>;
+}
+
+interface RoutingTradeoffPolicy {
+  mode?: 'cost_saver' | 'balanced' | 'quality_first';
+  modes?: Record<
+    string,
+    {
+      maxTier?: ModelTier;
+      minTier?: ModelTier;
+    }
+  >;
+  governanceAware?: {
+    enabled?: boolean;
+    on?: Record<
+      string,
+      {
+        maxTier?: ModelTier;
+      }
+    >;
+  };
 }
 
 function readJson<T>(filePath: string, defaultValue: T): T {
@@ -72,6 +94,19 @@ function loadModelRoutingPolicy(workspacePath: string): ModelRoutingPolicy {
       medium: process.env.RUNTIME_MODEL_MEDIUM || 'gpt-4o',
       expensive: process.env.RUNTIME_MODEL_EXPENSIVE || 'gpt-4.1',
     },
+    fallbackByTier: {
+      cheap: [process.env.RUNTIME_MODEL_CHEAP_FALLBACK || 'gpt-4o-mini'],
+      medium: [
+        process.env.RUNTIME_MODEL_MEDIUM || 'gpt-4o',
+        process.env.RUNTIME_MODEL_CHEAP || 'gpt-4o-mini',
+      ],
+      expensive: [
+        process.env.RUNTIME_MODEL_EXPENSIVE || 'gpt-4.1',
+        process.env.RUNTIME_MODEL_MEDIUM || 'gpt-4o',
+        process.env.RUNTIME_MODEL_CHEAP || 'gpt-4o-mini',
+      ],
+    },
+    unavailableModels: [],
     planTierCaps: {
       free: 'cheap',
       pro: 'medium',
@@ -81,10 +116,56 @@ function loadModelRoutingPolicy(workspacePath: string): ModelRoutingPolicy {
   });
 }
 
+function pickDeterministicModelForTier(policy: ModelRoutingPolicy, tier: ModelTier): string {
+  const preferred =
+    policy.tierToModel?.[tier] ||
+    (tier === 'cheap'
+      ? process.env.RUNTIME_MODEL_CHEAP || 'gpt-4o-mini'
+      : tier === 'expensive'
+        ? process.env.RUNTIME_MODEL_EXPENSIVE || 'gpt-4.1'
+        : process.env.RUNTIME_MODEL_MEDIUM || 'gpt-4o');
+
+  const unavailable = new Set((policy.unavailableModels || []).map((x) => String(x || '').trim()).filter(Boolean));
+  if (!unavailable.has(preferred)) return preferred;
+
+  const fallbackChain = (policy.fallbackByTier?.[tier] || []).map((x) => String(x || '').trim()).filter(Boolean);
+  for (const model of fallbackChain) {
+    if (!unavailable.has(model)) return model;
+  }
+
+  // deterministic global fallback
+  return process.env.RUNTIME_MODEL_CHEAP || 'gpt-4o-mini';
+}
+
 function tierRank(tier: ModelTier): number {
   if (tier === 'cheap') return 1;
   if (tier === 'medium') return 2;
   return 3;
+}
+
+function tierByRank(rank: number): ModelTier {
+  if (rank <= 1) return 'cheap';
+  if (rank === 2) return 'medium';
+  return 'expensive';
+}
+
+function loadRoutingTradeoffPolicy(workspacePath: string): RoutingTradeoffPolicy {
+  const file = path.resolve(workspacePath, 'docs/runtime/adaptive/routing-policies.json');
+  return readJson<RoutingTradeoffPolicy>(file, {
+    mode: 'balanced',
+    modes: {
+      cost_saver: { maxTier: 'cheap' },
+      balanced: { maxTier: 'medium', minTier: 'cheap' },
+      quality_first: { minTier: 'medium' },
+    },
+    governanceAware: {
+      enabled: true,
+      on: {
+        caution: { maxTier: 'medium' },
+        constrained: { maxTier: 'cheap' },
+      },
+    },
+  });
 }
 
 export function applyCostAwareTierPolicy(input: {
@@ -106,7 +187,43 @@ export function applyCostAwareTierPolicy(input: {
   return {
     ...input.decision,
     modelTier: cap,
+    model: pickDeterministicModelForTier(policy, cap),
     reason: `${input.decision.reason};cost_cap_by_plan:${planName}:${cap}`,
+  };
+}
+
+export function applyRoutingPolicies(input: {
+  workspacePath: string;
+  decision: ModelRouteDecision;
+  mode?: 'cost_saver' | 'balanced' | 'quality_first';
+  governanceSignal?: 'normal' | 'caution' | 'constrained';
+}): ModelRouteDecision {
+  const policy = loadRoutingTradeoffPolicy(input.workspacePath);
+  const mode = String(input.mode || policy.mode || process.env.RUNTIME_ROUTING_POLICY_MODE || 'balanced');
+  const modePolicy = policy.modes?.[mode] || {};
+
+  let nextTier = input.decision.modelTier;
+  if (modePolicy.maxTier && tierRank(nextTier) > tierRank(modePolicy.maxTier)) {
+    nextTier = modePolicy.maxTier;
+  }
+  if (modePolicy.minTier && tierRank(nextTier) < tierRank(modePolicy.minTier)) {
+    nextTier = modePolicy.minTier;
+  }
+
+  const governanceSignal = String(input.governanceSignal || process.env.RUNTIME_GOVERNANCE_SIGNAL || 'normal');
+  if (policy.governanceAware?.enabled) {
+    const governanceCap = policy.governanceAware.on?.[governanceSignal]?.maxTier;
+    if (governanceCap && tierRank(nextTier) > tierRank(governanceCap)) {
+      nextTier = governanceCap;
+    }
+  }
+
+  if (nextTier === input.decision.modelTier) return input.decision;
+  return {
+    ...input.decision,
+    modelTier: nextTier,
+    model: pickDeterministicModelForTier(loadModelRoutingPolicy(input.workspacePath), nextTier),
+    reason: `${input.decision.reason};routing_policy:${mode};gov:${governanceSignal};tier:${nextTier}`,
   };
 }
 
@@ -119,13 +236,7 @@ export function routeModelForTask(input: {
   const policy = loadModelRoutingPolicy(input.workspacePath);
   const taskType = detectTaskType(input.userMessage);
   const tier = policy.taskTypeToTier?.[taskType] || policy.defaultTier || 'medium';
-  const model =
-    policy.tierToModel?.[tier] ||
-    (tier === 'cheap'
-      ? process.env.RUNTIME_MODEL_CHEAP || 'gpt-4o-mini'
-      : tier === 'expensive'
-        ? process.env.RUNTIME_MODEL_EXPENSIVE || 'gpt-4.1'
-        : process.env.RUNTIME_MODEL_MEDIUM || 'gpt-4o');
+  const model = pickDeterministicModelForTier(policy, tier);
 
   return {
     runId: input.runId,

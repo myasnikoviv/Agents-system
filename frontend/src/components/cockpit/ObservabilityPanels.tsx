@@ -1,8 +1,27 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import type { RuntimeEvent } from './StreamRenderer';
+import { fetchJsonSafe } from '../../lib/http';
 
 interface ObservabilityPanelsProps {
   events: RuntimeEvent[];
+  selectedProject?: string;
+}
+
+interface CostBreakdownApi {
+  success?: boolean;
+  breakdown?: {
+    perRun?: Array<{
+      runId: string;
+      projectId: string;
+      workspaceId: string;
+      totalCostUsd: number;
+      tokens: number;
+      toolExecutions: number;
+      runtimeSeconds: number;
+    }>;
+    perAgent?: Record<string, number>;
+    perWorkspace?: Record<string, number>;
+  };
 }
 
 function eventTypeOf(event: RuntimeEvent): string {
@@ -15,10 +34,37 @@ function tsOf(event: RuntimeEvent): number {
   return Number.isFinite(n) ? n : Date.now();
 }
 
-export const ObservabilityPanels: React.FC<ObservabilityPanelsProps> = ({ events }) => {
+export const ObservabilityPanels: React.FC<ObservabilityPanelsProps> = ({ events, selectedProject }) => {
   const [debugOpen, setDebugOpen] = useState(false);
   const [planOpen, setPlanOpen] = useState(false);
   const [promptOpen, setPromptOpen] = useState(false);
+  const [costLoading, setCostLoading] = useState(false);
+  const [costError, setCostError] = useState('');
+  const [costApiData, setCostApiData] = useState<CostBreakdownApi['breakdown'] | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadBreakdown = async () => {
+      setCostLoading(true);
+      setCostError('');
+      const projectId = String(selectedProject || '').trim();
+      const query = projectId ? `?projectId=${encodeURIComponent(projectId)}&limit=50` : '?limit=50';
+      const result = await fetchJsonSafe<CostBreakdownApi>(`/api/system/billing/cost/breakdown${query}`);
+      if (cancelled) return;
+      if (!result?.success || !result.breakdown) {
+        setCostApiData(null);
+        setCostError('Cost breakdown data is not available yet.');
+        setCostLoading(false);
+        return;
+      }
+      setCostApiData(result.breakdown);
+      setCostLoading(false);
+    };
+    void loadBreakdown();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedProject, events.length]);
 
   const governanceRows = useMemo(() => {
     return events
@@ -421,6 +467,31 @@ export const ObservabilityPanels: React.FC<ObservabilityPanelsProps> = ({ events
     return { topAgents, loopTokens, loopShare };
   }, [events]);
 
+  const costRuns = useMemo(() => {
+    return Array.isArray(costApiData?.perRun) ? costApiData!.perRun : [];
+  }, [costApiData]);
+
+  const costInsights = useMemo(() => {
+    const topRun = [...costRuns].sort((a, b) => Number(b.totalCostUsd || 0) - Number(a.totalCostUsd || 0))[0] || null;
+    const topAgent = Object.entries(costApiData?.perAgent || {}).sort((a, b) => Number(b[1] || 0) - Number(a[1] || 0))[0] || null;
+    const topWorkspace = Object.entries(costApiData?.perWorkspace || {}).sort((a, b) => Number(b[1] || 0) - Number(a[1] || 0))[0] || null;
+    const totalUsd = costRuns.reduce((acc, row) => acc + Number(row.totalCostUsd || 0), 0);
+    const totalTokens = costRuns.reduce((acc, row) => acc + Number(row.tokens || 0), 0);
+    return { topRun, topAgent, topWorkspace, totalUsd, totalTokens };
+  }, [costApiData, costRuns]);
+
+  const runCostGraph = useMemo(() => {
+    const recent = [...costRuns].slice(-8);
+    const maxCost = recent.reduce((acc, row) => Math.max(acc, Number(row.totalCostUsd || 0)), 0);
+    const safeMax = maxCost > 0 ? maxCost : 1;
+    return recent.map((row) => ({
+      runId: String(row.runId || '').slice(0, 8) || 'n/a',
+      cost: Number(row.totalCostUsd || 0),
+      widthPct: Math.max(4, Math.round((Number(row.totalCostUsd || 0) / safeMax) * 100)),
+      tokens: Number(row.tokens || 0),
+    }));
+  }, [costRuns]);
+
   return (
     <div className="mt-4 grid gap-3">
       <div className="rounded-md border border-white/10 bg-slate-900/40 p-3">
@@ -531,6 +602,47 @@ export const ObservabilityPanels: React.FC<ObservabilityPanelsProps> = ({ events
                 {agent}: {tokens} tokens
               </div>
             ))}
+          </div>
+        )}
+      </div>
+
+      <div className="rounded-md border border-white/10 bg-slate-900/40 p-3">
+        <div className="text-xs uppercase tracking-wide text-slate-400">Cost Intelligence (API)</div>
+        {costLoading ? (
+          <div className="mt-2 text-xs text-slate-500">Loading cost breakdown...</div>
+        ) : costError ? (
+          <div className="mt-2 text-xs text-amber-300">{costError}</div>
+        ) : costRuns.length === 0 ? (
+          <div className="mt-2 text-xs text-slate-500">No cost runs yet.</div>
+        ) : (
+          <div className="mt-2 space-y-3">
+            <div className="text-xs text-slate-300">
+              total: ${costInsights.totalUsd.toFixed(4)} · tokens: {costInsights.totalTokens}
+            </div>
+            <div className="space-y-1">
+              {runCostGraph.map((row) => (
+                <div key={row.runId} className="text-xs">
+                  <div className="mb-0.5 flex items-center justify-between text-slate-400">
+                    <span>{row.runId}</span>
+                    <span>${row.cost.toFixed(4)} · {row.tokens}t</span>
+                  </div>
+                  <div className="h-2 rounded bg-black/30">
+                    <div className="h-2 rounded bg-cyan-500/80" style={{ width: `${row.widthPct}%` }} />
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div className="grid gap-1 text-xs text-slate-300 md:grid-cols-3">
+              <div className="rounded border border-white/10 bg-black/20 px-2 py-1">
+                Top run: {costInsights.topRun ? `${String(costInsights.topRun.runId).slice(0, 8)} ($${Number(costInsights.topRun.totalCostUsd || 0).toFixed(4)})` : 'n/a'}
+              </div>
+              <div className="rounded border border-white/10 bg-black/20 px-2 py-1">
+                Top agent: {costInsights.topAgent ? `${costInsights.topAgent[0]} ($${Number(costInsights.topAgent[1] || 0).toFixed(4)})` : 'n/a'}
+              </div>
+              <div className="rounded border border-white/10 bg-black/20 px-2 py-1">
+                Top workspace: {costInsights.topWorkspace ? `${costInsights.topWorkspace[0]} ($${Number(costInsights.topWorkspace[1] || 0).toFixed(4)})` : 'n/a'}
+              </div>
+            </div>
           </div>
         )}
       </div>

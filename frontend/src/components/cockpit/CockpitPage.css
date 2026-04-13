@@ -509,6 +509,136 @@
     animation: fadeIn 0.3s ease-out;
 }
 
+.meeting-card {
+  margin: 8px 0 12px;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  border-radius: 10px;
+  background: rgba(15, 23, 42, 0.55);
+  padding: 10px;
+}
+
+.meeting-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 12px;
+  color: #cbd5e1;
+  margin-bottom: 8px;
+}
+
+.meeting-turns {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.meeting-turn {
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 8px;
+  background: rgba(15, 23, 42, 0.35);
+  padding: 8px;
+}
+
+.meeting-turn-meta {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  color: #94a3b8;
+  margin-bottom: 4px;
+}
+
+.meeting-role {
+  font-weight: 600;
+  color: #e2e8f0;
+}
+
+.meeting-turn-text {
+  font-size: 12px;
+  color: #cbd5e1;
+  white-space: pre-wrap;
+  line-height: 1.4;
+}
+
+.meeting-decision {
+  margin-top: 8px;
+  border-top: 1px dashed rgba(148, 163, 184, 0.3);
+  padding-top: 8px;
+}
+
+.meeting-decision-label {
+  display: inline-block;
+  font-size: 11px;
+  color: #93c5fd;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 4px;
+}
+
+.meeting-decision-text {
+  font-size: 12px;
+  color: #e2e8f0;
+  white-space: pre-wrap;
+}
+
+.memory-insight-card {
+  margin: 8px 0 12px;
+  border: 1px solid rgba(56, 189, 248, 0.28);
+  border-radius: 10px;
+  background: rgba(2, 132, 199, 0.1);
+  padding: 10px;
+}
+
+.memory-insight-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 12px;
+  color: #bae6fd;
+  margin-bottom: 8px;
+}
+
+.memory-insight-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.memory-insight-item {
+  border: 1px solid rgba(56, 189, 248, 0.22);
+  border-radius: 8px;
+  background: rgba(2, 132, 199, 0.08);
+  padding: 8px;
+}
+
+.memory-insight-text {
+  font-size: 12px;
+  color: #e0f2fe;
+  line-height: 1.4;
+  white-space: pre-wrap;
+}
+
+.memory-insight-meta {
+  margin-top: 4px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+}
+
+.memory-insight-id {
+  color: #7dd3fc;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+}
+
+.memory-insight-link {
+  color: #bae6fd;
+  text-decoration: underline;
+}
+
+.memory-insight-source {
+  color: #bae6fd;
+}
+
 @keyframes fadeIn {
     from { opacity: 0; transform: translateY(10px); }
     to { opacity: 1; transform: translateY(0); }

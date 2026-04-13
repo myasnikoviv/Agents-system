@@ -1,0 +1,14 @@
+{
+  "runId": "3306ad9d-c6ae-46a3-8160-e69ae5fd9862",
+  "pipelineId": "unified-task-intake",
+  "beforeCount": 12,
+  "afterCount": 10,
+  "prunedCount": 2,
+  "estimatedLlmCallsBefore": 12,
+  "estimatedLlmCallsAfter": 10,
+  "measurableImprovementPct": 16.67,
+  "reasons": [
+    "dedupe_consecutive_by_agent"
+  ],
+  "timestamp": "2026-04-12T16:11:53.586Z"
+}

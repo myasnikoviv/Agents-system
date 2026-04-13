@@ -5,6 +5,7 @@ import { BlackboardService } from '../BlackboardService';
 import { DetectedLanguage } from '../LanguageDetection';
 import { assertWorkerProjectIsolation, buildAgentIdentity } from '../identity/AgentIdentity';
 import { resolveTenantScope, validateTenantBoundary } from '../tenancy/TenantContext';
+import { injectRelevantMemoryIntoContext } from '../memory/MemoryAwareExecution';
 
 export type ResponseMode = 'handoff' | 'final' | 'clarify' | 'tool_call';
 
@@ -264,6 +265,12 @@ export class RunContextAssembler {
     ctx.environmentId = tenancy.environmentId;
 
     await BlackboardService.hydrate(ctx);
+    try {
+      await injectRelevantMemoryIntoContext(ctx, ctx.task.rawUserInput || ctx.task.normalizedGoal || '');
+    } catch (error) {
+      // Memory-aware enrichment is best-effort and must not block execution.
+      console.warn('[RunContextAssembler] memory-aware injection failed:', (error as any)?.message || error);
+    }
     return ctx;
   }
 }

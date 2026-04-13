@@ -3,6 +3,7 @@ import { ExecutionAdapter, ExecutionResult } from './adapters/ExecutionAdapter';
 import { emitSwarmEvent } from './events/EventBus';
 import { executeViaWorkbench } from './WorkbenchGateway';
 import { evaluateMidExecutionQuota } from './billing/MidExecutionQuotaController';
+import { shouldSmartRetry } from './optimization/SmartRetryPolicy';
 
 export interface ToolResult {
   tool: string;
@@ -63,6 +64,17 @@ export class NativeToolLoopRunner {
       console.log(`[AUDIT] model_step_${iteration}_raw:`, JSON.stringify(result.content || ""));
 
       if (!result.ok) {
+        const decision = shouldSmartRetry({
+          workspacePath: context.workspacePath,
+          errorText: String(result.error || result.content || ''),
+          estimatedTokens: Number(result.usage?.totalTokens || 0),
+        });
+        if (!decision.retry) {
+          return {
+            ...result,
+            error: `${String(result.error || 'execution_failed')};smart_retry_block:${decision.reason}`,
+          };
+        }
         try {
           const attempt = Guardrails.incrementRetry(context.runId, `step_${iteration}`);
           console.log(`[NativeToolLoop] Retrying step_${iteration}, attempt ${attempt}`);

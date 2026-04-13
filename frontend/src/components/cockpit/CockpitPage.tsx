@@ -181,6 +181,26 @@ interface WorkScopeState {
     selected: { cycleId: string; storyId: string };
     statusSummary: { total: number; done: number; inProgress: number; todo: number };
 }
+interface MeetingTurnView {
+    role: string;
+    round?: number;
+    text: string;
+}
+interface MeetingViewPayload {
+    title?: string;
+    turns: MeetingTurnView[];
+    decision?: string;
+}
+interface MemoryInsightItem {
+    id: string;
+    text: string;
+    sourceLabel?: string;
+    sourceHref?: string;
+}
+interface MemoryInsightPayload {
+    title?: string;
+    items: MemoryInsightItem[];
+}
 interface MetaAutocompleteState {
     open: boolean;
     kind: PromptTokenKind | null;
@@ -236,6 +256,120 @@ const toRenderableMarkdown = (raw: string): string =>
         (_match, inner) => `\n\`\`\`bash\n${String(inner || '').trim()}\n\`\`\`\n`
     );
 
+const parseMeetingViewPayload = (raw: string): MeetingViewPayload | null => {
+    const content = String(raw || '');
+    if (!content.trim()) return null;
+
+    // Preferred explicit payload marker:
+    // MEETING_VIEW: {"title":"...","turns":[...],"decision":"..."}
+    const markerIdx = content.indexOf('MEETING_VIEW:');
+    if (markerIdx >= 0) {
+        const jsonPart = content.slice(markerIdx + 'MEETING_VIEW:'.length).trim();
+        try {
+            const parsed = JSON.parse(jsonPart) as MeetingViewPayload;
+            if (Array.isArray(parsed.turns) && parsed.turns.length > 0) {
+                return {
+                    title: parsed.title || 'Meeting',
+                    turns: parsed.turns.map((t) => ({
+                        role: String(t.role || 'agent'),
+                        round: Number.isFinite(Number(t.round)) ? Number(t.round) : undefined,
+                        text: String(t.text || ''),
+                    })),
+                    decision: parsed.decision ? String(parsed.decision) : undefined,
+                };
+            }
+        } catch {
+            // ignore malformed marker payload
+        }
+    }
+
+    // Fallback parser for plain-text meeting transcript:
+    // Round 1 | architect: ...
+    // Decision: ...
+    const turns: MeetingTurnView[] = [];
+    let decision: string | undefined;
+    const lines = content.split('\n').map((line) => line.trim()).filter(Boolean);
+    for (const line of lines) {
+        const decisionMatch = line.match(/^decision\s*:\s*(.+)$/i);
+        if (decisionMatch) {
+            decision = decisionMatch[1].trim();
+            continue;
+        }
+        const turnMatch = line.match(/^round\s*(\d+)\s*[:|\-]?\s*([a-z0-9_\- ]+)\s*:\s*(.+)$/i);
+        if (turnMatch) {
+            turns.push({
+                round: Number(turnMatch[1]),
+                role: turnMatch[2].trim(),
+                text: turnMatch[3].trim(),
+            });
+        }
+    }
+    if (turns.length === 0 && !decision) return null;
+    return {
+        title: 'Meeting',
+        turns,
+        decision,
+    };
+};
+
+const parseMemoryInsightPayload = (raw: string): MemoryInsightPayload | null => {
+    const content = String(raw || '');
+    if (!content.trim()) return null;
+
+    // Preferred marker:
+    // MEMORY_INSIGHT: {"items":[{"id":"...","text":"...","sourceLabel":"...","sourceHref":"..."}]}
+    const markerIdx = content.indexOf('MEMORY_INSIGHT:');
+    if (markerIdx >= 0) {
+        const jsonPart = content.slice(markerIdx + 'MEMORY_INSIGHT:'.length).trim();
+        try {
+            const parsed = JSON.parse(jsonPart) as MemoryInsightPayload;
+            if (Array.isArray(parsed.items) && parsed.items.length > 0) {
+                return {
+                    title: parsed.title || 'Related Memory',
+                    items: parsed.items.map((it) => ({
+                        id: String(it.id || ''),
+                        text: String(it.text || ''),
+                        sourceLabel: it.sourceLabel ? String(it.sourceLabel) : undefined,
+                        sourceHref: it.sourceHref ? String(it.sourceHref) : undefined,
+                    })),
+                };
+            }
+        } catch {
+            // ignore malformed payload
+        }
+    }
+
+    // Fallback plain-text parser:
+    // Related memory:
+    // - [mem-1] Some insight (source: docs/path.md)
+    const lines = content.split('\n').map((line) => line.trim()).filter(Boolean);
+    const startIdx = lines.findIndex((line) => /^related memory\s*:/i.test(line));
+    if (startIdx < 0) return null;
+    const items: MemoryInsightItem[] = [];
+    for (let i = startIdx + 1; i < lines.length; i += 1) {
+        const line = lines[i];
+        if (!line.startsWith('-')) break;
+        const stripped = line.replace(/^-+\s*/, '');
+        const match = stripped.match(/^\[([^\]]+)\]\s*(.+?)(?:\s*\(source:\s*([^)]+)\))?$/i);
+        if (match) {
+            const href = match[3] && /^(https?:\/\/|\/)/i.test(match[3].trim()) ? match[3].trim() : undefined;
+            items.push({
+                id: match[1].trim(),
+                text: match[2].trim(),
+                sourceLabel: match[3] ? match[3].trim() : undefined,
+                sourceHref: href,
+            });
+        } else {
+            items.push({
+                id: `item-${i}`,
+                text: stripped,
+            });
+        }
+    }
+    if (items.length === 0) return null;
+    return { title: 'Related Memory', items };
+};
+
 export function CockpitPage() {
     const navigate = useNavigate();
     const mode = 'multiple_agents' as const;
@@ -261,14 +395,14 @@ export function CockpitPage() {
     const [catalog, setCatalog] = useState<CatalogState>({ agents: [], pipelines: [], skills: [] });
     const [agentRegistry, setAgentRegistry] = useState<AgentRegistryEntry[]>([]);
     const [agentRuntime, setAgentRuntime] = useState<Record<string, AgentRuntimeStatus>>({});
-    const [swarmSummary, setSwarmSummary] = useState<SwarmSummaryState>({
+    const [swarmSummary] = useState<SwarmSummaryState>({
         workersTotal: 0,
         activeWorkers: 0,
         standbyWorkers: 0,
         unhealthyWorkers: 0,
         queuePressure: 0,
     });
-    const [swarmWorkers, setSwarmWorkers] = useState<WorkerHealthRow[]>([]);
+    const [swarmWorkers] = useState<WorkerHealthRow[]>([]);
     const [projectSwitchFeedback, setProjectSwitchFeedback] = useState<ProjectSwitchFeedback | null>(null);
 
     const [selectedProvider, setSelectedProvider] = useState<RuntimeProvider>('claude-cli');
@@ -2162,6 +2296,73 @@ export function CockpitPage() {
                                     <span>{m.role === 'user' ? 'Me' : 'Agent'}</span>
                                     <span>{m.timestamp.toLocaleTimeString()}</span>
                                 </div>
+                                {(() => {
+                                    const meeting = parseMeetingViewPayload(m.content);
+                                    if (!meeting) return null;
+                                    return (
+                                        <div className="meeting-card">
+                                            <div className="meeting-card-head">
+                                                <strong>{meeting.title || 'Meeting'}</strong>
+                                                <span>{meeting.turns.length} turns</span>
+                                            </div>
+                                            {meeting.turns.length > 0 && (
+                                                <div className="meeting-turns">
+                                                    {meeting.turns.map((turn, idx) => (
+                                                        <div key={`${m.id}-turn-${idx}`} className="meeting-turn">
+                                                            <div className="meeting-turn-meta">
+                                                                <span className="meeting-role">{turn.role}</span>
+                                                                <span className="meeting-round">
+                                                                    {turn.round ? `Round ${turn.round}` : 'Turn'}
+                                                                </span>
+                                                            </div>
+                                                            <div className="meeting-turn-text">{turn.text}</div>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            )}
+                                            {meeting.decision && (
+                                                <div className="meeting-decision">
+                                                    <span className="meeting-decision-label">Decision</span>
+                                                    <div className="meeting-decision-text">{meeting.decision}</div>
+                                                </div>
+                                            )}
+                                        </div>
+                                    );
+                                })()}
+                                {(() => {
+                                    const insight = parseMemoryInsightPayload(m.content);
+                                    if (!insight) return null;
+                                    return (
+                                        <div className="memory-insight-card">
+                                            <div className="memory-insight-head">
+                                                <strong>{insight.title || 'Related Memory'}</strong>
+                                                <span>{insight.items.length} items</span>
+                                            </div>
+                                            <div className="memory-insight-list">
+                                                {insight.items.map((it) => (
+                                                    <div key={`${m.id}-memory-${it.id}`} className="memory-insight-item">
+                                                        <div className="memory-insight-text">{it.text}</div>
+                                                        <div className="memory-insight-meta">
+                                                            <span className="memory-insight-id">{it.id}</span>
+                                                            {it.sourceLabel && it.sourceHref ? (
+                                                                <a
+                                                                    href={it.sourceHref}
+                                                                    target="_blank"
+                                                                    rel="noreferrer"
+                                                                    className="memory-insight-link"
+                                                                >
+                                                                    {it.sourceLabel}
+                                                                </a>
+                                                            ) : it.sourceLabel ? (
+                                                                <span className="memory-insight-source">{it.sourceLabel}</span>
+                                                            ) : null}
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    );
+                                })()}
                                 <div className="chat-markdown">
                                     <ArtifactRenderer content={toRenderableMarkdown(m.content)} />
                                 </div>
@@ -3012,7 +3213,7 @@ export function CockpitPage() {
                             </div>
                         </div>
                         <StreamRenderer events={replayVisibleEvents} />
-                        <ObservabilityPanels events={replayVisibleEvents} />
+                        <ObservabilityPanels events={replayVisibleEvents} selectedProject={selectedProject} />
                         <div ref={feedEndRef} />
                     </div>
                 </section>

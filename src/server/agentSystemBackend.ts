@@ -1158,6 +1158,12 @@ const normalizeProjectKey = (value: string): string =>
 const AUTH_SESSION_TTL_HOURS = Math.max(1, Number(process.env.AUTH_SESSION_TTL_HOURS || 24));
 const AUTH_SECRET = String(process.env.AUTH_SECRET || 'agent-system-dev-secret');
 const AUTH_MODE = String(process.env.AUTH_MODE || 'optional').trim().toLowerCase() === 'required' ? 'required' : 'optional';
+const OBJECT_STORAGE_BACKEND = String(
+  process.env.OBJECT_STORAGE_BACKEND || process.env.COCKPIT_OBJECT_STORAGE_BACKEND || 'sqlite',
+).trim();
+const SECRETS_STORAGE_BACKEND = String(
+  process.env.SECRETS_STORAGE_BACKEND || process.env.COCKPIT_SECRETS_BACKEND || 'sqlite',
+).trim();
 const secretsStore = new SqliteSecretsStore(runtimeDb, AUTH_SECRET);
 const postgresSecretsStore = new PostgresSecretsStore(AUTH_SECRET);
 const infrastructureProfile = resolveRuntimeInfrastructureProfile();
@@ -4421,6 +4427,18 @@ app.get('/api/cockpit/environments/telemetry', async (req, res) => {
 });
 
 app.post('/api/chat', async (req, res) => {
+  const chatStartTs = Date.now();
+  const chatDebug = String(process.env.DEBUG_CHAT_FLOW || '').trim().toLowerCase();
+  const shouldDebugChat = chatDebug === '1' || chatDebug === 'true' || chatDebug === 'yes';
+  const logChatDebug = (step: string, extra?: Record<string, unknown>) => {
+    if (!shouldDebugChat) return;
+    const elapsedMs = Date.now() - chatStartTs;
+    console.log('[agent-system-backend] /api/chat debug', {
+      step,
+      elapsedMs,
+      ...(extra || {}),
+    });
+  };
   const rawMessage = String(req.body?.message || req.body?.prompt || '').trim();
   const threadId = String(req.body?.threadId || `thread_${Date.now()}`).trim();
   const projectId = String(req.body?.projectId || 'default').trim() || 'default';
@@ -4459,16 +4477,45 @@ app.post('/api/chat', async (req, res) => {
   }
 
   try {
+    logChatDebug('entered');
+    const withTimeout = async <T>(task: Promise<T>, timeoutMs: number, errorCode: string): Promise<T> => {
+      let timer: NodeJS.Timeout | null = null;
+      try {
+        return await Promise.race([
+          task,
+          new Promise<T>((_, reject) => {
+            timer = setTimeout(() => reject(new Error(`${errorCode}:${timeoutMs}`)), Math.max(1000, Number(timeoutMs || 0)));
+          }),
+        ]);
+      } finally {
+        if (timer) clearTimeout(timer);
+      }
+    };
+
     const project = projectStore.get(projectId);
     const effectiveWorkspacePath = project?.worktreePath || process.cwd();
     const effectiveAgentContextPath = project?.agentContextPath || project?.worktreePath || process.cwd();
-    const catalogSnapshot = await refreshCatalog(effectiveAgentContextPath, { activate: true });
+    const catalogRefreshTimeoutMs = Math.max(5000, Number(process.env.RUNTIME_CATALOG_REFRESH_TIMEOUT_MS || 15000));
+    const catalogSnapshot = await withTimeout(
+      refreshCatalog(effectiveAgentContextPath, { activate: true }),
+      catalogRefreshTimeoutMs,
+      'catalog_refresh_timeout',
+    ).catch(() => ({
+      discoveryRoot: path.resolve(effectiveAgentContextPath || process.cwd()),
+      agents: AgentRegistry.getAllAgents(),
+      pipelines: PipelineRegistry.getAllPipelines(),
+      skills: SkillRegistry.getAllSkills(),
+      loadedAt: new Date().toISOString(),
+    }));
+    logChatDebug('catalog_ready', { catalogAgents: Array.isArray(catalogSnapshot.agents) ? catalogSnapshot.agents.length : 0 });
 
     ensureThreadInProject(projectId, threadId);
     appendThreadMessage(threadId, 'user', message);
+    logChatDebug('thread_user_message_appended');
 
     const { RunManager } = await import('../runtime/context/RunManager');
     RunManager.registerRun(threadId, runId);
+    logChatDebug('run_registered');
 
     try {
       const runtimeExecutionInput: any = {
@@ -4507,12 +4554,21 @@ app.post('/api/chat', async (req, res) => {
         workspaceId: workspaceContext.workspaceId,
         environmentId,
         userId: workspaceContext.userId || null,
+        executionMode: String(req.body?.executionMode || '').trim() || 'multiple_agents',
       };
-      const execution = await executeRuntimeRun(runtimeExecutionInput);
+      const runtimeTimeoutMs = Math.max(10000, Number(process.env.RUNTIME_CHAT_REQUEST_TIMEOUT_MS || 110000));
+      logChatDebug('runtime_execute_start', { runtimeTimeoutMs, executionMode: runtimeExecutionInput.executionMode });
+      const execution = await withTimeout(
+        executeRuntimeRun(runtimeExecutionInput),
+        runtimeTimeoutMs,
+        'chat_runtime_timeout',
+      );
+      logChatDebug('runtime_execute_done');
       const finalState = execution.finalState;
       
       if (finalState.__interrupt__) {
         console.log(`[agent-system-backend] Run ${runId} interrupted for HITL:`, finalState.__interrupt__[0].value);
+        logChatDebug('runtime_interrupted');
         res.json({
           success: true,
           interrupted: true,
@@ -4524,6 +4580,7 @@ app.post('/api/chat', async (req, res) => {
       }
 
       RunManager.completeRun(threadId, runId);
+      logChatDebug('run_completed');
 
       const assistantMessage = [...(finalState.messages || [])]
         .reverse()
@@ -4535,6 +4592,7 @@ app.post('/api/chat', async (req, res) => {
       if (finalMessage) {
         appendThreadMessage(threadId, 'agent', finalMessage);
       }
+      logChatDebug('response_ready', { hasFinalMessage: Boolean(finalMessage), status: finalState.status || 'completed' });
 
       res.json({
         success: true,
@@ -4572,6 +4630,7 @@ app.post('/api/chat', async (req, res) => {
         },
       });
     } catch (error: any) {
+      logChatDebug('inner_error', { message: String(error?.message || '') });
       if (error.message?.includes('was cancelled')) {
         environmentStateStore.upsert({
           environmentId,
@@ -4599,6 +4658,7 @@ app.post('/api/chat', async (req, res) => {
       }
     }
   } catch (error: any) {
+    logChatDebug('outer_error', { message: String(error?.message || '') });
     environmentStateStore.upsert({
       environmentId: buildPersistedEnvironmentId({ tenantId: workspaceContext.tenantId, workspaceId: workspaceContext.workspaceId, projectId }),
       tenantId: workspaceContext.tenantId,

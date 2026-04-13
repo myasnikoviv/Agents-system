@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { ChevronLeft, ShieldCheck, SlidersHorizontal } from 'lucide-react';
 import { apiUrl } from '../../lib/http';

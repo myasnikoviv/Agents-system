@@ -338,6 +338,55 @@ describe('DynamicWorkerSpawnManager', () => {
     expect(utilization[0]?.totalIdleMs).toBeGreaterThanOrEqual(0);
   });
 
+  it('builds hot/cold efficiency snapshot with measurable savings proxy', async () => {
+    await DynamicWorkerSpawnManager.ensureWorker(
+      { runId: 'r1', projectId: 'proj-a', chainId: 'c1', agentSlug: 'pm-orchestrator' },
+      { emitEvents: false },
+    );
+    await DynamicWorkerSpawnManager.releaseToStandby(
+      { runId: 'r1', projectId: 'proj-a', chainId: 'c1', agentSlug: 'pm-orchestrator' },
+      { emitEvents: false },
+    );
+    await DynamicWorkerSpawnManager.applyIdleDemotionPolicy({
+      projectId: 'proj-a',
+      now: Date.now() + 120000,
+      demotionTimeoutMs: 1000,
+      evictionTimeoutMs: 999999,
+    });
+
+    const snap = DynamicWorkerSpawnManager.hotColdEfficiencySnapshot({ projectId: 'proj-a' });
+    expect(snap.totals.workers).toBeGreaterThanOrEqual(1);
+    expect(snap.totals.cold).toBeGreaterThanOrEqual(1);
+    expect(snap.estimatedSavings.coldWorkerReductionUnits).toBeGreaterThanOrEqual(1);
+    expect(snap.estimatedSavings.savingsPct).toBeGreaterThan(0);
+  });
+
+  it('builds worker reuse snapshot with spawn-overhead reduction proxy', async () => {
+    await DynamicWorkerSpawnManager.ensureWorker(
+      { runId: 'r1', projectId: 'proj-a', chainId: 'c1', agentSlug: 'developer' },
+      { emitEvents: false },
+    );
+    await DynamicWorkerSpawnManager.releaseToStandby(
+      { runId: 'r1', projectId: 'proj-a', chainId: 'c1', agentSlug: 'developer' },
+      { emitEvents: false },
+    );
+    await DynamicWorkerSpawnManager.ensureWorker(
+      { runId: 'r2', projectId: 'proj-a', chainId: 'c2', agentSlug: 'developer' },
+      { emitEvents: false },
+    );
+    await DynamicWorkerSpawnManager.releaseToStandby(
+      { runId: 'r2', projectId: 'proj-a', chainId: 'c2', agentSlug: 'developer' },
+      { emitEvents: false },
+    );
+
+    const snap = DynamicWorkerSpawnManager.workerReuseSnapshot({ projectId: 'proj-a' });
+    expect(snap.totals.invocations).toBeGreaterThanOrEqual(2);
+    expect(snap.totals.coldStarts).toBeGreaterThanOrEqual(1);
+    expect(snap.totals.reusedInvocations).toBeGreaterThanOrEqual(1);
+    expect(snap.reuse.reuseRate).toBeGreaterThan(0);
+    expect(snap.reuse.spawnOverheadReductionPct).toBeGreaterThan(0);
+  });
+
   it('exposes controller contract fields for swarm board', async () => {
     await DynamicWorkerSpawnManager.ensureWorker(
       {
