@@ -18,6 +18,15 @@
         "cost_guard_light"
       ],
       "disabledRules": []
+    },
+    "test-project-999": {
+      "enabledRules": [
+        "test_rule_v2"
+      ],
+      "disabledRules": [
+        "billing_quota_check"
+      ],
+      "executionProfile": "engineering"
     }
   }
 }

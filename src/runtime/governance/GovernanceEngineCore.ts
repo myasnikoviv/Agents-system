@@ -15,17 +15,46 @@ import { resolveRuntimePath } from '../RuntimePathResolver';
 const SOFT_GATE_MAX_RETRIES = 1;
 const SOFT_GATE_MAX_WARNINGS = 1;
 
-const softRetryCounter = new Map<string, number>();
-const softWarnCounter = new Map<string, number>();
-
 interface GovernanceExecutionPolicy {
   strictDeterministic?: boolean;
   llmFallbackEnabled?: boolean;
 }
 
-function softRetryKey(ctx: GovernanceEngineContext, ruleId: string) {
-  return `${ctx.runId}:${ctx.ticketId}:${ruleId}`;
+interface GovernanceCounters {
+  retries: Record<string, number>;
+  warnings: Record<string, number>;
 }
+
+function countersFile(workspacePath?: string): string {
+  return resolveRuntimePath(workspacePath || process.cwd(), 'governanceRetryStateFile');
+}
+
+function loadCounters(workspacePath?: string): GovernanceCounters {
+  const file = countersFile(workspacePath);
+  if (!fs.existsSync(file)) return { retries: {}, warnings: {} };
+  try {
+    return JSON.parse(fs.readFileSync(file, 'utf-8')) as GovernanceCounters;
+  } catch {
+    return { retries: {}, warnings: {} };
+  }
+}
+
+function saveCounters(counters: GovernanceCounters, workspacePath?: string): void {
+  const file = countersFile(workspacePath);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, JSON.stringify(counters, null, 2), 'utf-8');
+}
+
+function getRuleCounter(counters: Record<string, number>, ctx: GovernanceEngineContext, ruleId: string): number {
+  const key = `${ctx.runId}:${ctx.ticketId}:${ruleId}`;
+  return counters[key] || 0;
+}
+
+function incRuleCounter(counters: Record<string, number>, ctx: GovernanceEngineContext, ruleId: string): void {
+  const key = `${ctx.runId}:${ctx.ticketId}:${ruleId}`;
+  counters[key] = (counters[key] || 0) + 1;
+}
+
 
 function writeEscalationArtifact(ctx: GovernanceEngineContext, ruleId: string, reason: string): string | null {
   const workspacePath = ctx.workspacePath || process.cwd();
@@ -146,19 +175,23 @@ export async function runGovernancePhase(
         blocked = true;
         action = 'block';
       } else if (rule.enforcementMode === 'soft' && !blocked) {
-        const key = softRetryKey(ctx, rule.id);
-        const current = softRetryCounter.get(key) || 0;
-        if (current < SOFT_GATE_MAX_RETRIES) {
-          softRetryCounter.set(key, current + 1);
+        const counters = loadCounters(ctx.workspacePath);
+        const currentRetry = getRuleCounter(counters.retries, ctx, rule.id);
+        
+        if (currentRetry < SOFT_GATE_MAX_RETRIES) {
+          incRuleCounter(counters.retries, ctx, rule.id);
+          saveCounters(counters, ctx.workspacePath);
           retrySuggested = true;
           action = 'retry';
         } else {
-          const warnCount = softWarnCounter.get(key) || 0;
-          if (warnCount < SOFT_GATE_MAX_WARNINGS) {
-            softWarnCounter.set(key, warnCount + 1);
+          const currentWarn = getRuleCounter(counters.warnings, ctx, rule.id);
+          if (currentWarn < SOFT_GATE_MAX_WARNINGS) {
+            incRuleCounter(counters.warnings, ctx, rule.id);
+            saveCounters(counters, ctx.workspacePath);
             action = 'warn';
           } else {
             action = 'escalate';
+            blocked = true; // Escalation counts as blocked in soft mode
             const artifactPath = writeEscalationArtifact(ctx, rule.id, result.reason);
             await emitGuardEscalationEvent(
               { runId: ctx.runId, projectId: ctx.projectId, chainId: ctx.chainId },

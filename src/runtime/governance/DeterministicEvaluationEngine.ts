@@ -17,7 +17,7 @@ const DETERMINISTIC_HANDLERS: Record<string, DeterministicHandler> = {
     if (!ctx.hasMutatingAction) {
       return { ruleId: rule.id, verdict: 'pass', reason: 'non_mutating_action', evidenceSummary: 'skip preflight for non-mutation' };
     }
-    const r = checkPreflightToken(workspacePath, ctx.ticketId);
+    const r = checkPreflightToken(workspacePath, ctx.ticketId, rule.evidence);
     return {
       ruleId: rule.id,
       verdict: r.found ? 'pass' : 'fail',
@@ -35,7 +35,7 @@ const DETERMINISTIC_HANDLERS: Record<string, DeterministicHandler> = {
     };
   },
   postflight_report: async (rule, ctx, workspacePath) => {
-    const r = checkTestReport(workspacePath, ctx.ticketId);
+    const r = checkTestReport(workspacePath, ctx.ticketId, rule.evidence);
     return {
       ruleId: rule.id,
       verdict: r.found ? 'pass' : 'fail',
@@ -52,7 +52,7 @@ const DETERMINISTIC_HANDLERS: Record<string, DeterministicHandler> = {
         evidenceSummary: 'smart_skip_enabled',
       };
     }
-    const r = checkImprovementArtifact(workspacePath, ctx.ticketId);
+    const r = checkImprovementArtifact(workspacePath, ctx.ticketId, rule.evidence);
     return {
       ruleId: rule.id,
       verdict: r.found ? 'pass' : 'fail',
@@ -60,6 +60,7 @@ const DETERMINISTIC_HANDLERS: Record<string, DeterministicHandler> = {
       evidenceSummary: r.matchedPath || 'none',
     };
   },
+
   agent_usage_events: async (rule, ctx) => {
     const e = await collectEventEvidence(ctx.runId);
     return {
