@@ -15,7 +15,8 @@ export type RuntimePathKey =
   | 'processLedgerDir'
   | 'processSkillTelemetryFile'
   | 'processBlockersDir'
-  | 'processCostDir';
+  | 'processCostDir'
+  | 'governanceRetryStateFile';
 
 type RuntimePathConfig = Partial<Record<RuntimePathKey, string>>;
 
@@ -34,6 +35,7 @@ const DEFAULT_PATHS: Record<RuntimePathKey, string> = {
   processSkillTelemetryFile: 'docs/process/skills/telemetry/skill-usage.jsonl',
   processBlockersDir: 'docs/process/blockers',
   processCostDir: 'docs/process/runs/cost',
+  governanceRetryStateFile: 'docs/runtime/governance/retry-state.json',
 };
 
 function loadRuntimePathConfig(workspacePath: string): RuntimePathConfig {

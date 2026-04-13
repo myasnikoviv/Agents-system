@@ -6,12 +6,17 @@ import {
   generateAssetId, 
   AssetIdentity,
   AssetLineage,
-  AssetMetadata
+  AssetMetadata,
+  AssetProjectContext
 } from './AssetDomainModel';
 import { assetStore } from './AssetStore';
 import { assetPromotionService } from './AssetPromotionService';
 import { assetDependencyStore } from './AssetDependencyStore';
 import { assetGraphService } from './AssetGraphService';
+import { AgentRegistry } from './AgentRegistry';
+import { SkillRegistry } from './SkillRegistry';
+import { PipelineRegistry } from './PipelineRegistry';
+import { DynamicDiscoveryService } from '../DynamicDiscoveryService';
 
 /**
  * AGSYS-3503 — Asset Registry Service
@@ -93,6 +98,62 @@ export class AssetRegistryV2 {
    */
   async getDependencies(assetId: string) {
     return assetDependencyStore.getOutgoing(assetId);
+  }
+
+  /**
+   * Returns true if the registry has been hydrated (at least one agent present).
+   */
+  isHydrated(): boolean {
+    return AgentRegistry.getAllAgents().length > 0;
+  }
+
+  /**
+   * AGSYS-3508 — Registry Initialization (V2)
+   * Rehydrates legacy in-memory registries from the persistent Redis store.
+   */
+  async initialize(context?: AssetProjectContext): Promise<void> {
+    const ctx = context || {
+      tenant_id: process.env.TENANT_ID || 'default',
+      workspace_id: process.env.WORKSPACE_ID || 'default',
+      project_id: process.env.PROJECT_ID || 'default'
+    };
+
+    // 1. Fetch all project assets
+    const assets = await assetStore.listByProject(ctx.project_id);
+    
+    // 2. Fetch shared templates/constants
+    const templates = await assetStore.listByProject('system-templates');
+    
+    const allKnownAssets = [...assets, ...templates];
+
+    if (allKnownAssets.length === 0) {
+      console.log('[AssetRegistryV2] Registry empty. Triggering discovery...');
+      const root = process.cwd();
+      await DynamicDiscoveryService.discoverAll(root);
+      return;
+    }
+
+    // 3. Populate Legacy Registries
+    for (const asset of allKnownAssets) {
+      const { asset_type, slug } = asset.identity;
+      const profile = { ...asset.attributes, assetId: asset.identity.asset_id, projectId: asset.identity.project_id } as any;
+
+      try {
+        switch (asset_type) {
+          case 'agent':
+            AgentRegistry.register(profile);
+            break;
+          case 'skill':
+            SkillRegistry.register(profile);
+            break;
+          case 'pipeline':
+            PipelineRegistry.register(profile);
+            break;
+        }
+      } catch (e) {
+        console.warn(`[AssetRegistryV2] Failed to rehydrate asset ${slug}:`, e);
+      }
+    }
   }
 
   /**

@@ -19,6 +19,7 @@ import { resolveRuntimeInfrastructureProfile } from '../runtime/infrastructure/R
 import { fetchRecentEvents, fetchEventsByRunId } from '../runtime/events/EventBus';
 import { updateCockpitExecutorConfig, getCockpitExecutorConfig } from '../runtime/CockpitExecutorConfig';
 import { DynamicDiscoveryService, AgentRegistry, PipelineRegistry, SkillRegistry } from '../runtime/DynamicDiscoveryService';
+import { assetRegistryV2 } from '../runtime/registries/AssetRegistryV2';
 import { runExternalExecutor } from '../runtime/ExternalExecutionAdapter';
 import { registerTelemetryRoutes } from './routes/telemetryRoutes';
 import { registerProviderSettingsRoutes } from './routes/providerSettingsRoutes';
@@ -2225,7 +2226,11 @@ const loadProjectCatalogSnapshot = async (
     return cached.snapshot;
   }
 
-  await DynamicDiscoveryService.discoverAll(root);
+  if (options?.forceRefresh) {
+    await DynamicDiscoveryService.discoverAll(root);
+  } else if (AgentRegistry.getAllAgents().length === 0) {
+    await DynamicDiscoveryService.discoverAll(root);
+  }
   const snapshot: CatalogSnapshot = {
     discoveryRoot: root,
     agents: AgentRegistry.getAllAgents(),
@@ -4866,6 +4871,12 @@ app.use('/api', (_req, res) => {
 
 const startServer = async () => {
   await hydrateControlPlaneFromPostgres();
+  // AGSYS-3508: Rehydrate asset registry from Redis
+  try {
+    await assetRegistryV2.initialize();
+  } catch (error) {
+    console.error('[agent-system-backend] asset registry initialization error:', error);
+  }
   app.listen(PORT, HOST, () => {
     console.log(`[agent-system-backend] listening on http://${HOST}:${PORT}`);
   });

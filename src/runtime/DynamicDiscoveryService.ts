@@ -23,8 +23,15 @@ export class DynamicDiscoveryService {
     return direct;
   }
 
-  static async discoverAll(projectRoot?: string, options?: { externalAgentsRoot?: string }) {
+  static async discoverAll(projectRoot?: string, options?: { externalAgentsRoot?: string, forceRefresh?: boolean }) {
     const root = projectRoot || process.cwd();
+    
+    // AGSYS-3508: Check if registry is already hydrated (unless forceRefresh is true)
+    if (!options?.forceRefresh && AgentRegistry.getAllAgents().length > 0) {
+      console.log('[DynamicDiscoveryService] Registry already hydrated, skipping discovery.');
+      return;
+    }
+
     const docsPath = path.join(root, 'docs');
     const manifestPath = path.join(root, 'AGENTS.md');
     const fromManifest = this.parseManifestMetadata(
@@ -97,7 +104,8 @@ export class DynamicDiscoveryService {
         slug: profile.slug,
         path: profile.sourcePath,
         name: profile.name,
-        metadata: { status: 'active', approval_state: 'approved' }
+        metadata: { status: 'active', approval_state: 'approved' },
+        attributes: profile
       });
     }
   }
@@ -144,7 +152,8 @@ export class DynamicDiscoveryService {
         slug: profile.slug,
         path: profile.sourcePath,
         name: profile.name,
-        metadata: { status: 'active', approval_state: 'approved' }
+        metadata: { status: 'active', approval_state: 'approved' },
+        attributes: profile
       });
     }
   }
@@ -186,7 +195,8 @@ export class DynamicDiscoveryService {
         slug: profile.slug,
         path: profile.sourcePath,
         name: profile.name,
-        metadata: { status: 'active', approval_state: 'approved' }
+        metadata: { status: 'active', approval_state: 'approved' },
+        attributes: profile
       });
     }
   }
@@ -224,7 +234,8 @@ export class DynamicDiscoveryService {
         slug: profile.slug,
         path: profile.sourcePath,
         name: profile.name,
-        metadata: { status: 'active', approval_state: 'approved' }
+        metadata: { status: 'active', approval_state: 'approved' },
+        attributes: profile
       });
     }
   }
@@ -260,7 +271,8 @@ export class DynamicDiscoveryService {
         slug: profile.id,
         path: profile.sourcePath,
         name: profile.name,
-        metadata: { status: 'active', approval_state: 'approved' }
+        metadata: { status: 'active', approval_state: 'approved' },
+        attributes: profile
       });
     }
   }
@@ -292,7 +304,8 @@ export class DynamicDiscoveryService {
         slug: profile.id,
         path: profile.sourcePath,
         name: profile.name,
-        metadata: { status: 'active', approval_state: 'approved' }
+        metadata: { status: 'active', approval_state: 'approved' },
+        attributes: profile
       });
     }
   }
