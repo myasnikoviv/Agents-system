@@ -39,9 +39,9 @@ describe('Worker Locking and Cleanup (AGSYS-3425)', () => {
     ).rejects.toThrow('worker_lock_busy');
     
     const duration = Date.now() - start;
-    // Should have retried 3 times with backoff (500ms, 1000ms, 2000ms)
-    // Minimum duration should be around 3500ms
-    expect(duration).toBeGreaterThanOrEqual(3000);
+    // Should have retried 3 times with backoff (200ms, 400ms, 600ms)
+    // Minimum duration should be around 1200ms
+    expect(duration).toBeGreaterThanOrEqual(1000);
   });
 
   it('force releases all locks for a specific run', async () => {
