@@ -577,7 +577,29 @@ export class DynamicWorkerSpawnManager {
     
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
       lock = await acquireWorkerLock(key, { runId: input.runId, projectId, chainId: input.chainId });
+      
+      if (lock.acquired) {
+        // While holding the Redis lock, check if the worker is actually busy in the pool
+        const sharedExisting = await sharedPoolGet(key);
+        if (sharedExisting) {
+          poolSet(key, sharedExisting);
+        }
+        const existing = sharedExisting || poolGet(key);
+
+        if (existing && existing.state === 'active' && existing.assignedTask?.runId && existing.assignedTask.runId !== input.runId) {
+          // Worker is active for ANOTHER run.
+          // Check if it's stale (heartbeat > 30s)
+          const isStale = Date.now() - (existing.lastHeartbeatAt || 0) > 30000;
+          if (!isStale) {
+            // It's genuinely busy. Release lock and retry loop.
+            await releaseWorkerLock(key, lock.token, { runId: input.runId, projectId, chainId: input.chainId });
+            lock.acquired = false;
+          }
+        }
+      }
+
       if (lock.acquired) break;
+      
       if (attempt < maxRetries) {
         // Exponential backoff with jitter
         const delay = 200 * (attempt + 1) + Math.random() * 100;
@@ -585,14 +607,24 @@ export class DynamicWorkerSpawnManager {
       }
     }
     if (!lock.acquired) {
+      if (emitEvents) {
+        await emitRuntimeEvent({
+          type: 'worker.failed',
+          runId: input.runId,
+          projectId,
+          chainId: input.chainId,
+          payload: {
+            agentSlug,
+            reason: 'worker_lock_busy_timeout',
+            key,
+          },
+        });
+      }
       throw new Error(`worker_lock_busy:${key}`);
     }
     try {
-      const sharedExisting = await sharedPoolGet(key);
-      if (sharedExisting) {
-        poolSet(key, sharedExisting);
-      }
-      const existing = sharedExisting || poolGet(key);
+      // Re-fetch existing under lock protection if not already fetched in loop (optimized)
+      const existing = poolGet(key);
 
       if (existing) {
         if (normalizeEnvironmentId(existing.environmentId) !== normalizeEnvironmentId(input.environmentId)) {
@@ -1450,25 +1482,55 @@ export class DynamicWorkerSpawnManager {
   /**
    * Emergency cleanup of all worker locks associated with a run.
    * Scans Redis for all locks (with any key/token) and attempts to match them.
-   * Since we don't store the runId IN the lock value currently (only emit it),
-   * we rely on the TTL for most things, but this provides a way to purge ALL locks
-   * if we are absolutely sure the environment needs it.
-   * 
-   * Update: For now, we will simply purge ALL active locks if a run is cancelled,
-   * to be safe. In a high-traffic env this should be more targeted.
+   * Also cleans up worker occupancy records in the shared pool.
    */
   static async forceReleaseAllLocksForRun(runId: string): Promise<void> {
     if (!useSharedWorkerState()) return;
     const redis = getRedisClient();
-    let cursor = '0';
-    do {
-      const reply = await redis.scan(cursor, 'MATCH', `${SHARED_WORKER_LOCK_PREFIX}:*`, 'COUNT', 200);
-      cursor = String(reply[0] || '0');
-      const keys = Array.isArray(reply[1]) ? (reply[1] as string[]) : [];
-      if (keys.length > 0) {
-        await redis.del(...keys);
+    
+    // 1. Fetch all workers to identify those assigned to this run
+    const allWorkers = await redis.hgetall(SHARED_WORKER_POOL_HASH);
+    if (!allWorkers) return;
+
+    const updates: Promise<any>[] = [];
+    for (const [key, value] of Object.entries(allWorkers)) {
+      try {
+        const worker = JSON.parse(value) as RuntimeWorkerRecord;
+        if (worker.assignedTask?.runId === runId) {
+          // 2. Release the specific lock for this worker
+          const lockKey = `${SHARED_WORKER_LOCK_PREFIX}:${key}`;
+          updates.push(redis.del(lockKey));
+
+          // 3. Reset worker occupancy in shared pool
+          const updatedWorker = {
+            ...worker,
+            state: 'idle' as const,
+            assignedTask: undefined,
+            lastHeartbeatAt: Date.now()
+          };
+          updates.push(redis.hset(SHARED_WORKER_POOL_HASH, key, JSON.stringify(updatedWorker)));
+
+          // 4. Emit observability event
+          updates.push(emitRuntimeEvent({
+            type: 'worker.lock_released',
+            runId: runId,
+            projectId: worker.projectId,
+            chainId: 'force_release', // We don't always have the original chainId readily available here
+            payload: { 
+              key, 
+              agentSlug: worker.agentSlug,
+              reason: 'emergency_run_cleanup' 
+            }
+          }));
+        }
+      } catch (e) {
+        // Skip invalid records
       }
-    } while (cursor !== '0');
+    }
+
+    if (updates.length > 0) {
+      await Promise.all(updates);
+    }
   }
 
   static async clearAsync(): Promise<void> {
