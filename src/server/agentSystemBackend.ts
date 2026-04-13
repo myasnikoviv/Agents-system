@@ -26,6 +26,7 @@ import { registerChainProjectRoutes } from './routes/chainProjectRoutes';
 import { registerSecretsRoutes } from './routes/secretsRoutes';
 import { registerAttachmentStorageRoutes } from './routes/attachmentStorageRoutes';
 import { registerBillingRoutes } from './routes/billingRoutes';
+import { registerGovernanceRoutes } from './routes/governanceRoutes';
 import { loadServiceRegistry } from '../runtime/control-plane/ServiceRegistryLoader';
 import { LocalProcessAdapter } from '../runtime/control-plane/LocalProcessAdapter';
 import { DockerAdapter } from '../runtime/control-plane/DockerAdapter';
@@ -3168,6 +3169,10 @@ registerBillingRoutes(app, {
   requireRole,
   billingService,
   paymentService: billingPaymentService,
+});
+
+registerGovernanceRoutes(app, {
+  requireRole,
 });
 
 app.get('/api/cockpit/storage/postgres/health', async (_req, res) => {
