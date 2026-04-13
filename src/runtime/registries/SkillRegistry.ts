@@ -5,6 +5,8 @@ export interface SkillProfile {
   tools: string[];
   usageGuidelines: string; // "When To Use"
   sourcePath: string;
+  assetId?: string;
+  projectId?: string;
 }
 
 export class SkillRegistry {

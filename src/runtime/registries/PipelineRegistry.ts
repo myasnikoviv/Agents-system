@@ -18,6 +18,8 @@ export interface PipelineDefinition {
   description?: string;
   stages: PipelineStage[];
   sourcePath: string;
+  assetId?: string;
+  projectId?: string;
 }
 
 export class PipelineRegistry {
