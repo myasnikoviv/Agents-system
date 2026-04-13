@@ -12,6 +12,12 @@ import {
 } from './WorkbenchToolRegistry';
 import { appendWorkbenchTelemetry } from './WorkbenchTelemetryCollector';
 import { logGovernance } from './governance/GovernanceLogger';
+import {
+  buildToolCacheKey,
+  getToolResultFromCache,
+  isDeterministicToolCacheable,
+  setToolResultToCache,
+} from './optimization/ToolResultCache';
 
 export interface WorkbenchExecutionResult {
   status: 'success' | 'failed' | 'queued' | 'blocked';
@@ -223,10 +229,55 @@ export async function executeViaWorkbench(
       : undefined;
 
   try {
+    const cacheable = isDeterministicToolCacheable({
+      workspacePath: context.workspacePath,
+      toolId,
+      policy,
+    });
+    const toolCacheKey = cacheable
+      ? buildToolCacheKey({
+          toolId,
+          args,
+          tenantId: context.tenantId,
+          workspaceId: context.workspaceId,
+          scopeLevel,
+        })
+      : '';
+    if (cacheable) {
+      const cached = getToolResultFromCache({
+        workspacePath: context.workspacePath,
+        key: toolCacheKey,
+      });
+      if (cached.hit) {
+        appendWorkbenchTelemetry({
+          runId: context.runId,
+          projectId: context.projectId,
+          agentId,
+          toolId,
+          action: 'cache_hit',
+          status: 'success',
+          startedAt: new Date(executionStartedAt).toISOString(),
+          endedAt: new Date().toISOString(),
+          durationMs: Date.now() - executionStartedAt,
+        });
+        return {
+          status: 'success',
+          content: cached.content,
+          summary: summarize(cached.content, `Tool ${toolId} cache hit.`),
+        };
+      }
+    }
     const content = await ToolExecutor.execute(toolId, args, context, {
       viaWorkbench: true,
       isolatedWorkspacePath,
     });
+    if (cacheable) {
+      setToolResultToCache({
+        workspacePath: context.workspacePath,
+        key: toolCacheKey,
+        content,
+      });
+    }
     appendWorkbenchTelemetry({
       runId: context.runId,
       projectId: context.projectId,

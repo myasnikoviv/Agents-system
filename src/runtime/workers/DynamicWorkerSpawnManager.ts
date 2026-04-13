@@ -1116,6 +1116,93 @@ export class DynamicWorkerSpawnManager {
       }));
   }
 
+  static hotColdEfficiencySnapshot(input?: {
+    projectId?: string;
+    environmentId?: string;
+  }): {
+    projectId?: string;
+    environmentId?: string;
+    totals: {
+      workers: number;
+      hot: number;
+      cold: number;
+      idle: number;
+      active: number;
+    };
+    estimatedSavings: {
+      coldWorkerReductionUnits: number;
+      savingsPct: number;
+    };
+  } {
+    const projectId = String(input?.projectId || '').trim();
+    const environmentId = String(input?.environmentId || '').trim();
+    const rows = this.snapshot().filter(
+      (row) => (!projectId || row.projectId === projectId) && (!environmentId || String(row.environmentId || '').trim() === environmentId),
+    );
+    const totals = {
+      workers: rows.length,
+      hot: rows.filter((w) => w.state === 'hot').length,
+      cold: rows.filter((w) => w.state === 'cold').length,
+      idle: rows.filter((w) => w.state === 'idle').length,
+      active: rows.filter((w) => w.state === 'active').length,
+    };
+    // Lightweight proxy: each cold worker saves 1 "resource unit" vs hot/idle standby workers.
+    const coldWorkerReductionUnits = totals.cold;
+    const savingsPct = totals.workers > 0 ? Number(((coldWorkerReductionUnits / totals.workers) * 100).toFixed(2)) : 0;
+    return {
+      ...(projectId ? { projectId } : {}),
+      ...(environmentId ? { environmentId } : {}),
+      totals,
+      estimatedSavings: {
+        coldWorkerReductionUnits,
+        savingsPct,
+      },
+    };
+  }
+
+  static workerReuseSnapshot(input?: {
+    projectId?: string;
+    environmentId?: string;
+  }): {
+    projectId?: string;
+    environmentId?: string;
+    totals: {
+      workers: number;
+      invocations: number;
+      coldStarts: number;
+      reusedInvocations: number;
+    };
+    reuse: {
+      reuseRate: number;
+      spawnOverheadReductionPct: number;
+    };
+  } {
+    const projectId = String(input?.projectId || '').trim();
+    const environmentId = String(input?.environmentId || '').trim();
+    const rows = this.snapshot().filter(
+      (row) => (!projectId || row.projectId === projectId) && (!environmentId || String(row.environmentId || '').trim() === environmentId),
+    );
+    const invocations = rows.reduce((sum, row) => sum + Number(row.invocationCount || 0), 0);
+    const coldStarts = rows.reduce((sum, row) => sum + Number(row.coldStartCount || 0), 0);
+    const reusedInvocations = Math.max(0, invocations - coldStarts);
+    const reuseRate = invocations > 0 ? Number((reusedInvocations / invocations).toFixed(4)) : 0;
+    const spawnOverheadReductionPct = invocations > 0 ? Number(((reusedInvocations / invocations) * 100).toFixed(2)) : 0;
+    return {
+      ...(projectId ? { projectId } : {}),
+      ...(environmentId ? { environmentId } : {}),
+      totals: {
+        workers: rows.length,
+        invocations,
+        coldStarts,
+        reusedInvocations,
+      },
+      reuse: {
+        reuseRate,
+        spawnOverheadReductionPct,
+      },
+    };
+  }
+
   static controllerContractSnapshot(input?: {
     projectId?: string;
     environmentId?: string;

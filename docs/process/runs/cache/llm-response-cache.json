@@ -1,0 +1,32 @@
+{
+  "unified-task-intake::pm-orchestrator::stage 1::hello": {
+    "value": "ok",
+    "createdAt": 1775997681168,
+    "expiresAt": 1775998281168
+  },
+  "unified-task-intake::developer::stage 2::hello": {
+    "value": "ok",
+    "createdAt": 1775997681169,
+    "expiresAt": 1775998281169
+  },
+  "unified-task-intake::pm-orchestrator::stage 1::parallel check": {
+    "value": "ok",
+    "createdAt": 1775997681214,
+    "expiresAt": 1775998281214
+  },
+  "unified-task-intake::developer::stage 2::parallel check": {
+    "value": "ok",
+    "createdAt": 1775997681215,
+    "expiresAt": 1775998281215
+  },
+  "unified-task-intake::pm-orchestrator::stage 1::deterministic only": {
+    "value": "ok",
+    "createdAt": 1775997681273,
+    "expiresAt": 1775998281273
+  },
+  "unified-task-intake::developer::stage 2::deterministic only": {
+    "value": "ok",
+    "createdAt": 1775997681274,
+    "expiresAt": 1775998281274
+  }
+}

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ChevronLeft, ShieldCheck } from 'lucide-react';
 import { fetchJsonSafe, fetchJsonStrict } from '../../lib/http';

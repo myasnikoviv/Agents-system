@@ -1,0 +1,14 @@
+allowedModes:
+  - debate
+  - review
+  - alignment
+allowedTurnStrategies:
+  - round_robin
+requiredRules:
+  - each_agent_must_provide_argument
+  - moderator_must_finalize_decision
+requiredArtifacts:
+  - decision
+rounds:
+  min: 1
+  max: 10

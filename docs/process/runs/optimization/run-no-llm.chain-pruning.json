@@ -1,0 +1,12 @@
+{
+  "runId": "run-no-llm",
+  "pipelineId": "unified-task-intake",
+  "beforeCount": 2,
+  "afterCount": 2,
+  "prunedCount": 0,
+  "estimatedLlmCallsBefore": 2,
+  "estimatedLlmCallsAfter": 2,
+  "measurableImprovementPct": 0,
+  "reasons": [],
+  "timestamp": "2026-04-13T18:13:57.343Z"
+}

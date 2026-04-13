@@ -1,4 +1,4 @@
-import { resumeUnifiedSwarmRun, type PilotState } from './UnifiedSwarmGraph';
+import { executeUnifiedSwarmRun, resumeUnifiedSwarmRun, type PilotState } from './UnifiedSwarmGraph';
 import { executeMultipleAgentsRun } from './MultipleAgentsRuntime';
 import { runGovernancePhase } from '../governance/GovernanceEngineCore';
 import { collectComplianceActualEvidence } from '../compliance/ComplianceEvidenceCollector';
@@ -12,6 +12,7 @@ import { applyPerformanceFeedbackOrder, collectAgentPerformanceScores } from '..
 import {
   collectRunCostMetrics,
   decideAdaptiveOptimization,
+  enforceBudgetConstraints,
   enforceHardCostLimit,
   writeCostLedger,
 } from '../cost/CostOptimizationEngine';
@@ -20,6 +21,7 @@ import {
   decideAdaptivePolicy,
   enforceBoundedAdaptation,
   applyCostAwareTierPolicy,
+  applyRoutingPolicies,
   routeModelForTask,
   writeAdaptiveLog,
 } from '../adaptive/AdaptiveIntelligenceEngine';
@@ -38,13 +40,32 @@ import { emitEvent, emitGuardBlockEvent } from '../events/EventBus';
 import { evaluatePreExecutionQuota } from '../billing/PreExecutionQuotaEnforcer';
 import { enforceBillingRuntimePolicy } from '../billing/BillingRuntimeIntegration';
 
-export type RuntimeExecutionMode = 'multiple_agents';
+export type RuntimeExecutionMode = 'linear' | 'multiple_agents';
 
 export interface RuntimeExecutionResult {
   finalState: any;
   modeRequested: RuntimeExecutionMode;
   modeApplied: RuntimeExecutionMode;
-  engine: 'pilot-multiple-agents-runtime';
+  engine: 'pilot-unified-graph' | 'pilot-multiple-agents-runtime';
+}
+
+async function withExecutionTimeout<T>(input: {
+  task: Promise<T>;
+  timeoutMs: number;
+  timeoutError: Error;
+}): Promise<T> {
+  const timeoutMs = Math.max(1000, Number(input.timeoutMs || 0));
+  let timer: NodeJS.Timeout | null = null;
+  try {
+    return await Promise.race([
+      input.task,
+      new Promise<T>((_, reject) => {
+        timer = setTimeout(() => reject(input.timeoutError), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 }
 
 function hasStrictTicketContext(ticketId: string): boolean {
@@ -57,7 +78,11 @@ function hasStrictTicketContext(ticketId: string): boolean {
  * Runtime execution dispatcher with Governance Gates integrated (Sprint 5.5).
  */
 export async function executeRuntimeRun(initialState: Partial<PilotState>): Promise<RuntimeExecutionResult> {
-  const modeRequested: RuntimeExecutionMode = 'multiple_agents';
+  const requestedModeRaw = String((initialState as any)?.executionMode || '').trim();
+  const modeRequested: RuntimeExecutionMode =
+    requestedModeRaw === 'linear' || requestedModeRaw === 'multiple_agents'
+      ? (requestedModeRaw as RuntimeExecutionMode)
+      : 'multiple_agents';
   const ticket = initialState.ticketId || 'AGSYS-UNKNOWN';
   const selectedPipeline = String(initialState.selected_pipeline || '').trim();
   const enforcedPipeline = String((initialState as any).enforcement?.pipeline || '').trim();
@@ -78,6 +103,12 @@ export async function executeRuntimeRun(initialState: Partial<PilotState>): Prom
     workspacePath,
     planName: (initialState as any)?.billing?.plan?.name,
     decision: modelRoute,
+  });
+  modelRoute = applyRoutingPolicies({
+    workspacePath,
+    decision: modelRoute,
+    mode: (initialState as any)?.routingPolicyMode,
+    governanceSignal: (initialState as any)?.governanceSignal,
   });
   process.env.RUNTIME_MODEL_TIER = modelRoute.modelTier;
   process.env.RUNTIME_MODEL_NAME = modelRoute.model;
@@ -324,7 +355,56 @@ export async function executeRuntimeRun(initialState: Partial<PilotState>): Prom
     actor: { type: 'system', id: 'runtime-router' },
     payload: { modeRequested, pipeline, planner: plannerDecision },
   }).catch(() => undefined);
-  const finalState = await executeMultipleAgentsRun({ ...initialState, selected_pipeline: pipeline });
+  let degradedByTimeout = false;
+  const runtimeExecutionTimeoutMs = Math.max(10000, Number(process.env.RUNTIME_ROUTER_EXEC_TIMEOUT_MS || 90000));
+  const finalState = await withExecutionTimeout({
+    task:
+      modeRequested === 'linear'
+        ? executeUnifiedSwarmRun({ ...initialState, selected_pipeline: pipeline })
+        : executeMultipleAgentsRun({ ...initialState, selected_pipeline: pipeline }),
+    timeoutMs: runtimeExecutionTimeoutMs,
+    timeoutError: new Error(`runtime_router_execution_timeout:${runtimeExecutionTimeoutMs}`),
+  }).catch(async (error: any) => {
+    const reason = String(error?.message || 'runtime_execution_timeout');
+    degradedByTimeout = reason.includes('runtime_router_execution_timeout');
+    if (!degradedByTimeout) throw error;
+    await emitGuardBlockEvent(
+      { runId, projectId, chainId },
+      {
+        stage: 'runtime.execution_timeout',
+        reason,
+      },
+    ).catch(() => undefined);
+    return {
+      ...(initialState as any),
+      runId,
+      threadId: chainId,
+      projectId,
+      selected_pipeline: pipeline,
+      status: 'pipeline_completed',
+      messages: [
+        ...(initialState.messages || []),
+        {
+          role: 'assistant',
+          content:
+            'Execution reached runtime timeout boundary. Returned degraded completion to keep chat responsive; follow-up remediation required.',
+        },
+      ],
+      artifactLogs: [
+        ...((initialState as any).artifactLogs || []),
+        `[runtime-timebox] degraded_completion reason=${reason}`,
+      ],
+    };
+  });
+
+  if (degradedByTimeout) {
+    return {
+      finalState,
+      modeRequested,
+      modeApplied: modeRequested,
+      engine: modeRequested === 'linear' ? 'pilot-unified-graph' : 'pilot-multiple-agents-runtime',
+    };
+  }
 
   await runGovernancePhase('AFTER_STEP', {
     runId,
@@ -365,6 +445,38 @@ export async function executeRuntimeRun(initialState: Partial<PilotState>): Prom
 
   const cost = collectRunCostMetrics(workspacePath, runId, projectId);
   const costLedgerPath = writeCostLedger(cost, workspacePath);
+  const budget = enforceBudgetConstraints(cost, workspacePath);
+  if (budget.softExceeded) {
+    process.env.RUNTIME_ROUTING_POLICY_MODE = 'cost_saver';
+    process.env.RUNTIME_GOVERNANCE_SIGNAL = 'constrained';
+    process.env.RUNTIME_QUALITY_DEGRADATION = 'budget_constrained';
+    logGovernance({
+      rule: 'budget_constraints_engine',
+      status: budget.allowed ? 'pass' : 'fail',
+      action: budget.allowed ? 'warn' : 'block',
+      ticket,
+      runId,
+      chainId,
+      detail: `reason=${budget.reason};totalCostUsd=${Number(cost.monetary.totalCostUsd || 0).toFixed(6)};soft=${budget.softThresholdUsd.toFixed(6)};hard=${budget.hardThresholdUsd.toFixed(6)}`,
+    });
+  }
+  if (!budget.allowed) {
+    await emitGuardBlockEvent(
+      { runId, projectId, chainId },
+      {
+        stage: 'budget.hard_limit',
+        totalCostUsd: Number(cost.monetary.totalCostUsd || 0),
+        softThresholdUsd: budget.softThresholdUsd,
+        hardThresholdUsd: budget.hardThresholdUsd,
+      },
+    ).catch(() => undefined);
+    throw new Error(
+      `[BudgetPhase:hard_limit] blocked ticket=${ticket} run=${runId} totalCostUsd=${Number(cost.monetary.totalCostUsd || 0).toFixed(6)} threshold=${budget.hardThresholdUsd.toFixed(6)}`,
+    );
+  }
+  if (!budget.softExceeded) {
+    process.env.RUNTIME_QUALITY_DEGRADATION = 'none';
+  }
   const signals = collectLearningSignals(workspacePath, runId, projectId);
   const adaptivePolicy = enforceBoundedAdaptation(
     null,
@@ -500,15 +612,15 @@ export async function executeRuntimeRun(initialState: Partial<PilotState>): Prom
     finalState,
     modeRequested,
     modeApplied: modeRequested,
-    engine: 'pilot-multiple-agents-runtime',
+    engine: modeRequested === 'linear' ? 'pilot-unified-graph' : 'pilot-multiple-agents-runtime',
   };
 }
 export async function resumeRuntimeRun(threadId: string, decision: any): Promise<RuntimeExecutionResult> {
   const finalState = await resumeUnifiedSwarmRun(threadId, decision);
   return {
     finalState,
-    modeRequested: 'multiple_agents',
-    modeApplied: 'multiple_agents',
-    engine: 'pilot-multiple-agents-runtime',
+    modeRequested: 'linear',
+    modeApplied: 'linear',
+    engine: 'pilot-unified-graph',
   };
 }

@@ -7,6 +7,8 @@ import type { BillingPaymentService } from '../../runtime/billing/BillingPayment
 import type { PaymentWebhookEvent } from '../../runtime/billing/PaymentProvider';
 import { evaluateAntiAbuse, validateTenantIsolation } from '../../runtime/billing/AntiAbuseGuard';
 import { runBillingConsistencyChecks } from '../../runtime/billing/BillingConsistencyChecks';
+import { CostBreakdownService } from '../../runtime/cost/CostBreakdownService';
+import { CostGuardrailsService } from '../../runtime/cost/CostGuardrailsService';
 
 interface BillingRouteDeps {
   requireRole: (
@@ -19,7 +21,9 @@ interface BillingRouteDeps {
 }
 
 export function registerBillingRoutes(app: express.Express, deps: BillingRouteDeps): void {
-  const usageAggregationService = new UsageAggregationService();
+const usageAggregationService = new UsageAggregationService();
+const costBreakdownService = new CostBreakdownService();
+const costGuardrailsService = new CostGuardrailsService();
   const abuseGuard = (res: express.Response, input: { tenantId: string; actorId: string; actionKey: string }): boolean => {
     const check = evaluateAntiAbuse({ tenantId: input.tenantId, actorId: input.actorId, actionKey: input.actionKey });
     if (!check.allowed) {
@@ -197,6 +201,43 @@ export function registerBillingRoutes(app: express.Express, deps: BillingRouteDe
           delta: trendDelta,
         },
       },
+    });
+  });
+
+  app.get('/api/system/billing/cost/breakdown', (req, res) => {
+    const auth = deps.requireRole(req, res, 'member');
+    if (!auth) return;
+    const runId = String(req.query?.runId || '').trim() || undefined;
+    const projectId = String(req.query?.projectId || '').trim() || undefined;
+    const workspaceId = String(req.query?.workspaceId || '').trim() || undefined;
+    const limitRaw = Number(req.query?.limit);
+    const limit = Number.isFinite(limitRaw) ? limitRaw : undefined;
+    const result = costBreakdownService.aggregate(process.cwd(), {
+      runId,
+      projectId,
+      workspaceId,
+      limit,
+    });
+    res.json({
+      success: true,
+      breakdown: result,
+    });
+  });
+
+  app.get('/api/system/billing/cost/guardrails', (req, res) => {
+    const auth = deps.requireRole(req, res, 'member');
+    if (!auth) return;
+    const projectId = String(req.query?.projectId || '').trim() || undefined;
+    const workspaceId = String(req.query?.workspaceId || '').trim() || undefined;
+    const dayIsoDate = String(req.query?.day || '').trim() || undefined;
+    const result = costGuardrailsService.evaluate(process.cwd(), {
+      projectId,
+      workspaceId,
+      dayIsoDate,
+    });
+    res.json({
+      success: true,
+      guardrails: result,
     });
   });
 

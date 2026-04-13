@@ -1,0 +1,23 @@
+pipeline: meeting
+mode: debate
+
+participants:
+  - architect
+  - reviewer
+  - devops
+
+moderator: architect
+
+rounds: 2
+turn_strategy: round_robin
+
+rules:
+  - each_agent_must_provide_argument
+  - reviewer_must_provide_risks
+  - moderator_must_finalize_decision
+
+artifacts:
+  - decision
+  - risks
+  - solution
+

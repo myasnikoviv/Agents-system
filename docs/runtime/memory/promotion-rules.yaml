@@ -1,0 +1,8 @@
+autoPromote:
+  decision: true
+  reusable_pattern: true
+  critical_insight: true
+
+thresholds:
+  minContentLength: 24
+

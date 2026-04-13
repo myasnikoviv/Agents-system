@@ -3,6 +3,6 @@
   "docker_compose_file": "",
   "env": ".env",
   "graphs": {
-    "agent": "./src/runtime/graphs/PilotQuasiLinearGraph.ts:pilotGraph"
+    "agent": "./src/runtime/graphs/UnifiedSwarmGraph.ts:unifiedSwarmGraph"
   }
 }

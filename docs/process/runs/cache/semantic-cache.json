@@ -1,0 +1,42 @@
+{
+  "unified-task-intake::pm-orchestrator::stage 1": [
+    {
+      "prompt": "hello",
+      "response": "ok",
+      "createdAt": 1775997681168,
+      "expiresAt": 1775998581168
+    },
+    {
+      "prompt": "parallel check",
+      "response": "ok",
+      "createdAt": 1775997681215,
+      "expiresAt": 1775998581215
+    },
+    {
+      "prompt": "deterministic only",
+      "response": "ok",
+      "createdAt": 1775997681274,
+      "expiresAt": 1775998581274
+    }
+  ],
+  "unified-task-intake::developer::stage 2": [
+    {
+      "prompt": "hello",
+      "response": "ok",
+      "createdAt": 1775997681169,
+      "expiresAt": 1775998581169
+    },
+    {
+      "prompt": "parallel check",
+      "response": "ok",
+      "createdAt": 1775997681215,
+      "expiresAt": 1775998581215
+    },
+    {
+      "prompt": "deterministic only",
+      "response": "ok",
+      "createdAt": 1775997681274,
+      "expiresAt": 1775998581274
+    }
+  ]
+}

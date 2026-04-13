@@ -825,7 +825,9 @@ async function swarmNode(state: PilotState): Promise<Partial<PilotState>> {
     console.log(`[PilotGraph:Swarm] Resumed after HITL interrupt for ${agent.slug}. Decision:`, decision);
   }
 
-  const stageTimeoutMs = Number(process.env.RUNTIME_STAGE_TIMEOUT_MS || 60000);
+  // Keep stage timeout configurable, but avoid a hard 60s floor that makes simple chat smoke
+  // scenarios appear hung under provider-side failures.
+  const stageTimeoutMs = Math.max(10000, Number(process.env.RUNTIME_STAGE_TIMEOUT_MS || 30000));
   const heartbeatIntervalMs = Math.max(1000, Number(process.env.RUNTIME_WORKER_HEARTBEAT_INTERVAL_MS || 5000));
   const heartbeatInput = {
     runId: state.runId,
