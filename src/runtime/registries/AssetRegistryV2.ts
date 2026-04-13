@@ -294,6 +294,20 @@ export class AssetRegistryV2 {
   async listByProject(projectId: string): Promise<ManagedAsset[]> {
     return assetStore.listByProject(projectId);
   }
+
+  /**
+   * Deletes an asset from the registry (AGSYS-35R.3).
+   * Blocks deletion if any other asset depends on it.
+   */
+  async deleteAsset(assetId: string): Promise<void> {
+    const dependents = await assetGraphService.getImpactList(assetId);
+    if (dependents.length > 0) {
+      throw new Error(`Cannot delete asset ${assetId}: it has ${dependents.length} dependents.`);
+    }
+
+    await assetStore.delete(assetId);
+    await assetDependencyStore.clearOutgoing(assetId);
+  }
 }
 
 export const assetRegistryV2 = AssetRegistryV2.getInstance();

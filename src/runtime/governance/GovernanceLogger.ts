@@ -65,6 +65,20 @@ export function logGovernance(entry: Omit<GovernanceLogEntry, 'ts'>): Governance
     console.warn('[GOVERNANCE] Failed to emit event to Redis:', err.message);
   });
 
+  // AGSYS-35B: Self-Improvement Signal Collection
+  if (entry.status === 'fail' || entry.action === 'retry') {
+    const { signalCollector } = require('../adaptive/SignalCollector');
+    signalCollector.emit({
+      type: entry.action === 'retry' ? 'retry' : 'failure',
+      assetId: entry.rule,
+      projectId: entry.chainId || 'default',
+      value: entry.status,
+      metadata: { action: entry.action, detail: entry.detail }
+    }).catch((err: any) => {
+      console.warn('[GOVERNANCE] Failed to emit self-improvement signal:', err.message);
+    });
+  }
+
   return full;
 }
 

@@ -5,6 +5,10 @@ import { AgentRegistry, AgentProfile } from './registries/AgentRegistry';
 import { PipelineRegistry, PipelineDefinition, PipelineStage } from './registries/PipelineRegistry';
 import { SkillRegistry, SkillProfile } from './registries/SkillRegistry';
 import { assetRegistryV2 } from './registries/AssetRegistryV2';
+import { loadGovernanceLoops } from './governance/LoopRegistry';
+import { parseMeetingSpecFromContent } from './meeting/MeetingSpec';
+import { loadGovernanceRules } from './governance/RuleRegistry';
+import { loadPolicyConfig } from './governance/ProjectPolicyBinding';
 
 export { AgentProfile, PipelineDefinition, PipelineStage, SkillProfile };
 export { AgentRegistry, PipelineRegistry, SkillRegistry };
@@ -58,6 +62,12 @@ export class DynamicDiscoveryService {
     } else {
       await this.discoverSkills(defaultDocsPath);
     }
+
+    // AGSYS-35R: Extended Discovery
+    await this.discoverLoops(root);
+    await this.discoverMeetingSpecs(root);
+    await this.discoverGovernanceRules(root);
+    await this.discoverGovernanceProfiles(root);
   }
 
   static async discoverAgents(docsPath: string = this.defaultDocsPath) {
@@ -306,6 +316,89 @@ export class DynamicDiscoveryService {
         name: profile.name,
         metadata: { status: 'active', approval_state: 'approved' },
         attributes: profile
+      });
+    }
+  }
+
+  static async discoverLoops(root: string) {
+    const loops = loadGovernanceLoops(root);
+    for (const loop of loops) {
+      await assetRegistryV2.registerAsset({
+        type: 'loop',
+        slug: loop.id,
+        path: 'docs/runtime/governance/loop-catalog.json',
+        name: loop.metadata?.name || loop.id,
+        metadata: { status: 'active', approval_state: 'approved' },
+        attributes: loop
+      });
+    }
+  }
+
+  static async discoverMeetingSpecs(root: string) {
+    const meetingsDir = path.join(root, 'docs/runtime/meetings');
+    if (!fs.existsSync(meetingsDir)) return;
+
+    const files = fs.readdirSync(meetingsDir).filter(f => f.endsWith('.yaml') || f.endsWith('.yml') || f.endsWith('.md'));
+    for (const file of files) {
+      if (file.startsWith('validation-rules')) continue;
+      
+      const filePath = path.join(meetingsDir, file);
+      const content = fs.readFileSync(filePath, 'utf-8');
+      const ext = path.extname(file).toLowerCase() as '.yaml' | '.yml' | '.md';
+      
+      try {
+        const spec = parseMeetingSpecFromContent(content, ext);
+        await assetRegistryV2.registerAsset({
+          type: 'meeting_spec',
+          slug: path.basename(file, ext),
+          path: filePath,
+          name: `Meeting Spec: ${path.basename(file, ext)}`,
+          metadata: { status: 'active', approval_state: 'approved' },
+          attributes: spec
+        });
+      } catch (e) {
+        console.error(`[DynamicDiscoveryService] Failed to parse meeting spec ${file}:`, e);
+      }
+    }
+  }
+
+  static async discoverGovernanceRules(root: string) {
+    const rules = loadGovernanceRules(root);
+    for (const rule of rules) {
+      await assetRegistryV2.registerAsset({
+        type: 'governance_rule',
+        slug: rule.id,
+        path: 'docs/runtime/governance/rule-registry.yaml',
+        name: rule.metadata?.name || rule.id,
+        metadata: { status: 'active', approval_state: 'approved' },
+        attributes: rule
+      });
+    }
+  }
+
+  static async discoverGovernanceProfiles(root: string) {
+    const config = loadPolicyConfig(root);
+    const projectIds = Object.keys(config.projects || {});
+    
+    // Always register default profile even if no projects defined
+    await assetRegistryV2.registerAsset({
+      type: 'governance_profile',
+      slug: 'default',
+      path: 'docs/runtime/governance/project-policy.json',
+      name: 'Default Governance Profile',
+      metadata: { status: 'active', approval_state: 'approved' },
+      attributes: { defaultEnabledRules: config.defaultEnabledRules }
+    });
+
+    for (const projectId of projectIds) {
+      const projectPolicy = config.projects![projectId];
+      await assetRegistryV2.registerAsset({
+        type: 'governance_profile',
+        slug: projectId,
+        path: 'docs/runtime/governance/project-policy.json',
+        name: `Project Profile: ${projectId}`,
+        metadata: { status: 'active', approval_state: 'approved' },
+        attributes: projectPolicy
       });
     }
   }
