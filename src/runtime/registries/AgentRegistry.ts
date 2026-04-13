@@ -14,6 +14,8 @@ export interface AgentProfile {
   tools: string[];
   fullInstructions: string;
   sourcePath: string;
+  assetId?: string;
+  projectId?: string;
 }
 
 export class AgentRegistry {

@@ -4,6 +4,7 @@ import { MarkdownInterpreter } from './interpreters/MarkdownInterpreter';
 import { AgentRegistry, AgentProfile } from './registries/AgentRegistry';
 import { PipelineRegistry, PipelineDefinition, PipelineStage } from './registries/PipelineRegistry';
 import { SkillRegistry, SkillProfile } from './registries/SkillRegistry';
+import { assetRegistryV2 } from './registries/AssetRegistryV2';
 
 export { AgentProfile, PipelineDefinition, PipelineStage, SkillProfile };
 export { AgentRegistry, PipelineRegistry, SkillRegistry };
@@ -89,6 +90,15 @@ export class DynamicDiscoveryService {
       };
 
       AgentRegistry.register(profile);
+      
+      // AGSYS-3503: Register as first-class asset
+      profile.assetId = await assetRegistryV2.registerAsset({
+        type: 'agent',
+        slug: profile.slug,
+        path: profile.sourcePath,
+        name: profile.name,
+        metadata: { status: 'active', approval_state: 'approved' }
+      });
     }
   }
 
@@ -127,6 +137,15 @@ export class DynamicDiscoveryService {
       };
 
       AgentRegistry.register(profile);
+
+      // AGSYS-3503: Register as first-class asset
+      profile.assetId = await assetRegistryV2.registerAsset({
+        type: 'agent',
+        slug: profile.slug,
+        path: profile.sourcePath,
+        name: profile.name,
+        metadata: { status: 'active', approval_state: 'approved' }
+      });
     }
   }
 
@@ -160,6 +179,15 @@ export class DynamicDiscoveryService {
       };
 
       PipelineRegistry.register(profile);
+
+      // AGSYS-3503: Register as first-class asset
+      profile.assetId = await assetRegistryV2.registerAsset({
+        type: 'pipeline',
+        slug: profile.slug,
+        path: profile.sourcePath,
+        name: profile.name,
+        metadata: { status: 'active', approval_state: 'approved' }
+      });
     }
   }
 
@@ -189,6 +217,15 @@ export class DynamicDiscoveryService {
       };
 
       PipelineRegistry.register(profile);
+
+      // AGSYS-3503: Register as first-class asset
+      profile.assetId = await assetRegistryV2.registerAsset({
+        type: 'pipeline',
+        slug: profile.slug,
+        path: profile.sourcePath,
+        name: profile.name,
+        metadata: { status: 'active', approval_state: 'approved' }
+      });
     }
   }
 
@@ -216,6 +253,15 @@ export class DynamicDiscoveryService {
       };
 
       SkillRegistry.register(profile);
+
+      // AGSYS-3503: Register as first-class asset
+      profile.assetId = await assetRegistryV2.registerAsset({
+        type: 'skill',
+        slug: profile.id,
+        path: profile.sourcePath,
+        name: profile.name,
+        metadata: { status: 'active', approval_state: 'approved' }
+      });
     }
   }
 
@@ -239,6 +285,15 @@ export class DynamicDiscoveryService {
       };
 
       SkillRegistry.register(profile);
+
+      // AGSYS-3503: Register as first-class asset
+      profile.assetId = await assetRegistryV2.registerAsset({
+        type: 'skill',
+        slug: profile.id,
+        path: profile.sourcePath,
+        name: profile.name,
+        metadata: { status: 'active', approval_state: 'approved' }
+      });
     }
   }
 
