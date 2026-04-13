@@ -1,3 +1,5 @@
+import * as fs from 'fs';
+import * as path from 'path';
 import { 
   ManagedAsset, 
   generateAssetId,
@@ -5,6 +7,7 @@ import {
   CustomizationLevel
 } from './AssetDomainModel';
 import { assetStore } from './AssetStore';
+import { TemplateSerializer } from './TemplateSerializer';
 
 /**
  * AGSYS-3504 — Asset Promotion Service
@@ -67,6 +70,40 @@ export class AssetPromotionService {
 
     await assetStore.save(templateAsset);
     return templateId;
+  }
+
+  /**
+   * AGSYS-3507 — Syncs a promoted template back to the filesystem.
+   */
+  async syncToFilesystem(templateId: string): Promise<string> {
+    const asset = await assetStore.get(templateId);
+    if (!asset || asset.identity.asset_type !== 'template') {
+      throw new Error(`Asset ${templateId} is not a valid template to sync.`);
+    }
+
+    const markdown = TemplateSerializer.serialize(asset);
+    
+    // Determine Destination
+    const originalType = asset.attributes.original_type as string;
+    const slug = asset.identity.slug.replace('template:', ''); // Use base slug for file name
+    
+    let subDir = '';
+    switch (originalType) {
+      case 'agent': subDir = 'agents'; break;
+      case 'skill': subDir = 'skills'; break;
+      case 'pipeline': subDir = 'pipelines'; break;
+      default: subDir = 'misc';
+    }
+
+    const targetDir = path.join(process.cwd(), 'generated', 'templates', subDir);
+    const targetPath = path.join(targetDir, `${slug}.md`);
+
+    if (!fs.existsSync(targetDir)) {
+      fs.mkdirSync(targetDir, { recursive: true });
+    }
+
+    fs.writeFileSync(targetPath, markdown, 'utf-8');
+    return targetPath;
   }
 }
 
