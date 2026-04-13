@@ -7,7 +7,8 @@ import {
   AssetIdentity,
   AssetLineage,
   AssetMetadata,
-  AssetProjectContext
+  AssetProjectContext,
+  calculateAssetChecksum
 } from './AssetDomainModel';
 import { assetStore } from './AssetStore';
 import { assetPromotionService } from './AssetPromotionService';
@@ -25,6 +26,7 @@ import { DynamicDiscoveryService } from '../DynamicDiscoveryService';
 
 export class AssetRegistryV2 {
   private static instance: AssetRegistryV2;
+  private safeMode: boolean = false;
 
   private constructor() {}
 
@@ -108,6 +110,13 @@ export class AssetRegistryV2 {
   }
 
   /**
+   * Returns true if the registry is in Safe Mode (corrupted state fallback).
+   */
+  isInSafeMode(): boolean {
+    return this.safeMode;
+  }
+
+  /**
    * AGSYS-3508 — Registry Initialization (V2)
    * Rehydrates legacy in-memory registries from the persistent Redis store.
    */
@@ -134,9 +143,17 @@ export class AssetRegistryV2 {
     }
 
     // 3. Populate Legacy Registries
+    let corruptedCount = 0;
     for (const asset of allKnownAssets) {
       const { asset_type, slug } = asset.identity;
       const profile = { ...asset.attributes, assetId: asset.identity.asset_id, projectId: asset.identity.project_id } as any;
+
+      // Integrity Check
+      if (asset.metadata.checksum && asset.metadata.checksum !== calculateAssetChecksum(asset.attributes)) {
+        console.error(`[AssetRegistryV2] INTEGRITY ERROR: Asset ${slug} is corrupted. Checksum mismatch.`);
+        corruptedCount++;
+        continue;
+      }
 
       try {
         switch (asset_type) {
@@ -153,6 +170,14 @@ export class AssetRegistryV2 {
       } catch (e) {
         console.warn(`[AssetRegistryV2] Failed to rehydrate asset ${slug}:`, e);
       }
+    }
+
+    // 4. Safe Mode Detection
+    if (corruptedCount > 0 || (assets.length > 0 && AgentRegistry.getAllAgents().length === 0)) {
+      console.error(`[AssetRegistryV2] Entering SAFE MODE due to registry corruption.`);
+      this.safeMode = true;
+      const root = process.cwd();
+      await DynamicDiscoveryService.discoverAll(root, { forceRefresh: true });
     }
   }
 
@@ -213,6 +238,7 @@ export class AssetRegistryV2 {
         status: params.metadata?.status || 'discovered',
         approval_state: params.metadata?.approval_state || 'pending',
         storage_ref: params.path,
+        checksum: calculateAssetChecksum(params.attributes),
         ...params.metadata
       },
       attributes: params.attributes || {}

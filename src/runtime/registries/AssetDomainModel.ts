@@ -64,6 +64,15 @@ export interface AssetMetadata {
   compatibility_state?: string;
   tags?: string[];
   owner_role?: string;     // Role identifier (e.g. solution-architect)
+  checksum?: string;       // SHA-256 hash of attributes for integrity verification
+}
+
+/**
+ * Calculates a SHA-256 checksum of the asset attributes.
+ */
+export function calculateAssetChecksum(attributes: any): string {
+  const content = JSON.stringify(attributes || {});
+  return crypto.createHash('sha256').update(content).digest('hex');
 }
 
 /**
