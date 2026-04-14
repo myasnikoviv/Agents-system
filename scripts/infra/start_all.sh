@@ -98,7 +98,8 @@ else
     echo "Cockpit UI is already running on port 5174."
 fi
 
-# 8. Verify Health
+
+# 9. Verify Health
 sleep 5
 if [[ "$STANDALONE_MODE" == "true" ]]; then
     ./scripts/infra/startup_check.sh --standalone
@@ -107,6 +108,14 @@ else
 fi
 
 echo -e "${GREEN}Agent System is ready.${NC}"
-echo -e "${YELLOW}Access Cockpit UI at: http://localhost:5174${NC}"
-echo -e "${YELLOW}LangGraph API: http://127.0.0.1:2024/info${NC}"
-echo -e "${YELLOW}LangSmith Studio (root): https://smith.langchain.com/studio?baseUrl=http%3A%2F%2Flocalhost%3A2024${NC}"
+echo -e "${COLOR_CYAN}  System Interface Layout (Two Contours):${NC}"
+echo -e "  --------------------------------------------------"
+echo -e "  ${COLOR_GREEN}1. Cockpit Interface (User Context):${NC}"
+echo -e "     URL:     http://localhost:5174"
+echo -e "     Project: Asset Foundation Workbench"
+echo -e ""
+echo -e "  ${COLOR_YELLOW}2. Control Plane Axis (Admin Context):${NC}"
+echo -e "     API:     http://localhost:3001/api/system/*"
+echo -e "     Console: http://localhost:5174/billing (Admin Role Required)"
+echo -e "  --------------------------------------------------"
+

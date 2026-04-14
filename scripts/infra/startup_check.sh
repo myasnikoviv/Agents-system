@@ -75,12 +75,21 @@ else
     echo -e "${RED}[FAIL] Agent System Backend is NOT responsive (localhost:3001)${NC}"
 fi
 
-# 6. Cockpit UI Check
+# 6. Cockpit (User Interface) Check
 if nc -z localhost 5174 2>/dev/null; then
     echo -e "${GREEN}[PASS] Cockpit UI is listening (port 5174)${NC}"
 else
     echo -e "${RED}[FAIL] Cockpit UI is NOT listening on port 5174${NC}"
 fi
+
+# 7. Control Plane (Admin Axis) Check
+HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:3001/api/system/control-plane/health || echo "000")
+if [[ "$HTTP_STATUS" == "200" || "$HTTP_STATUS" == "401" || "$HTTP_STATUS" == "403" ]]; then
+    echo -e "${GREEN}[PASS] Control Plane API axis is active (localhost:3001/api/system/* | status=$HTTP_STATUS)${NC}"
+else
+    echo -e "${RED}[FAIL] Control Plane API axis is NOT responsive (status=$HTTP_STATUS)${NC}"
+fi
+
 
 # 6. Infrastructure Map (Summary)
 echo -e "\n${YELLOW}Infrastructure Map:${NC}"
@@ -98,6 +107,7 @@ if [[ "$STANDALONE_MODE" != "true" ]]; then
     printf "| %-15s | %-5s | %-17s |\n" "LangGraph" "2024" "$(status_text "nc -z localhost 2024")"
     printf "| %-15s | %-5s | %-17s |\n" "OpenHands" "8000" "$(status_text "nc -z localhost 8000")"
 fi
-printf "| %-15s | %-5s | %-17s |\n" "Backend API" "3001" "$(status_text "nc -z localhost 3001")"
-printf "| %-15s | %-5s | %-17s |\n" "Cockpit UI" "5174" "$(status_text "nc -z localhost 5174")"
+printf "| %-15s | %-5s | %-17s |\n" "Cockpit (User)" "5174" "$(status_text "nc -z localhost 5174")"
+printf "| %-15s | %-5s | %-17s |\n" "C-Plane (Admin)" "3001" "$(status_text "nc -z localhost 3001")"
 echo "-----------------------------------"
+
