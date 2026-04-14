@@ -9,7 +9,7 @@ import {
   Database, 
   LayoutGrid, 
   Cpu, 
-  Github, 
+  GitBranch, 
   Lock, 
   Key, 
   Layers, 
@@ -246,7 +246,7 @@ const ProjectPolicyManager: React.FC<ProjectPolicyManagerProps> = ({ projectId =
           {/* Git Policy */}
           <section className="space-y-4">
             <h3 className="text-xs font-bold text-slate-500 uppercase tracking-widest flex items-center gap-2 px-1">
-              <Github className="w-4 h-4" />
+              <GitBranch className="w-4 h-4" />
               Automated Git Controls
             </h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

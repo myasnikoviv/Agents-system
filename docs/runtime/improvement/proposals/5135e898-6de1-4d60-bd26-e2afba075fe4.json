@@ -1,0 +1,25 @@
+{
+  "id": "5135e898-6de1-4d60-bd26-e2afba075fe4",
+  "sourcePatternId": "unknown",
+  "type": "WORKSPACE",
+  "severity": "critical",
+  "target": {
+    "assetId": "AGSYS-3510",
+    "path": "docs/process/tickets/AGSYS-3510.md",
+    "type": "asset"
+  },
+  "change": {
+    "title": "Self-Improvement: SUCCESS_DETERIORATION optimization for AGSYS-3510",
+    "description": "Automatically suggested improvement based on SUCCESS_DETERIORATION detection.",
+    "reasoning": "Pattern detected: SUCCESS_DETERIORATION. Severity: critical. Evidence: {\"recent\":0.4,\"historical\":0.9}",
+    "suggestedPatch": "// Suggested optimization: Increase temperature for diversity or decrease for precision\n// Current Context: AGSYS-3510\n// Action: Adjusting prompts to enforce validation.",
+    "estimatedImpact": {
+      "latencyReductionMs": 0,
+      "tokenSavings": 0,
+      "complianceScoreBoost": 15
+    }
+  },
+  "status": "APPLIED",
+  "createdAt": "2026-04-14T07:24:25.299Z",
+  "appliedAt": "2026-04-14T07:24:25.301Z"
+}

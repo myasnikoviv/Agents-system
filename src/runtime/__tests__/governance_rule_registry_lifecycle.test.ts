@@ -68,7 +68,15 @@ describe('RuleRegistry lifecycle', () => {
         deterministicCheck: 'postflight_report',
         enforcementMode: 'soft',
         enabledByDefault: true,
-        metadata: { name: 'Custom Quality Loop', owner: 'qa' },
+        metadata: {
+          name: 'Custom Quality Loop',
+          description: 'Custom quality verification',
+          version: '1.0.0',
+          owner: 'qa',
+          tags: ['qa', 'quality'],
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        },
       },
       workspace,
     );

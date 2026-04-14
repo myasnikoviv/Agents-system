@@ -1,6 +1,7 @@
 import {
   ServiceRegistryDefinition,
   ServiceDescriptor,
+  DesiredServiceState,
 } from './ServiceRegistryContract';
 import { loadServiceRegistry } from './ServiceRegistryLoader';
 import type { ControlPlaneServiceStateStore } from './ServiceStateStore';
@@ -9,7 +10,7 @@ export type ServiceRuntimeStatus = 'starting' | 'healthy' | 'degraded' | 'failed
 
 export interface ServiceRuntimeState {
   serviceId: string;
-  desired: ServiceDescriptor['desired'];
+  desired: DesiredServiceState;
   status: ServiceRuntimeStatus;
   restartCount: number;
   lastCheckAt: string | null;

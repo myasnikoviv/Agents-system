@@ -33,8 +33,8 @@ interface ChainProjectRouteDeps {
     project: ProjectItem,
     options?: { preferredPlaneProjectId?: string; createIfMissing?: boolean },
   ) => Promise<void>;
-  validateProjectWorktree: (path?: string) => { value?: string } | { error: string; message: string };
-  validateAgentContextPath: (path?: string) => { value?: string } | { error: string; message: string };
+  validateProjectWorktree: (path?: string) => { ok: true; absolutePath: string } | { ok: false; error: string; message: string };
+  validateAgentContextPath: (path?: string) => { ok: true; absolutePath: string } | { ok: false; error: string; message: string };
   ensureProject: (projectId: string, label: string, worktreePath?: string, agentContextPath?: string) => void;
   persistRuntimeStore: () => void;
   normalizeWorktreePath: (path: string) => string | undefined;
@@ -97,12 +97,12 @@ export function registerChainProjectRoutes(app: express.Express, deps: ChainProj
       if (projectId !== '__unbound__') {
         if (onboardingMode === 'local') {
           const validation = deps.validateProjectWorktree(worktreePath || undefined);
-          if ('error' in validation) {
+          if (validation.ok === false) {
             res.status(400).json({ success: false, error: validation.error, message: validation.message });
             return;
           }
           const agentPathValidation = deps.validateAgentContextPath(agentContextPath || undefined);
-          if ('error' in agentPathValidation) {
+          if (agentPathValidation.ok === false) {
             res.status(400).json({ success: false, error: agentPathValidation.error, message: agentPathValidation.message });
             return;
           }
@@ -134,14 +134,14 @@ export function registerChainProjectRoutes(app: express.Express, deps: ChainProj
     } else if (projectLabel || worktreePath || agentContextPath || repositoryUrl || onboardingMode) {
       if (onboardingMode === 'local' && worktreePath) {
         const validation = deps.validateProjectWorktree(worktreePath);
-        if ('error' in validation) {
+        if (validation.ok === false) {
           res.status(400).json({ success: false, error: validation.error, message: validation.message });
           return;
         }
       }
       if (onboardingMode === 'local' && agentContextPath) {
         const agentPathValidation = deps.validateAgentContextPath(agentContextPath);
-        if ('error' in agentPathValidation) {
+        if (agentPathValidation.ok === false) {
           res.status(400).json({ success: false, error: agentPathValidation.error, message: agentPathValidation.message });
           return;
         }
@@ -326,7 +326,7 @@ export function registerChainProjectRoutes(app: express.Express, deps: ChainProj
 
     const discoveryRoot = project.agentContextPath || project.worktreePath || process.cwd();
     await deps.refreshCatalog(discoveryRoot, { activate: true });
-    const { applyProjectSwitchRuntimePolicy } = await import('../runtime/policy/ProjectSwitchRuntimePolicy');
+    const { applyProjectSwitchRuntimePolicy } = await import('../../runtime/policy/ProjectSwitchRuntimePolicy');
     const switchPolicy = await applyProjectSwitchRuntimePolicy({
       activeProjectId: projectId,
       knownProjectIds: Array.from(deps.projectStore.keys()),

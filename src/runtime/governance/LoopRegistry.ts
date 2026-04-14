@@ -51,13 +51,13 @@ function normalizeLoops(input: GovernanceLoopEntity[]): GovernanceLoopEntity[] {
         tags: Array.isArray(row.metadata?.tags) ? row.metadata?.tags : [],
         createdAt: row.metadata?.createdAt || now,
         updatedAt: row.metadata?.updatedAt || now,
-      },
+      } as GovernanceRuleMetadata,
     });
   }
   return normalized;
 }
 
-function readCatalog(workspacePath?: string): GovernanceLoopEntity[] {
+export function loadGovernanceLoopsFromDisk(workspacePath?: string): GovernanceLoopEntity[] {
   const filePath = catalogFile(workspacePath);
   if (!fs.existsSync(filePath)) return [];
   try {
@@ -75,17 +75,16 @@ function writeCatalog(loops: GovernanceLoopEntity[], workspacePath?: string): vo
 }
 
 export function loadGovernanceLoops(workspacePath?: string): GovernanceLoopEntity[] {
-  // AGSYS-35R: Source of Truth Enforcement
-  try {
-    const { assetRegistryV2 } = require('../registries/AssetRegistryV2');
-    const fromRegistry = assetRegistryV2.listByType('loop');
-    if (fromRegistry.length > 0) {
-      return fromRegistry.map((asset: any) => asset.attributes as GovernanceLoopEntity);
-    }
-  } catch (e) {
-    // Registry not available
+  // AGSYS-35R: Source of Truth Enforcement (Synchronous Cache)
+  const { assetRegistryV2 } = require('../registries/AssetRegistryV2');
+  const fromRegistry = assetRegistryV2.listByTypeSync('loop');
+  
+  if (fromRegistry.length > 0) {
+    return fromRegistry.map((asset: any) => asset.attributes as GovernanceLoopEntity);
   }
-  return readCatalog(workspacePath);
+  
+  // If registry is empty, we return empty list or throw if strictly required
+  return [];
 }
 
 export function getGovernanceLoopById(loopId: string, workspacePath?: string): GovernanceLoopEntity | undefined {
@@ -113,7 +112,7 @@ export function createGovernanceLoop(
       tags: Array.isArray(input.metadata?.tags) ? input.metadata?.tags : [],
       createdAt: input.metadata?.createdAt || now,
       updatedAt: now,
-    },
+    } as GovernanceRuleMetadata,
   };
   writeCatalog([...current, created], workspacePath);
   return created;
@@ -131,7 +130,7 @@ export function updateGovernanceLoop(loopId: string, patch: Partial<GovernanceLo
       ...(hit.metadata || {}),
       ...(patch.metadata || {}),
       updatedAt: new Date().toISOString(),
-    },
+    } as GovernanceRuleMetadata,
   };
   writeCatalog(current.map((row) => (row.id === loopId ? updated : row)), workspacePath);
   return updated;

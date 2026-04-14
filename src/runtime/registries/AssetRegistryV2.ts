@@ -1,3 +1,4 @@
+import fs from 'fs';
 import { 
   ManagedAsset, 
   AssetType, 
@@ -27,6 +28,7 @@ import { DynamicDiscoveryService } from '../DynamicDiscoveryService';
 export class AssetRegistryV2 {
   private static instance: AssetRegistryV2;
   private safeMode: boolean = false;
+  private assets: ManagedAsset[] = [];
 
   private constructor() {}
 
@@ -118,7 +120,7 @@ export class AssetRegistryV2 {
 
   /**
    * AGSYS-3508 — Registry Initialization (V2)
-   * Rehydrates legacy in-memory registries from the persistent Redis store.
+   * Rehydrates legacy in-memory registries or ensures asset availability.
    */
   async initialize(context?: AssetProjectContext): Promise<void> {
     const ctx = context || {
@@ -129,11 +131,9 @@ export class AssetRegistryV2 {
 
     // 1. Fetch all project assets
     const assets = await assetStore.listByProject(ctx.project_id);
-    
-    // 2. Fetch shared templates/constants
     const templates = await assetStore.listByProject('system-templates');
-    
-    const allKnownAssets = [...assets, ...templates];
+    this.assets = [...assets, ...templates];
+    const allKnownAssets = this.assets;
 
     if (allKnownAssets.length === 0) {
       console.log('[AssetRegistryV2] Registry empty. Triggering discovery...');
@@ -142,7 +142,7 @@ export class AssetRegistryV2 {
       return;
     }
 
-    // 3. Populate Legacy Registries
+    // 2. Populate Legacy Registries
     let corruptedCount = 0;
     for (const asset of allKnownAssets) {
       const { asset_type, slug } = asset.identity;
@@ -166,19 +166,46 @@ export class AssetRegistryV2 {
           case 'pipeline':
             PipelineRegistry.register(profile);
             break;
+          case 'meeting_spec':
+            // Rehydrate meeting spec cache if we have one, or just ensure it's available
+            break;
+          case 'loop':
+            // Rehydrate loop cache
+            break;
         }
       } catch (e) {
         console.warn(`[AssetRegistryV2] Failed to rehydrate asset ${slug}:`, e);
       }
     }
 
-    // 4. Safe Mode Detection
-    if (corruptedCount > 0 || (assets.length > 0 && AgentRegistry.getAllAgents().length === 0)) {
+    // 3. Safe Mode Detection
+    if (corruptedCount > 0) {
       console.error(`[AssetRegistryV2] Entering SAFE MODE due to registry corruption.`);
       this.safeMode = true;
       const root = process.cwd();
       await DynamicDiscoveryService.discoverAll(root, { forceRefresh: true });
     }
+  }
+
+  /**
+   * AGSYS-35R.5 — Refresh Asset
+   * Re-scans a specific file and updates the registry entry.
+   */
+  async refreshAsset(assetId: string): Promise<void> {
+    const asset = await assetStore.get(assetId);
+    if (!asset) throw new Error(`Asset ${assetId} not found in store.`);
+
+    const filePath = asset.metadata.storage_ref;
+    if (!fs.existsSync(filePath)) {
+      console.error(`[AssetRegistryV2] Refresh failed: File ${filePath} missing. Moving to quarantine.`);
+      asset.metadata.status = 'quarantine';
+      await assetStore.save(asset);
+      return;
+    }
+
+    // Re-trigger discovery for this specific file path
+    // For simplicity, we trigger DynamicDiscoveryService.discoverSpecific
+    await DynamicDiscoveryService.discoverSpecific(filePath, asset.identity.asset_type);
   }
 
   /**
@@ -246,6 +273,14 @@ export class AssetRegistryV2 {
 
     await assetStore.save(asset);
 
+    // Update memory cache
+    const existingIndex = this.assets.findIndex(a => a.identity.asset_id === assetId);
+    if (existingIndex !== -1) {
+      this.assets[existingIndex] = asset;
+    } else {
+      this.assets.push(asset);
+    }
+
     // 2. Automated Dependency Resolution
     // Currently supports Agent -> Skills and Agent -> Tools
     if (params.type === 'agent' && params.attributes) {
@@ -288,7 +323,11 @@ export class AssetRegistryV2 {
   }
 
   async listByType(type: AssetType): Promise<ManagedAsset[]> {
-    return assetStore.listByType(type);
+    return this.assets.filter(a => a.identity.asset_type === type);
+  }
+
+  listByTypeSync(type: AssetType): ManagedAsset[] {
+    return this.assets.filter(a => a.identity.asset_type === type);
   }
 
   async listByProject(projectId: string): Promise<ManagedAsset[]> {

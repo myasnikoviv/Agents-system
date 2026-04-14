@@ -854,7 +854,7 @@ async function swarmNode(state: PilotState): Promise<Partial<PilotState>> {
       payload: {
         stageId: nextStage.id,
         agentSlug: runContext.agent.slug,
-        workerId: runContext.memory?.workerId || workerLease.worker.workerId,
+        workerId: runContext.agent?.workerId || workerLease.worker.workerId,
         executionTransport: 'subprocess',
       },
     });

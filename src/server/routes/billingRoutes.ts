@@ -44,7 +44,7 @@ const costGuardrailsService = new CostGuardrailsService();
     if (!auth) return;
     const candidate = req.body as BillingDomainSnapshot;
     const validation = deps.billingService.validateSnapshot(candidate);
-    if (!validation.ok) {
+    if (validation.ok === false) {
       res.status(400).json({ success: false, error: 'billing_domain_validation_failed', reason: validation.reason });
       return;
     }
@@ -56,7 +56,7 @@ const costGuardrailsService = new CostGuardrailsService();
     if (!auth) return;
     const candidate = req.body as BillingDomainSnapshot;
     const writeResult = deps.billingService.replaceSnapshot(candidate);
-    if (!writeResult.ok) {
+    if (writeResult.ok === false) {
       res.status(400).json({ success: false, error: 'billing_domain_write_failed', reason: writeResult.reason });
       return;
     }
@@ -341,7 +341,7 @@ const costGuardrailsService = new CostGuardrailsService();
     const auth = deps.requireRole(req, res, 'admin');
     if (!auth) return;
     const result = deps.billingService.createPlan(req.body);
-    if (!result.ok) {
+    if (result.ok === false) {
       res.status(400).json({ success: false, error: 'plan_create_failed', reason: result.reason });
       return;
     }
@@ -353,7 +353,7 @@ const costGuardrailsService = new CostGuardrailsService();
     if (!auth) return;
     const planId = String(req.params?.planId || '').trim();
     const result = deps.billingService.updatePlan(planId, req.body || {});
-    if (!result.ok) {
+    if (result.ok === false) {
       res.status(400).json({ success: false, error: 'plan_update_failed', reason: result.reason });
       return;
     }
@@ -365,7 +365,7 @@ const costGuardrailsService = new CostGuardrailsService();
     if (!auth) return;
     const planId = String(req.params?.planId || '').trim();
     const result = deps.billingService.deletePlan(planId);
-    if (!result.ok) {
+    if (result.ok === false) {
       res.status(400).json({ success: false, error: 'plan_delete_failed', reason: result.reason });
       return;
     }

@@ -11,22 +11,61 @@ function createStubAdapter(adapterId: string): ServiceExecutionAdapter<any> {
   return {
     adapterId,
     async start(serviceId: string, spec: any) {
-      const next = { serviceId, status: 'running', spec };
+      const next = { 
+        serviceId, 
+        status: 'running' as const, 
+        spec,
+        pid: 1234,
+        startedAt: new Date().toISOString(),
+        stoppedAt: null,
+        exitCode: null,
+        signal: null,
+        crashReason: null,
+        [Symbol.iterator]: undefined // Mocking it doesn't need iterator but needs index signature
+      };
       state.set(serviceId, next);
-      return next;
+      return next as any;
     },
     async stop(serviceId: string) {
-      const next = { serviceId, status: 'stopped' };
+      const next = { 
+        serviceId, 
+        status: 'stopped' as const,
+        pid: null,
+        startedAt: null,
+        stoppedAt: new Date().toISOString(),
+        exitCode: 0,
+        signal: null,
+        crashReason: null
+      };
       state.set(serviceId, next);
-      return next;
+      return next as any;
     },
     async restart(serviceId: string) {
-      const next = { serviceId, status: 'running', restarted: true };
+      const next = { 
+        serviceId, 
+        status: 'running' as const, 
+        restarted: true,
+        pid: 1235,
+        startedAt: new Date().toISOString(),
+        stoppedAt: null,
+        exitCode: null,
+        signal: null,
+        crashReason: null
+      };
       state.set(serviceId, next);
-      return next;
+      return next as any;
     },
     getRuntime(serviceId: string) {
-      return state.get(serviceId) || { serviceId, status: 'idle' };
+      return state.get(serviceId) || { 
+        serviceId, 
+        status: 'idle' as const,
+        pid: null,
+        startedAt: null,
+        stoppedAt: null,
+        exitCode: null,
+        signal: null,
+        crashReason: null
+      };
     },
   };
 }

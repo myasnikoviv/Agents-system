@@ -14,7 +14,7 @@ describe('WorkerLifecycleStateMachine', () => {
   it('rejects invalid transitions', () => {
     const invalid = applyLifecycleTransition('cold', 'active');
     expect(invalid.ok).toBe(false);
-    if (!invalid.ok) {
+    if (invalid.ok === false) {
       expect(invalid.reason).toContain('invalid_transition:cold->active');
     }
   });

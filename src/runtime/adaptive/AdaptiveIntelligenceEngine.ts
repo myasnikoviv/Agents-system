@@ -330,7 +330,9 @@ export function enforceBoundedAdaptation(
   };
 }
 
-import { patternDetector } from './PatternDetector';
+import { patternDetector, DetectedPattern } from './PatternDetector';
+import { proposalGenerator } from '../improvement/ProposalGenerator';
+import { proposalOrchestrator } from '../improvement/ProposalOrchestrator';
 
 export async function applyPerformanceAwarePolicy(input: {
   workspacePath: string;
@@ -366,7 +368,21 @@ export async function applyPerformanceAwarePolicy(input: {
     }
   }
 
-  if (nextTier === input.decision.modelTier) return input.decision;
+  if (nextTier === input.decision.modelTier && patterns.length === 0) return input.decision;
+
+  // Generate formal proposals for detected patterns
+  for (const pattern of patterns) {
+    try {
+      const proposal = await proposalGenerator.generateProposal(pattern, {
+        id: input.assetId,
+        path: `docs/process/tickets/${input.assetId}.md`, // Default mapping
+        type: 'asset'
+      });
+      await proposalOrchestrator.saveProposal(proposal);
+    } catch (e) {
+      console.error('Failed to generate proposal:', e);
+    }
+  }
 
   const policy = loadModelRoutingPolicy(input.workspacePath);
   return {

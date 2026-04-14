@@ -86,6 +86,8 @@ function normalizeServiceRegistryDefinition(input: RawServiceRegistryDefinition)
 
     const next: ServiceDescriptor = {
       ...descriptor,
+      type: descriptor.type as ServiceKind,
+      runtime: descriptor.runtime as ServiceRuntime,
       desired,
     };
     delete (next as any).restartPolicy;

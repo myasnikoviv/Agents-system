@@ -20,6 +20,7 @@ export interface DockerServiceRuntime {
   status: DockerServiceStatus;
   health: string | null;
   lastUpdatedAt: string;
+  [key: string]: unknown;
 }
 
 export interface DockerCommandResult {

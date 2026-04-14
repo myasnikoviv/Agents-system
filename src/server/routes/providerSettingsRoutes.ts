@@ -107,7 +107,7 @@ export function registerProviderSettingsRoutes(app: express.Express, deps: Provi
       ...deps.getRuntimeEnforcementByProject(),
       [projectId]: {
         ...(pipeline ? { pipeline } : {}),
-        ...(skills.length > 0 ? { skills: Array.from(new Set(skills)) } : {}),
+        ...(skills.length > 0 ? { skills: Array.from(new Set(skills)) as string[] } : {}),
       },
     };
 
@@ -211,7 +211,7 @@ export function registerProviderSettingsRoutes(app: express.Express, deps: Provi
     ).trim();
 
     const executor: 'claude-code' | 'codex-cli' | 'openhands-sdk' =
-      provider === 'claude-cli'
+      provider === 'claude-cli' || provider === 'claude-code'
         ? 'claude-code'
         : provider === 'openhands-sdk'
           ? 'openhands-sdk'
@@ -268,7 +268,7 @@ export function registerProviderSettingsRoutes(app: express.Express, deps: Provi
     const current = deps.getRuntimeSelection();
     const requestedProvider = String(req.body?.provider || current.provider);
     const model = String(req.body?.model || current.model);
-    const provider = deps.isRuntimeProvider(requestedProvider) ? requestedProvider : 'codex-cli';
+    const provider = (deps.isRuntimeProvider(requestedProvider) ? requestedProvider : 'codex-cli') as WorkspaceConfiguration['provider'];
     const nextSelection = { provider, model };
     deps.setRuntimeSelection(nextSelection);
     deps.saveRuntimeState('runtime_selection', nextSelection);

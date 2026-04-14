@@ -4,8 +4,7 @@ import { MarkdownInterpreter } from './interpreters/MarkdownInterpreter';
 import { AgentRegistry, AgentProfile } from './registries/AgentRegistry';
 import { PipelineRegistry, PipelineDefinition, PipelineStage } from './registries/PipelineRegistry';
 import { SkillRegistry, SkillProfile } from './registries/SkillRegistry';
-import { assetRegistryV2 } from './registries/AssetRegistryV2';
-import { loadGovernanceLoops } from './governance/LoopRegistry';
+import { loadGovernanceLoops, loadGovernanceLoopsFromDisk } from './governance/LoopRegistry';
 import { parseMeetingSpecFromContent } from './meeting/MeetingSpec';
 import { loadGovernanceRules } from './governance/RuleRegistry';
 import { loadPolicyConfig } from './governance/ProjectPolicyBinding';
@@ -70,7 +69,44 @@ export class DynamicDiscoveryService {
     await this.discoverGovernanceProfiles(root);
   }
 
+  static async discoverSpecific(filePath: string, type: string) {
+    if (!fs.existsSync(filePath)) return;
+    
+    // Break circular dependency with dynamic require
+    const { assetRegistryV2 } = require('./registries/AssetRegistryV2');
+    
+    switch (type) {
+      case 'agent':
+        await this.discoverAgentsFromFiles([filePath]);
+        break;
+      case 'pipeline':
+        await this.discoverPipelinesFromFiles([filePath]);
+        break;
+      case 'skill':
+        await this.discoverSkillsFromFiles([filePath]);
+        break;
+      case 'meeting_spec':
+        const content = fs.readFileSync(filePath, 'utf-8');
+        const ext = path.extname(filePath).toLowerCase() as '.yaml' | '.yml' | '.md';
+        const spec = parseMeetingSpecFromContent(content, ext);
+        await assetRegistryV2.registerAsset({
+          type: 'meeting_spec',
+          slug: path.basename(filePath, ext),
+          path: filePath,
+          name: `Meeting Spec: ${path.basename(filePath, ext)}`,
+          metadata: { status: 'active', approval_state: 'approved' },
+          attributes: spec
+        });
+        break;
+      case 'loop':
+        // Loops are currently in a bulk file, but if we have a path to it, we re-discover all loops in it
+        await this.discoverLoops(path.dirname(path.dirname(filePath))); // Resolve root from path
+        break;
+    }
+  }
+
   static async discoverAgents(docsPath: string = this.defaultDocsPath) {
+    const { assetRegistryV2 } = require('./registries/AssetRegistryV2');
     AgentRegistry.clear();
     const agentsDir = path.join(docsPath, 'agents');
     if (!fs.existsSync(agentsDir)) return;
@@ -121,6 +157,7 @@ export class DynamicDiscoveryService {
   }
 
   static async discoverAgentsFromFiles(files: string[], callsignsBySlug?: Record<string, string>) {
+    const { assetRegistryV2 } = require('./registries/AssetRegistryV2');
     AgentRegistry.clear();
     const uniqueFiles = Array.from(new Set(files)).filter((f) => fs.existsSync(f));
     for (const filePath of uniqueFiles) {
@@ -169,6 +206,7 @@ export class DynamicDiscoveryService {
   }
 
   static async discoverPipelines(docsPath: string = this.defaultDocsPath) {
+    const { assetRegistryV2 } = require('./registries/AssetRegistryV2');
     PipelineRegistry.clear();
     const pipelinesDir = path.join(docsPath, 'pipelines');
     if (!fs.existsSync(pipelinesDir)) return;
@@ -212,6 +250,7 @@ export class DynamicDiscoveryService {
   }
 
   static async discoverPipelinesFromFiles(files: string[]) {
+    const { assetRegistryV2 } = require('./registries/AssetRegistryV2');
     PipelineRegistry.clear();
     const uniqueFiles = Array.from(new Set(files)).filter((f) => fs.existsSync(f));
     for (const filePath of uniqueFiles) {
@@ -251,6 +290,7 @@ export class DynamicDiscoveryService {
   }
 
   static async discoverSkills(docsPath: string = this.defaultDocsPath) {
+    const { assetRegistryV2 } = require('./registries/AssetRegistryV2');
     SkillRegistry.clear();
     const skillsDir = path.join(docsPath, 'skills');
     if (!fs.existsSync(skillsDir)) return;
@@ -288,6 +328,7 @@ export class DynamicDiscoveryService {
   }
 
   static async discoverSkillsFromFiles(files: string[]) {
+    const { assetRegistryV2 } = require('./registries/AssetRegistryV2');
     SkillRegistry.clear();
     const uniqueFiles = Array.from(new Set(files)).filter((f) => fs.existsSync(f));
     for (const filePath of uniqueFiles) {
@@ -321,7 +362,8 @@ export class DynamicDiscoveryService {
   }
 
   static async discoverLoops(root: string) {
-    const loops = loadGovernanceLoops(root);
+    const { assetRegistryV2 } = require('./registries/AssetRegistryV2');
+    const loops = loadGovernanceLoopsFromDisk(root);
     for (const loop of loops) {
       await assetRegistryV2.registerAsset({
         type: 'loop',
@@ -335,6 +377,7 @@ export class DynamicDiscoveryService {
   }
 
   static async discoverMeetingSpecs(root: string) {
+    const { assetRegistryV2 } = require('./registries/AssetRegistryV2');
     const meetingsDir = path.join(root, 'docs/runtime/meetings');
     if (!fs.existsSync(meetingsDir)) return;
 
@@ -363,6 +406,7 @@ export class DynamicDiscoveryService {
   }
 
   static async discoverGovernanceRules(root: string) {
+    const { assetRegistryV2 } = require('./registries/AssetRegistryV2');
     const rules = loadGovernanceRules(root);
     for (const rule of rules) {
       await assetRegistryV2.registerAsset({
@@ -377,6 +421,7 @@ export class DynamicDiscoveryService {
   }
 
   static async discoverGovernanceProfiles(root: string) {
+    const { assetRegistryV2 } = require('./registries/AssetRegistryV2');
     const config = loadPolicyConfig(root);
     const projectIds = Object.keys(config.projects || {});
     

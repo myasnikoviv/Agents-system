@@ -98,7 +98,7 @@ export function evaluateAbacPolicyAccess(
     if (!actionMatches(policy, input.action)) continue;
     if (!roleAllowed(policy, input.role)) continue;
     const scope = scopeAllowed(input, policy);
-    if (!scope.ok) {
+    if (scope.ok === false) {
       return {
         allowed: false,
         policyId: policy.id,

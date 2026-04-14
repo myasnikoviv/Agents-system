@@ -151,28 +151,13 @@ export function parseMeetingSpecFromContent(
 }
 
 export function resolveMeetingSpec(workspacePath = process.cwd()): MeetingSpec {
-  // AGSYS-35R: Source of Truth Enforcement
-  try {
-    const { assetRegistryV2 } = require('../registries/AssetRegistryV2');
-    const fromRegistry = assetRegistryV2.listByType('meeting_spec');
-    if (fromRegistry.length > 0) {
-      return fromRegistry[0].attributes as MeetingSpec;
-    }
-  } catch (e) {
-    // Registry not available or hasn't been initialized yet
+  // AGSYS-35R: Source of Truth Enforcement (Synchronous Cache)
+  const { assetRegistryV2 } = require('../registries/AssetRegistryV2');
+  const fromRegistry = assetRegistryV2.listByTypeSync('meeting_spec');
+  
+  if (fromRegistry.length > 0) {
+    return fromRegistry[0].attributes as MeetingSpec;
   }
 
-  const candidates = [
-    path.join(workspacePath, 'docs/runtime/meetings/meeting-spec.yaml'),
-    path.join(workspacePath, 'docs/runtime/meetings/meeting-spec.yml'),
-    path.join(workspacePath, 'docs/runtime/meetings/meeting-spec.md'),
-  ];
-  const found = candidates.find((p) => fs.existsSync(p));
-  if (!found) {
-    throw new Error('Meeting spec file not found under docs/runtime/meetings/');
-  }
-  const validationConfig = loadMeetingValidationConfig(workspacePath);
-  const ext = path.extname(found).toLowerCase() as '.yaml' | '.yml' | '.md';
-  const content = fs.readFileSync(found, 'utf-8');
-  return parseMeetingSpecFromContent(content, ext, validationConfig);
+  throw new Error('Meeting spec not found in Registry. Ensure DynamicDiscovery has run.');
 }

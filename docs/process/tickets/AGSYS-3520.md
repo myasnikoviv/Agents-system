@@ -14,6 +14,6 @@
 
 ## Status
 - Pipeline: sprint-35
-- Stage: in-progress
+- Stage: done
 - Owner: PM-Orchestrator
 - Progress: Implemented SignalCollector and integrated with GovernanceLogger.

@@ -43,7 +43,7 @@ export interface RunContext {
   environmentId?: string;
   workspacePath: string;
 
-  executionTarget: 'codex-cli' | 'claude-cli' | 'openhands' | 'langchain';
+  executionTarget: 'codex-cli' | 'claude-cli' | 'openhands' | 'langchain' | 'direct';
   provider: string;
   model: string;
   sandboxMode?: string;

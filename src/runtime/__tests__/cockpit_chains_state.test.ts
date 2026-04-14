@@ -7,8 +7,8 @@ describe('CockpitChainsState', () => {
   it('falls back to defaults when file is missing', async () => {
     const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'cockpit-chains-'));
     const missing = path.join(tmp, 'missing.json');
-    const default = defaultChainsState();
-    const loaded = loadChainsState(missing, default);
+    const defaultState = defaultChainsState();
+    const loaded = loadChainsState(missing, defaultState);
     expect(Object.keys(loaded.threadsByProject)).toContain('agent_system');
   });
 

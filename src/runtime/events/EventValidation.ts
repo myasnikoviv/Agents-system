@@ -54,7 +54,7 @@ export function validateCanonicalEventInput(event: Omit<RuntimeEvent, 'id' | 'ti
   }
   if (isBillingUsageEventType(event.type)) {
     const usageValidation = validateBillingUsagePayload(event.payload);
-    if (!usageValidation.ok) {
+    if (usageValidation.ok === false) {
       throw new Error(`RuntimeEvent validation failed: ${usageValidation.reason}`);
     }
   }

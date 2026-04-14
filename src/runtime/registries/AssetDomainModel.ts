@@ -55,6 +55,12 @@ export interface AssetIdentity {
   project_id: string;
 }
 
+export interface AssetProjectContext {
+  tenant_id: string;
+  workspace_id: string;
+  project_id: string;
+}
+
 export interface AssetMetadata {
   name: string;
   version: string;

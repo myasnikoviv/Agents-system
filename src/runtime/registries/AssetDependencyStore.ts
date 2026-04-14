@@ -77,7 +77,7 @@ export class AssetDependencyStore {
     const outgoing = await this.getOutgoing(sourceId);
     if (outgoing.length === 0) return;
 
-    const multi = redisClient.multi();
+    const multi = this.redis.multi();
     for (const dep of outgoing) {
       multi.srem(this.getInKey(dep.id), `${dep.type}:${sourceId}`);
     }

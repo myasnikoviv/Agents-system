@@ -22,7 +22,7 @@ describe('EvaluatorRegistry', () => {
     });
 
     expect(result.ok).toBe(false);
-    if (!result.ok) {
+    if (result.ok === false) {
       expect(result.reason).toBe('builtin_override_blocked');
     }
   });

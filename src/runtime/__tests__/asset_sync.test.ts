@@ -46,7 +46,13 @@ describe('Asset Filesystem Sync', () => {
         slug: testSlug
       },
       lineage: { customization_level: 'original' },
-      metadata: { name: 'Sync Test Agent', version: '1.0.0', status: 'active' },
+      metadata: { 
+        name: 'Sync Test Agent', 
+        version: '1.0.0', 
+        status: 'active',
+        approval_state: 'approved',
+        storage_ref: testPath
+      },
       attributes: {
         mission: 'Testing sync loop.',
         persona: 'Automated Tester',

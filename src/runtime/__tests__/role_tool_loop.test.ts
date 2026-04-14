@@ -51,7 +51,7 @@ describe('RoleToolLoop guards', () => {
     const result = validatePlannedToolActions(
       env,
       [{ tool: 'filesystem', purpose: 'implement feature' }],
-      { branch: 'main' },
+      { branch: 'main', worktreePath: process.cwd() },
     );
 
     expect(result.ok).toBe(false);

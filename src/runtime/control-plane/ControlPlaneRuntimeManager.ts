@@ -56,10 +56,12 @@ export class ControlPlaneRuntimeManager {
     const adapter = this.resolveAdapter(descriptor.runtime);
     if (descriptor.runtime === 'node') {
       const spec = this.resolveNodeSpec(serviceId);
-      await adapter.start(serviceId, spec);
+      const nodeAdapter = this.adapters.get<LocalProcessServiceSpec>('local-process');
+      await nodeAdapter.start(serviceId, spec);
     } else if (descriptor.runtime === 'docker') {
       const spec = this.resolveDockerSpec(serviceId);
-      await adapter.start(serviceId, spec);
+      const dockerAdapter = this.adapters.get<DockerServiceSpec>('docker');
+      await dockerAdapter.start(serviceId, spec);
     } else {
       throw new Error(`control_plane_runtime_not_supported:${descriptor.runtime}`);
     }
