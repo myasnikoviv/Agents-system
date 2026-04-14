@@ -27,7 +27,7 @@ export class BillingService {
 
   replaceSnapshot(nextSnapshot: BillingDomainSnapshot): { ok: true } | { ok: false; reason: string } {
     const validation = validateBillingDomainSnapshot(nextSnapshot);
-    if (!validation.ok) return validation;
+    if (validation.ok === false) return validation;
     this.snapshot = {
       plans: [...nextSnapshot.plans],
       subscriptions: [...nextSnapshot.subscriptions],
@@ -55,7 +55,7 @@ export class BillingService {
       plans: [...this.snapshot.plans, plan],
     };
     const validation = validateBillingDomainSnapshot(next);
-    if (!validation.ok) return validation;
+    if (validation.ok === false) return validation;
     this.snapshot = next;
     return { ok: true, plan };
   }
@@ -69,7 +69,7 @@ export class BillingService {
     nextPlans[index] = updated;
     const next: BillingDomainSnapshot = { ...this.snapshot, plans: nextPlans };
     const validation = validateBillingDomainSnapshot(next);
-    if (!validation.ok) return validation;
+    if (validation.ok === false) return validation;
     this.snapshot = next;
     return { ok: true, plan: updated };
   }
@@ -83,7 +83,7 @@ export class BillingService {
       plans: this.snapshot.plans.filter((p) => p.planId !== planId),
     };
     const validation = validateBillingDomainSnapshot(next);
-    if (!validation.ok) return validation;
+    if (validation.ok === false) return validation;
     this.snapshot = next;
     return { ok: true };
   }

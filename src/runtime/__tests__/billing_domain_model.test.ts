@@ -86,7 +86,7 @@ describe('BillingDomainModel', () => {
 
     const result = validateBillingDomainSnapshot(snapshot);
     expect(result.ok).toBe(false);
-    if (!result.ok) {
+    if (result.ok === false) {
       expect(result.reason).toBe('plan_without_entitlement:plan_free_v1');
     }
   });
@@ -112,7 +112,7 @@ describe('BillingDomainModel', () => {
 
     const result = validateBillingDomainSnapshot(snapshot);
     expect(result.ok).toBe(false);
-    if (!result.ok) {
+    if (result.ok === false) {
       expect(result.reason).toBe('usage_unknown_tenant:u_2');
     }
   });

@@ -12,7 +12,7 @@ export interface CompliancePlan {
   agents: string[];
   skills: string[];
   stages: string[];
-  source: 'task-analyzer' | 'explicit';
+  source: 'task-analyzer' | 'explicit' | 'deterministic-planner';
 }
 
 export interface ComplianceActualEvidence {

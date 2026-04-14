@@ -57,15 +57,19 @@ async function runDistributedTest() {
   console.log(`[Test] Simulating external worker completion...`);
   await emitEvent({
         type: 'research.completed',
-        ticketId: mockIssueId,
         runId: runId,
-        threadId: threadId,
-        actorRole: 'Research Agent',
-        sourceStage: 'research',
-        targetStage: 'planning',
-        status: 'success',
-        correlation_id: mockIssueId,
+        projectId: 'p-1',
+        chainId: 'c-1',
+        actor: {
+          type: 'agent',
+          id: 'res-agent-123',
+          role: 'Research Agent',
+        },
         payload: {
+          correlation_id: mockIssueId,
+          sourceStage: 'research',
+          targetStage: 'planning',
+          status: 'success',
           findings: ['Mocked External QA completion finding.']
         }
   });

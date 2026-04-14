@@ -254,7 +254,7 @@ export async function executeViaWorkbench(
           projectId: context.projectId,
           agentId,
           toolId,
-          action: 'cache_hit',
+          action: 'executed',
           status: 'success',
           startedAt: new Date(executionStartedAt).toISOString(),
           endedAt: new Date().toISOString(),

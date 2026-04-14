@@ -15,7 +15,7 @@ jest.mock('../AgentExecutor', () => {
 });
 
 jest.mock('../events/EventBus', () => ({
-  emitEvent: jest.fn().mockResolvedValue(undefined),
+  emitEvent: jest.fn<() => Promise<string>>().mockResolvedValue('msg-id-mock'),
 }));
 
 describe('PilotGraph approve continuation with quota errors', () => {

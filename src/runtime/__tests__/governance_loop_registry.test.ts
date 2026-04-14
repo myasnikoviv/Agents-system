@@ -34,7 +34,15 @@ describe('LoopRegistry lifecycle', () => {
       'improvement_default',
       {
         config: { maxRetries: 3 },
-        metadata: { description: 'Project improvement loop' },
+        metadata: {
+          name: 'Improvement',
+          description: 'Project improvement loop',
+          version: '1.0.0',
+          owner: 'system',
+          tags: ['default'],
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        },
       },
       workspace,
     );

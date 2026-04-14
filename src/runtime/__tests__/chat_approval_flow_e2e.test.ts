@@ -21,8 +21,8 @@ beforeAll(async () => {
   process.env.OPENAI_API_KEY = 'test-key';
   process.env.PILOT_DELEGATED_ROLES = 'research';
   process.env.PILOT_APPROVAL_POLICY_MODE = 'git-only';
-  const mod = await import('../../server');
-  app = mod.default;
+  const { app: backendApp } = await import('../../server/agentSystemBackend');
+  app = backendApp;
 
   await new Promise<void>((resolve) => {
     server = app.listen(0, () => resolve());

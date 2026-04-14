@@ -6,7 +6,7 @@ import { signalAggregator } from './SignalAggregator';
  * Sprint 35B — Self-Improvement Signals
  * Pattern types detected by comparing recent vs historical sliding windows.
  */
-export type PatternType = 'SUCCESS_DETERIORATION' | 'TOKEN_SPIKE' | 'LATENCY_DRIFT' | 'STABLE';
+export type PatternType = 'SUCCESS_DETERIORATION' | 'TOKEN_SPIKE' | 'LATENCY_DRIFT' | 'STABLE' | 'SYSTEM_ERROR';
 
 export interface DetectedPattern {
   type: PatternType;

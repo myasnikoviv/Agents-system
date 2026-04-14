@@ -64,7 +64,7 @@ describe('PipelineStateService git context continuity', () => {
     });
 
     expect(result.ok).toBe(false);
-    if (!result.ok) {
+    if (result.ok === false) {
       expect(result.reason).toContain('state_mismatch:card_branch');
     }
   });
@@ -98,7 +98,7 @@ describe('PipelineStateService git context continuity', () => {
     });
 
     expect(result.ok).toBe(false);
-    if (!result.ok) {
+    if (result.ok === false) {
       expect(result.reason).toContain('state_mismatch:card_editor');
     }
   });

@@ -10,17 +10,18 @@ import type { RuntimeEvent } from '../events/EventBus';
 
 function baseEvent(overrides: Partial<RuntimeEvent> = {}): RuntimeEvent {
   return {
-    event_id: 'ev-1',
-    type: 'pipeline.intake.started',
-    timestamp: new Date().toISOString(),
-    ticketId: 'TRADE-74',
+    id: 'ev-1',
     runId: 'run-1',
-    threadId: 'thread-1',
-    actorRole: 'PM Orchestrator',
-    sourceStage: 'intake',
-    targetStage: 'research',
-    status: 'in_progress',
-    correlation_id: 'TRADE-74',
+    projectId: 'TRADE-74',
+    chainId: 'thread-1',
+    type: 'run.started',
+    payload: {
+      status: 'in_progress',
+      actorRole: 'PM Orchestrator',
+      sourceStage: 'intake',
+      targetStage: 'research',
+    },
+    timestamp: Date.now(),
     ...overrides,
   };
 }
@@ -32,20 +33,20 @@ describe('PlaneLifecycleOrchestrator', () => {
   });
 
   it('maps runtime events to Plane states', () => {
-    expect(mapRuntimeEventToPlaneStateId(baseEvent({ status: 'in_progress' }))).toBe(
+    expect(mapRuntimeEventToPlaneStateId(baseEvent({ type: 'run.started' }))).toBe(
       'a527fbdc-21ad-4839-b1ec-0480b062aa44',
     );
     expect(
-      mapRuntimeEventToPlaneStateId(baseEvent({ type: 'docs.completed', status: 'success' })),
+      mapRuntimeEventToPlaneStateId(baseEvent({ type: 'run.completed' })),
     ).toBe('fff4dba0-d863-4a59-ab55-fd6f8bee9c79');
-    expect(mapRuntimeEventToPlaneStateId(baseEvent({ status: 'failed' }))).toBe(
+    expect(mapRuntimeEventToPlaneStateId(baseEvent({ type: 'run.failed' }))).toBe(
       '226d57d1-0aeb-4c05-b961-23527ae34d33',
     );
   });
 
   it('builds deterministic lifecycle comment payload', () => {
     const html = buildLifecycleComment(
-      baseEvent({ type: 'research.completed', status: 'success', actorRole: 'Research Agent' }),
+      baseEvent({ type: 'research.completed', payload: { status: 'success', actorRole: 'Research Agent' } }),
     );
     expect(html).toContain('research.completed');
     expect(html).toContain('Research Agent');
@@ -86,7 +87,7 @@ describe('PlaneLifecycleOrchestrator', () => {
 
   it('blocks terminal transition when continuity issues are present', () => {
     const blocked = shouldBlockTerminalTransition({
-      event: baseEvent({ type: 'docs.completed', status: 'success' }),
+      event: baseEvent({ type: 'run.completed' }),
       continuity: { issues: ['missing_owner'], warnings: [] },
     });
     expect(blocked).toBe(true);

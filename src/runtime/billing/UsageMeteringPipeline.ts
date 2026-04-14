@@ -29,7 +29,7 @@ export class UsageMeteringPipeline {
     }
 
     const validation = validateBillingUsagePayload(event.payload);
-    if (!validation.ok) {
+    if (validation.ok === false) {
       return { accepted: false, reason: validation.reason };
     }
 

@@ -22,6 +22,7 @@ export interface LocalProcessRuntime {
   exitCode: number | null;
   signal: NodeJS.Signals | null;
   crashReason: string | null;
+  [key: string]: unknown;
 }
 
 interface TrackedProcess {

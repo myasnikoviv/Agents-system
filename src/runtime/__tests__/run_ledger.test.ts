@@ -4,18 +4,18 @@ import type { RuntimeEvent } from '../events/EventBus';
 
 function eventWithError(error: string): RuntimeEvent {
   return {
-    event_id: 'ev',
-    type: 'qa.completed',
-    timestamp: new Date().toISOString(),
-    ticketId: 'TRADE-77',
+    id: 'ev-123',
+    type: 'agent.failed',
+    timestamp: Date.now(),
+    projectId: 'proj-77',
     runId: 'run-77',
-    threadId: 'thread-77',
-    actorRole: 'TDD QA',
-    sourceStage: 'qa',
-    targetStage: 'developer',
-    status: 'failed',
+    chainId: 'thread-77',
+    actor: {
+      type: 'agent',
+      id: 'agent-77',
+      role: 'TDD QA',
+    },
     payload: { error },
-    correlation_id: 'TRADE-77',
   };
 }
 
@@ -31,8 +31,11 @@ describe('RunLedger failure taxonomy', () => {
   });
 
   it('returns none for success', () => {
-    const e = eventWithError('x');
-    e.status = 'success';
+    const e: RuntimeEvent = {
+      ...eventWithError('x'),
+      type: 'run.completed',
+      payload: { status: 'success' },
+    };
     expect(classifyFailureReason(e)).toBe('none');
   });
 });

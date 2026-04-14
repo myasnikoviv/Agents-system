@@ -54,7 +54,7 @@ dotenv.config();
 const PORT = Number(process.env.AGENT_SYSTEM_BACKEND_PORT || process.env.PORT || '3001');
 const HOST = process.env.AGENT_SYSTEM_BACKEND_HOST || '127.0.0.1';
 
-const app = express();
+export const app = express();
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
 
@@ -2547,6 +2547,13 @@ app.post('/api/governance/loops/force', async (req, res) => {
     } = await import('../runtime/improvement/ImprovementEngine');
 
     if (effectiveLoopType === 'improvement') {
+      const workspaceContext = getAuthContext(req);
+      if (!workspaceContext) {
+        res.status(401).json({ success: false, error: 'unauthorized', message: 'Valid auth context required for governance loops' });
+        return;
+      }
+      const environmentId = `env-${projectId}-${workspaceContext.workspaceId}`;
+
       const signals = aggregateSignals(
         generateImprovementSignals({ workspacePath, runId, projectId }),
       );
@@ -3159,7 +3166,7 @@ registerProviderSettingsRoutes(app, {
   },
   getRuntimeFooter: () => runtimeFooter,
   setRuntimeFooter: (next) => {
-    runtimeFooter = next;
+    runtimeFooter = next as typeof runtimeFooter;
   },
   runExternalExecutor,
 });
@@ -3217,7 +3224,7 @@ registerChainProjectRoutes(app, {
   resolveGitBranch,
   getRuntimeFooter: () => runtimeFooter,
   setRuntimeFooter: (next) => {
-    runtimeFooter = next;
+    runtimeFooter = next as typeof runtimeFooter;
   },
   saveRuntimeState,
   refreshCatalog,
@@ -3999,7 +4006,7 @@ app.post('/api/cockpit/environments/provision', (req, res) => {
   const auth = requireRole(req, res, 'member');
   if (!auth) return;
   const scopeCheck = enforceRequestedScopeMatchesAuth(req, auth);
-  if (!scopeCheck.ok) {
+  if (scopeCheck.ok === false) {
     res.status(scopeCheck.status).json({ success: false, error: scopeCheck.error, message: scopeCheck.message });
     return;
   }
@@ -4029,7 +4036,7 @@ app.post('/api/cockpit/environments/warmup', async (req, res) => {
   const auth = requireRole(req, res, 'member');
   if (!auth) return;
   const scopeCheck = enforceRequestedScopeMatchesAuth(req, auth);
-  if (!scopeCheck.ok) {
+  if (scopeCheck.ok === false) {
     res.status(scopeCheck.status).json({ success: false, error: scopeCheck.error, message: scopeCheck.message });
     return;
   }
@@ -4123,7 +4130,7 @@ app.post('/api/cockpit/environments/suspend', (req, res) => {
   const auth = requireRole(req, res, 'member');
   if (!auth) return;
   const scopeCheck = enforceRequestedScopeMatchesAuth(req, auth);
-  if (!scopeCheck.ok) {
+  if (scopeCheck.ok === false) {
     res.status(scopeCheck.status).json({ success: false, error: scopeCheck.error, message: scopeCheck.message });
     return;
   }
@@ -4172,7 +4179,7 @@ app.post('/api/cockpit/environments/resume', (req, res) => {
   const auth = requireRole(req, res, 'member');
   if (!auth) return;
   const scopeCheck = enforceRequestedScopeMatchesAuth(req, auth);
-  if (!scopeCheck.ok) {
+  if (scopeCheck.ok === false) {
     res.status(scopeCheck.status).json({ success: false, error: scopeCheck.error, message: scopeCheck.message });
     return;
   }
@@ -4221,7 +4228,7 @@ app.post('/api/cockpit/environments/terminate', (req, res) => {
   const auth = requireRole(req, res, 'member');
   if (!auth) return;
   const scopeCheck = enforceRequestedScopeMatchesAuth(req, auth);
-  if (!scopeCheck.ok) {
+  if (scopeCheck.ok === false) {
     res.status(scopeCheck.status).json({ success: false, error: scopeCheck.error, message: scopeCheck.message });
     return;
   }
@@ -4262,7 +4269,7 @@ app.get('/api/cockpit/environments/status', async (req, res) => {
   const auth = requireRole(req, res, 'member');
   if (!auth) return;
   const scopeCheck = enforceRequestedScopeMatchesAuth(req, auth);
-  if (!scopeCheck.ok) {
+  if (scopeCheck.ok === false) {
     res.status(scopeCheck.status).json({ success: false, error: scopeCheck.error, message: scopeCheck.message });
     return;
   }
@@ -4324,7 +4331,7 @@ app.get('/api/cockpit/runtime/dlq', async (req, res) => {
   const auth = requireRole(req, res, 'member');
   if (!auth) return;
   const scopeCheck = enforceRequestedScopeMatchesAuth(req, auth);
-  if (!scopeCheck.ok) {
+  if (scopeCheck.ok === false) {
     res.status(scopeCheck.status).json({ success: false, error: scopeCheck.error, message: scopeCheck.message });
     return;
   }
@@ -4353,7 +4360,7 @@ app.post('/api/cockpit/runtime/dlq/requeue', async (req, res) => {
   const auth = requireRole(req, res, 'member');
   if (!auth) return;
   const scopeCheck = enforceRequestedScopeMatchesAuth(req, auth);
-  if (!scopeCheck.ok) {
+  if (scopeCheck.ok === false) {
     res.status(scopeCheck.status).json({ success: false, error: scopeCheck.error, message: scopeCheck.message });
     return;
   }
@@ -4388,7 +4395,7 @@ app.get('/api/cockpit/environments/telemetry', async (req, res) => {
   const auth = requireRole(req, res, 'member');
   if (!auth) return;
   const scopeCheck = enforceRequestedScopeMatchesAuth(req, auth);
-  if (!scopeCheck.ok) {
+  if (scopeCheck.ok === false) {
     res.status(scopeCheck.status).json({ success: false, error: scopeCheck.error, message: scopeCheck.message });
     return;
   }

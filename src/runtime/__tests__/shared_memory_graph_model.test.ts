@@ -74,8 +74,10 @@ describe('SharedMemoryGraphModel', () => {
     const v2 = graph.updateEntityVersion('e1', {
       content: 'Updated task',
       metadata: {
-        timestamp: 200,
-        confidence: 0.91,
+        timestamp: Date.now(),
+        confidence: 0.95,
+        author: 'test-agent',
+        workspace_id: 'ws-123',
       },
     });
 

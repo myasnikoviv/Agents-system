@@ -38,7 +38,7 @@ async function verify() {
 
   // 2. Blackboard Test
   console.log('\n2. Testing Blackboard Persistence...');
-  await BlackboardService.saveArtifact(context.runId, {
+  await BlackboardService.saveArtifact(context, {
     runId: context.runId,
     stageId: stage.id,
     roleSlug: agent.slug,
@@ -47,7 +47,7 @@ async function verify() {
     findings: ['Memory is working']
   });
   
-  const artifacts = await BlackboardService.getArtifacts(context.runId);
+  const artifacts = await BlackboardService.getArtifacts(context);
   console.log(`Retrieved ${artifacts.length} artifacts from Redis.`);
 
   // 3. Executor Loop Test (Dry Run)

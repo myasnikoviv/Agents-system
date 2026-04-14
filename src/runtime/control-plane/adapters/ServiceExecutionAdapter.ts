@@ -1,4 +1,4 @@
-export type UnifiedServiceStatus = 'idle' | 'running' | 'stopped' | 'failed' | 'crashed' | 'unknown';
+export type UnifiedServiceStatus = 'idle' | 'running' | 'stopped' | 'failed' | 'crashed' | 'degraded' | 'unknown';
 
 export interface ServiceExecutionRuntime {
   serviceId: string;
