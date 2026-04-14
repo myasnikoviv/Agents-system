@@ -1,16 +1,17 @@
-import React, { useRef, useEffect } from 'react';
+import { type FC, useRef, useEffect } from 'react';
 import { Terminal, GitBranch, Folder, ShieldCheck, Plus } from 'lucide-react';
 import { Card, CardHeader, CardTitle, CardContent } from '../../ui/card';
 import { Badge } from '../../ui/badge';
 import { Button } from '../../ui/button';
 import { ScrollArea } from '../../ui/scroll-area';
-import { Separator } from '../../ui/separator';
+
 import { ArtifactRenderer } from '../ArtifactRenderer';
 import { useCockpit } from '../context/CockpitContext';
 import { toRenderableMarkdown, parseMeetingViewPayload, parseMemoryInsightPayload } from '../utils/parsers';
 import { ChatInputArea } from './ChatInputArea';
+import './CommandInterface.css';
 
-export const CommandInterface: React.FC = () => {
+export const CommandInterface: FC = () => {
     const {
         messages,
         status,
@@ -146,10 +147,10 @@ export const CommandInterface: React.FC = () => {
                                 </div>
                                 <ScrollArea className="h-48">
                                     <div className="flex flex-col gap-1.5 pr-3">
-                                        {workScope.items.slice(0, 50).map((it) => {
-                                            const checked = selectedScopeItemIds.includes(it.id);
+                                        {workScope.items.slice(0, 50).map((item) => {
+                                            const checked = selectedScopeItemIds.includes(item.id);
                                             return (
-                                                <label key={`chat-scope-${it.id}`} className="flex items-start gap-2.5 p-2 rounded-md hover:bg-accent/50 cursor-pointer transition-colors group">
+                                                <label key={`chat-scope-${item.id}`} className="flex items-start gap-2.5 p-2 rounded-md hover:bg-accent/50 cursor-pointer transition-colors group">
                                                     <div className={`mt-0.5 size-4 rounded border flex items-center justify-center transition-colors ${checked ? 'bg-primary border-primary shadow-sm shadow-primary/20' : 'border-border group-hover:border-primary/50'}`}>
                                                         {checked && <div className="size-1.5 rounded-full bg-primary-foreground" />}
                                                     </div>
@@ -159,14 +160,14 @@ export const CommandInterface: React.FC = () => {
                                                         checked={checked}
                                                         onChange={() =>
                                                             setSelectedScopeItemIds((prev) =>
-                                                                checked ? prev.filter((id) => id !== it.id) : [...prev, it.id]
+                                                                checked ? prev.filter((id) => id !== item.id) : [...prev, item.id]
                                                             )
                                                         }
                                                     />
                                                     <div className="flex flex-col gap-0.5">
                                                         <div className="flex items-center gap-2">
-                                                            <Badge variant="outline" className="h-4 px-1 text-[9px] font-mono opacity-60">{it.key}</Badge>
-                                                            <span className={`text-[11px] font-medium leading-tight ${checked ? 'line-through text-muted-foreground' : ''}`}>{it.name}</span>
+                                                            <Badge variant="outline" className="h-4 px-1 text-[9px] font-mono opacity-60">{item.key}</Badge>
+                                                            <span className={`text-[11px] font-medium leading-tight ${checked ? 'line-through text-muted-foreground' : ''}`}>{item.name}</span>
                                                         </div>
                                                     </div>
                                                 </label>
@@ -247,17 +248,17 @@ export const CommandInterface: React.FC = () => {
                                                         <Badge variant="secondary" className="text-[9px]">{insight.items.length} items</Badge>
                                                     </div>
                                                     <div className="flex flex-col gap-4">
-                                                        {insight.items.map((it) => (
-                                                            <div key={`${m.id}-memory-${it.id}`} className="flex flex-col gap-1.5 pt-3 first:pt-0 border-t border-border/30 first:border-0">
-                                                                <div className="text-[11px] leading-relaxed">{it.text}</div>
+                                                        {insight.items.map((item) => (
+                                                            <div key={`${m.id}-memory-${item.id}`} className="flex flex-col gap-1.5 pt-3 first:pt-0 border-t border-border/30 first:border-0">
+                                                                <div className="text-[11px] leading-relaxed">{item.text}</div>
                                                                 <div className="flex items-center justify-between">
-                                                                    <span className="text-[9px] opacity-40 font-mono italic">{it.id}</span>
-                                                                    {it.sourceLabel && it.sourceHref ? (
-                                                                        <a href={it.sourceHref} target="_blank" rel="noreferrer" className="text-[9px] text-primary hover:underline">
-                                                                            {it.sourceLabel}
+                                                                    <span className="text-[9px] opacity-40 font-mono italic">{item.id}</span>
+                                                                    {item.sourceLabel && item.sourceHref ? (
+                                                                        <a href={item.sourceHref} target="_blank" rel="noreferrer" className="text-[9px] text-primary hover:underline">
+                                                                            {item.sourceLabel}
                                                                         </a>
-                                                                    ) : it.sourceLabel ? (
-                                                                        <span className="text-[9px] opacity-50 italic">{it.sourceLabel}</span>
+                                                                    ) : item.sourceLabel ? (
+                                                                        <span className="text-[9px] opacity-50 italic">{item.sourceLabel}</span>
                                                                     ) : null}
                                                                 </div>
                                                             </div>
