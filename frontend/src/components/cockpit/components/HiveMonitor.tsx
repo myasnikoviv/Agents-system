@@ -1,19 +1,21 @@
-import React from 'react';
+import { type FC } from 'react';
 import { 
-    Activity, Cpu, Layers, Bug, LifeBuoy, Zap, 
-    AlertTriangle, CheckCircle2, Timer, Radio, Rewind 
+    Activity, Cpu, Layers, Bug, Zap, 
+    AlertTriangle, Radio, Rewind 
 } from 'lucide-react';
-import { Card, CardHeader, CardTitle, CardContent } from '../../ui/card';
+import { Card, CardHeader, CardContent } from '../../ui/card';
 import { Badge } from '../../ui/badge';
 import { Button } from '../../ui/button';
 import { ScrollArea } from '../../ui/scroll-area';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '../../ui/tabs';
 import { Progress } from '../../ui/progress';
+import { Separator } from '../../ui/separator';
 import { useCockpit } from '../context/CockpitContext';
 import { StreamRenderer } from '../StreamRenderer';
 import { ObservabilityPanels } from '../ObservabilityPanels';
+import './HiveMonitor.css';
 
-export const HiveMonitor: React.FC = () => {
+export const HiveMonitor: FC = () => {
     const {
         swarmSummary,
         swarmWorkers,
@@ -29,7 +31,6 @@ export const HiveMonitor: React.FC = () => {
         replayPlaying,
         setReplayPlaying,
         replayIndex,
-        setReplayIndex,
         replaySpeedMs,
         setReplaySpeedMs,
         replayVisibleEvents,
