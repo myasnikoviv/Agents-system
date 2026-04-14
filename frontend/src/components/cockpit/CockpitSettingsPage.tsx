@@ -2,9 +2,9 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { ChevronLeft, ShieldCheck, SlidersHorizontal } from 'lucide-react';
 import { apiUrl } from '../../lib/http';
-import { Button } from '../ui/Button';
+import { Button } from '../ui/button';
 
-const SECTIONS = ['general', 'appearance', 'configuration', 'usage'] as const;
+const SECTIONS = ['general', 'appearance', 'executor', 'usage'] as const;
 type SectionId = (typeof SECTIONS)[number];
 
 interface GeneralSettings {
@@ -171,7 +171,7 @@ export function CockpitSettingsPage() {
   useEffect(() => {
     const loadExecutorFromApi = async () => {
       try {
-        const res = await fetch(apiUrl('/api/workspace/settings/configuration'));
+        const res = await fetch(apiUrl('/api/workspace/settings/executor'));
         const data = await res.json();
         if (!data.success || !data.settings) return;
         setExecutorSettings((prev) => ({ ...prev, ...data.settings, apiKeys: { ...prev.apiKeys, ...(data.settings.apiKeys || {}) } }));
@@ -181,7 +181,7 @@ export function CockpitSettingsPage() {
     void loadExecutorFromApi();
   }, []);
 
-  const saveSection = async (sectionId: 'general' | 'appearance' | 'usage' | 'configuration', payload: unknown, onSaved: (savedAt: string) => void) => {
+  const saveSection = async (sectionId: 'general' | 'appearance' | 'usage' | 'executor', payload: unknown, onSaved: (savedAt: string) => void) => {
     try {
       const res = await fetch(apiUrl(`/api/workspace/settings/${sectionId}`), {
         method: 'POST',
@@ -293,7 +293,7 @@ export function CockpitSettingsPage() {
           </section>
         )}
 
-        {currentSection === 'configuration' && (
+        {currentSection === 'executor' && (
           <section className={settingsCardClass}>
             <h2><ShieldCheck size={16} />Provider & Executor Configuration</h2>
             <p className={settingsNoteClass}>Client-level provider and model preferences.</p>
@@ -310,7 +310,7 @@ export function CockpitSettingsPage() {
             </div>
 
             <div className="mt-3 flex flex-wrap gap-2">
-              <Button variant="secondary" onClick={() => saveSection('configuration', executorSettings, setExecutorSavedAt)}>Save Configuration</Button>
+              <Button variant="secondary" onClick={() => saveSection('executor', executorSettings, setExecutorSavedAt)}>Save Configuration</Button>
             </div>
 
             <div className={settingsMetaClass}>{executorSavedAt}</div>

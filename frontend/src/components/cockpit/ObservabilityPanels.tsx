@@ -1,6 +1,15 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import type { RuntimeEvent } from './StreamRenderer';
 import { fetchJsonSafe } from '../../lib/http';
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+} from '../ui/card';
+import { Badge } from '../ui/badge';
+import { ScrollArea } from '../ui/scroll-area';
+import { Separator } from '../ui/separator';
 
 interface ObservabilityPanelsProps {
   events: RuntimeEvent[];
@@ -493,284 +502,356 @@ export const ObservabilityPanels: React.FC<ObservabilityPanelsProps> = ({ events
   }, [costRuns]);
 
   return (
-    <div className="mt-4 grid gap-3">
-      <div className="rounded-md border border-white/10 bg-slate-900/40 p-3">
-        <div className="text-xs uppercase tracking-wide text-slate-400">Governance</div>
-        {governanceRows.length === 0 ? (
-          <div className="mt-2 text-xs text-slate-500">No governance events yet.</div>
-        ) : (
-          <div className="mt-2 max-h-44 overflow-auto space-y-1">
-            {governanceRows.slice(-20).map((row) => (
-              <div key={row.id} className="rounded border border-white/10 bg-black/20 px-2 py-1 text-xs">
-                <div className="font-medium text-slate-200">{row.rule}</div>
-                <div className="text-slate-400">{row.status} · action={row.action}</div>
-                {row.detail ? <div className="text-slate-500">{row.detail}</div> : null}
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-
-      <div className="rounded-md border border-white/10 bg-slate-900/40 p-3">
-        <div className="text-xs uppercase tracking-wide text-slate-400">Violation / Enforcement</div>
-        {enforcementRows.length === 0 ? (
-          <div className="mt-2 text-xs text-slate-500">No enforcement events yet.</div>
-        ) : (
-          <div className="mt-2 max-h-40 overflow-auto space-y-1">
-            {enforcementRows.slice(-30).map((row) => (
-              <div key={row.id} className="rounded border border-white/10 bg-black/20 px-2 py-1 text-xs text-slate-300">
-                {new Date(row.at).toLocaleTimeString()} · {row.type}
-                {row.rule && row.rule !== 'n/a' ? <span className="text-slate-500"> · rule={row.rule}</span> : null}
-                {row.action ? <span className="text-slate-500"> · action={row.action}</span> : null}
-                {row.reason ? <div className="text-slate-500">{row.reason}</div> : null}
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-
-      <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
-        <div className="rounded-md border border-white/10 bg-slate-900/40 p-3">
-          <div className="text-xs uppercase tracking-wide text-slate-400">Loops</div>
-          <div className="mt-2 text-xs text-slate-300">retry: {loopStats.retry}</div>
-          <div className="text-xs text-slate-300">verification: {loopStats.verify}</div>
-          <div className="text-xs text-slate-300">improvement: {loopStats.improve}</div>
-          {loopRows.length > 0 ? (
-            <div className="mt-2 max-h-28 overflow-auto space-y-1">
-              {loopRows.map((row) => (
-                <div key={row.key} className="rounded border border-white/10 bg-black/20 px-2 py-1 text-xs text-slate-300">
-                  {row.loopType} · iterations={row.iterationCount}
-                  <span className={`ml-1 ${row.result === 'pass' ? 'text-emerald-400' : row.result === 'fail' ? 'text-red-400' : 'text-slate-400'}`}>
-                    · {row.result}
-                  </span>
-                </div>
-              ))}
-            </div>
-          ) : null}
-        </div>
-
-        <div className="rounded-md border border-white/10 bg-slate-900/40 p-3">
-          <div className="text-xs uppercase tracking-wide text-slate-400">Planning</div>
-          <div className="mt-2 text-xs text-slate-300">agents: {planSummary.agents.length}</div>
-          <div className="text-xs text-slate-300">pipelines: {planSummary.pipelines.length}</div>
-          <div className="text-xs text-slate-300">tools: {planSummary.tools.length}</div>
-          <div className={`mt-2 text-xs ${planDiff.mismatch ? 'text-amber-300' : 'text-emerald-300'}`}>
-            plan diff: {planDiff.mismatch ? 'mismatch' : 'ok'}
-          </div>
-          {planDiff.missingAgents.length > 0 && (
-            <div className="text-xs text-amber-400">missing: {planDiff.missingAgents.join(', ')}</div>
-          )}
-          {planDiff.extraAgents.length > 0 && (
-            <div className="text-xs text-amber-400">extra: {planDiff.extraAgents.join(', ')}</div>
-          )}
-          {planDiff.missingSteps.length > 0 && (
-            <div className="text-xs text-amber-400">missing steps: {planDiff.missingSteps.join(', ')}</div>
-          )}
-          {planDiff.extraSteps.length > 0 && (
-            <div className="text-xs text-amber-400">extra steps: {planDiff.extraSteps.join(', ')}</div>
-          )}
-        </div>
-
-      <div className="rounded-md border border-white/10 bg-slate-900/40 p-3">
-        <div className="text-xs uppercase tracking-wide text-slate-400">Cost</div>
-          <div className="mt-2 text-xs text-slate-300">llm requests: {costSummary.llmReq}</div>
-          <div className="text-xs text-slate-300">llm responses: {costSummary.llmRes}</div>
-          <div className="text-xs text-slate-300">prompt chars: {costSummary.promptChars}</div>
-          <div className="text-xs text-slate-300">output chars: {costSummary.outputChars}</div>
-          <div className="mt-2 text-xs text-slate-300">tokens total: {tokenBreakdown.totalTokens}</div>
-          {tokenBreakdown.perRunTop.length > 0 && (
-            <div className="mt-1 text-xs text-slate-500">per run: {tokenBreakdown.perRunTop.map(([k, v]) => `${k.slice(0, 8)}:${v}`).join(' · ')}</div>
-          )}
-          {tokenBreakdown.perAgentTop.length > 0 && (
-            <div className="text-xs text-slate-500">per agent: {tokenBreakdown.perAgentTop.map(([k, v]) => `${k}:${v}`).join(' · ')}</div>
-          )}
-          {tokenBreakdown.perStepTop.length > 0 && (
-            <div className="text-xs text-slate-500">per step: {tokenBreakdown.perStepTop.map(([k, v]) => `${k}:${v}`).join(' · ')}</div>
-          )}
-        </div>
-      </div>
-
-      <div className="rounded-md border border-white/10 bg-slate-900/40 p-3">
-        <div className="text-xs uppercase tracking-wide text-slate-400">Cost Breakdown</div>
-        <div className="mt-2 text-xs text-slate-300">loop cost: {costBreakdown.loopTokens} tokens ({costBreakdown.loopShare}%)</div>
-        {costBreakdown.topAgents.length === 0 ? (
-          <div className="mt-2 text-xs text-slate-500">No tokenized agent data yet.</div>
-        ) : (
-          <div className="mt-2 space-y-1">
-            {costBreakdown.topAgents.map(([agent, tokens]) => (
-              <div key={agent} className="rounded border border-white/10 bg-black/20 px-2 py-1 text-xs text-slate-300">
-                {agent}: {tokens} tokens
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-
-      <div className="rounded-md border border-white/10 bg-slate-900/40 p-3">
-        <div className="text-xs uppercase tracking-wide text-slate-400">Cost Intelligence (API)</div>
-        {costLoading ? (
-          <div className="mt-2 text-xs text-slate-500">Loading cost breakdown...</div>
-        ) : costError ? (
-          <div className="mt-2 text-xs text-amber-300">{costError}</div>
-        ) : costRuns.length === 0 ? (
-          <div className="mt-2 text-xs text-slate-500">No cost runs yet.</div>
-        ) : (
-          <div className="mt-2 space-y-3">
-            <div className="text-xs text-slate-300">
-              total: ${costInsights.totalUsd.toFixed(4)} · tokens: {costInsights.totalTokens}
-            </div>
-            <div className="space-y-1">
-              {runCostGraph.map((row) => (
-                <div key={row.runId} className="text-xs">
-                  <div className="mb-0.5 flex items-center justify-between text-slate-400">
-                    <span>{row.runId}</span>
-                    <span>${row.cost.toFixed(4)} · {row.tokens}t</span>
+    <div className="mt-4 grid gap-4 overflow-hidden">
+      <Card>
+        <CardHeader className="py-3 px-4">
+          <CardTitle className="text-xs uppercase tracking-wider text-muted-foreground">Governance</CardTitle>
+        </CardHeader>
+        <CardContent className="p-0">
+          <ScrollArea className="h-44 px-4 pb-4">
+            {governanceRows.length === 0 ? (
+              <div className="py-4 text-center text-xs text-muted-foreground italic">No governance events yet.</div>
+            ) : (
+              <div className="flex flex-col gap-2">
+                {governanceRows.slice(-20).map((row) => (
+                  <div key={row.id} className="rounded-md border border-border/50 bg-secondary/20 p-2 text-xs transition-colors hover:bg-secondary/30">
+                    <div className="flex items-center justify-between gap-2 mb-1">
+                      <span className="font-medium text-foreground">{row.rule}</span>
+                      <Badge variant={row.status === 'PASS' ? 'success' : 'destructive'} className="h-4 px-1.5 text-[10px]">
+                        {row.status}
+                      </Badge>
+                    </div>
+                    <div className="text-[10px] text-muted-foreground">action: {row.action}</div>
+                    {row.detail && <div className="mt-1 text-[10px] text-muted-foreground/80 leading-relaxed border-t border-border/30 pt-1">{row.detail}</div>}
                   </div>
-                  <div className="h-2 rounded bg-black/30">
-                    <div className="h-2 rounded bg-cyan-500/80" style={{ width: `${row.widthPct}%` }} />
+                ))}
+              </div>
+            )}
+          </ScrollArea>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="py-3 px-4">
+          <CardTitle className="text-xs uppercase tracking-wider text-muted-foreground">Violation / Enforcement</CardTitle>
+        </CardHeader>
+        <CardContent className="p-0">
+          <ScrollArea className="h-40 px-4 pb-4">
+            {enforcementRows.length === 0 ? (
+              <div className="py-4 text-center text-xs text-muted-foreground italic">No enforcement events yet.</div>
+            ) : (
+              <div className="flex flex-col gap-1.5 font-mono text-[10px]">
+                {enforcementRows.slice(-30).map((row) => (
+                  <div key={row.id} className="flex flex-col gap-1 rounded bg-secondary/10 p-2">
+                    <div className="flex items-center gap-2">
+                      <span className="text-muted-foreground/60">{new Date(row.at).toLocaleTimeString()}</span>
+                      <Badge variant="outline" className="h-3.5 px-1 text-[9px] uppercase">{row.type.replace('guard.', '')}</Badge>
+                      {row.rule && row.rule !== 'n/a' && <span className="text-accent underline decoration-accent/30 underline-offset-2">@{row.rule}</span>}
+                    </div>
+                    {row.reason && <div className="text-foreground/70">{row.reason}</div>}
+                    {row.action && <div className="text-muted-foreground">→ status: {row.action}</div>}
                   </div>
+                ))}
+              </div>
+            )}
+          </ScrollArea>
+        </CardContent>
+      </Card>
+
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+        <Card>
+          <CardHeader className="py-3 px-4">
+            <CardTitle className="text-xs uppercase tracking-wider text-muted-foreground">Loops</CardTitle>
+          </CardHeader>
+          <CardContent className="px-4 pb-4">
+            <div className="grid grid-cols-3 gap-2 mb-3">
+              <div className="rounded border bg-background/50 p-1.5 text-center">
+                <span className="block text-lg font-medium">{loopStats.retry}</span>
+                <span className="text-[9px] text-muted-foreground uppercase">Retry</span>
+              </div>
+              <div className="rounded border bg-background/50 p-1.5 text-center">
+                <span className="block text-lg font-medium">{loopStats.verify}</span>
+                <span className="text-[9px] text-muted-foreground uppercase">Verify</span>
+              </div>
+              <div className="rounded border bg-background/50 p-1.5 text-center">
+                <span className="block text-lg font-medium">{loopStats.improve}</span>
+                <span className="text-[9px] text-muted-foreground uppercase">Refine</span>
+              </div>
+            </div>
+            {loopRows.length > 0 && (
+              <ScrollArea className="h-28">
+                <div className="space-y-1.5">
+                  {loopRows.map((row) => (
+                    <div key={row.key} className="flex items-center justify-between rounded border bg-secondary/10 px-2 py-1 text-[10px]">
+                      <span className="capitalize">{row.loopType}</span>
+                      <div className="flex items-center gap-2">
+                        <span className="text-muted-foreground">i:{row.iterationCount}</span>
+                        <Badge
+                          variant={row.result === 'pass' ? 'success' : row.result === 'fail' ? 'destructive' : 'secondary'}
+                          className="h-3.5 px-1 text-[8px] uppercase font-bold"
+                        >
+                          {row.result}
+                        </Badge>
+                      </div>
+                    </div>
+                  ))}
                 </div>
-              ))}
+              </ScrollArea>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="py-3 px-4">
+            <CardTitle className="text-xs uppercase tracking-wider text-muted-foreground">Planning</CardTitle>
+          </CardHeader>
+          <CardContent className="px-4 pb-4">
+            <div className="grid grid-cols-3 gap-2 mb-3 text-center">
+              <div>
+                <span className="block text-sm font-medium">{planSummary.agents.length}</span>
+                <span className="text-[9px] text-muted-foreground uppercase">Agents</span>
+              </div>
+              <div>
+                <span className="block text-sm font-medium">{planSummary.pipelines.length}</span>
+                <span className="text-[9px] text-muted-foreground uppercase">Pipes</span>
+              </div>
+              <div>
+                <span className="block text-sm font-medium">{planSummary.tools.length}</span>
+                <span className="text-[9px] text-muted-foreground uppercase">Tools</span>
+              </div>
             </div>
-            <div className="grid gap-1 text-xs text-slate-300 md:grid-cols-3">
-              <div className="rounded border border-white/10 bg-black/20 px-2 py-1">
-                Top run: {costInsights.topRun ? `${String(costInsights.topRun.runId).slice(0, 8)} ($${Number(costInsights.topRun.totalCostUsd || 0).toFixed(4)})` : 'n/a'}
+            <Separator className="my-2 opacity-50" />
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-[10px] text-muted-foreground uppercase">Drift Status</span>
+              <Badge variant={planDiff.mismatch ? 'warning' : 'success'} className="h-4 px-1.5 text-[9px]">
+                {planDiff.mismatch ? 'Mismatch Detected' : 'Aligned'}
+              </Badge>
+            </div>
+            <ScrollArea className="h-16 text-[9px] font-mono space-y-1">
+              {planDiff.missingAgents.length > 0 && <div className="text-destructive">Missing agents: {planDiff.missingAgents.join(', ')}</div>}
+              {planDiff.extraAgents.length > 0 && <div className="text-warning">Extra agents: {planDiff.extraAgents.join(', ')}</div>}
+              {planDiff.missingSteps.length > 0 && <div className="text-destructive">Missing steps: {planDiff.missingSteps.join(', ')}</div>}
+              {planDiff.extraSteps.length > 0 && <div className="text-warning">Extra steps: {planDiff.extraSteps.join(', ')}</div>}
+            </ScrollArea>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="py-3 px-4">
+            <CardTitle className="text-xs uppercase tracking-wider text-muted-foreground">Cost Meter</CardTitle>
+          </CardHeader>
+          <CardContent className="px-4 pb-4 space-y-2.5">
+            <div className="flex items-center justify-between text-[11px]">
+              <span className="text-muted-foreground">Total Tokens</span>
+              <span className="font-mono font-bold text-accent">{tokenBreakdown.totalTokens.toLocaleString()}</span>
+            </div>
+            <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-[10px]">
+              <div className="flex justify-between border-b border-border/50 pb-0.5">
+                <span className="text-muted-foreground">LLM Req</span>
+                <span>{costSummary.llmReq}</span>
               </div>
-              <div className="rounded border border-white/10 bg-black/20 px-2 py-1">
-                Top agent: {costInsights.topAgent ? `${costInsights.topAgent[0]} ($${Number(costInsights.topAgent[1] || 0).toFixed(4)})` : 'n/a'}
+              <div className="flex justify-between border-b border-border/50 pb-0.5">
+                <span className="text-muted-foreground">LLM Res</span>
+                <span>{costSummary.llmRes}</span>
               </div>
-              <div className="rounded border border-white/10 bg-black/20 px-2 py-1">
-                Top workspace: {costInsights.topWorkspace ? `${costInsights.topWorkspace[0]} ($${Number(costInsights.topWorkspace[1] || 0).toFixed(4)})` : 'n/a'}
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Prompt Chars</span>
+                <span>{Math.round(costSummary.promptChars/1000)}k</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Output Chars</span>
+                <span>{Math.round(costSummary.outputChars/1000)}k</span>
               </div>
             </div>
-          </div>
-        )}
-      </div>
-
-      <div className="rounded-md border border-white/10 bg-slate-900/40 p-3">
-        <button
-          className="text-xs uppercase tracking-wide text-slate-300 hover:text-white"
-          onClick={() => setPlanOpen((v) => !v)}
-        >
-          Execution Plan Viewer {planOpen ? '▾' : '▸'}
-        </button>
-        {!latestPlan ? (
-          <div className="mt-2 text-xs text-slate-500">No plan found in run.started payload.</div>
-        ) : planOpen ? (
-          <pre className="mt-2 max-h-64 overflow-auto rounded bg-black/40 p-2 text-[11px] text-slate-300">
-            {JSON.stringify(latestPlan, null, 2)}
-          </pre>
-        ) : (
-          <div className="mt-2 text-xs text-slate-500">
-            agents={Array.isArray((latestPlan as any).agents) ? (latestPlan as any).agents.length : 0} ·
-            tools={Array.isArray((latestPlan as any).tools) ? (latestPlan as any).tools.length : 0} ·
-            pipelines={Array.isArray((latestPlan as any).pipelines) ? (latestPlan as any).pipelines.length : 0}
-          </div>
-        )}
-      </div>
-
-      <div className="rounded-md border border-white/10 bg-slate-900/40 p-3">
-        <div className="text-xs uppercase tracking-wide text-slate-400">Workbench / Tool Usage</div>
-        <div className="mt-2 text-xs text-slate-500">
-          top tool: {toolUsageSummary.topTool ? `${toolUsageSummary.topTool[0]} (${toolUsageSummary.topTool[1].count})` : 'n/a'} ·
-          top agent: {toolUsageSummary.topAgent ? `${toolUsageSummary.topAgent[0]} (${toolUsageSummary.topAgent[1].count})` : 'n/a'}
-        </div>
-        {toolRows.length === 0 ? (
-          <div className="mt-2 text-xs text-slate-500">No tool usage events yet.</div>
-        ) : (
-          <div className="mt-2 max-h-36 overflow-auto space-y-1">
-            {toolRows.slice(-20).map((row, i) => (
-              <div key={`${row.at}:${row.agent}:${row.tool}:${i}`} className="rounded border border-white/10 bg-black/20 px-2 py-1 text-xs text-slate-300">
-                {new Date(row.at).toLocaleTimeString()} · {row.agent} · {row.tool}
-                {Number.isFinite(row.durationMs) && row.durationMs > 0 ? <span className="text-slate-500"> · {row.durationMs}ms</span> : null}
-                {row.summary ? <span className="text-slate-500"> · {row.summary}</span> : null}
+            <ScrollArea className="h-14 mt-1 border rounded bg-background/30 p-1.5">
+              <div className="text-[9px] font-mono text-muted-foreground">
+                {tokenBreakdown.perAgentTop.map(([k, v]) => (
+                  <div key={k} className="flex justify-between truncate">
+                    <span>{k}:</span>
+                    <span className="text-foreground">{v.toLocaleString()}t</span>
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
-        )}
+            </ScrollArea>
+          </CardContent>
+        </Card>
       </div>
 
-      <div className="rounded-md border border-white/10 bg-slate-900/40 p-3">
-        <div className="text-xs uppercase tracking-wide text-slate-400">Tool Concurrency / Queue</div>
-        <div className="mt-2 text-xs text-slate-500">
-          waiting agents: {concurrencySummary.waitingAgents.length}
-          {' · '}active tool: {concurrencySummary.activeTool}
-        </div>
-        {concurrencySummary.blockingReasons.length > 0 && (
-          <div className="text-xs text-amber-400">
-            blocking: {concurrencySummary.blockingReasons.join(', ')}
-          </div>
-        )}
-        {queueRows.length === 0 ? (
-          <div className="mt-2 text-xs text-slate-500">No queue events yet.</div>
-        ) : (
-          <div className="mt-2 max-h-36 overflow-auto space-y-1">
-            {queueRows.map((row, i) => (
-              <div key={`${row.at}:${row.type}:${row.agent}:${i}`} className="rounded border border-white/10 bg-black/20 px-2 py-1 text-xs text-slate-300">
-                {new Date(row.at).toLocaleTimeString()} · {row.type} · {row.agent}
-                {row.queueDepth >= 0 ? <span className="text-slate-500"> · depth={row.queueDepth}</span> : null}
-                {row.queueDepthAfterPickup >= 0 ? <span className="text-slate-500"> · after={row.queueDepthAfterPickup}</span> : null}
-                {row.reason ? <span className="text-slate-500"> · {row.reason}</span> : null}
+      <Card>
+        <CardHeader className="py-3 px-4 flex-row items-center justify-between space-y-0">
+          <CardTitle className="text-xs uppercase tracking-wider text-muted-foreground">Resource Attribution</CardTitle>
+          <Badge variant="outline" className="h-4 px-1.5 text-[9px] border-accent/20 text-accent">
+            Loop Overhead: {costBreakdown.loopShare}%
+          </Badge>
+        </CardHeader>
+        <CardContent className="px-4 pb-4">
+           {costBreakdown.topAgents.length === 0 ? (
+             <div className="py-2 text-center text-xs text-muted-foreground italic">No attribution data.</div>
+           ) : (
+             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-2">
+               {costBreakdown.topAgents.map(([agent, tokens]) => (
+                 <div key={agent} className="rounded border bg-secondary/10 p-2 text-center group transition-colors hover:border-accent/30">
+                   <div className="text-[9px] text-muted-foreground uppercase mb-1 truncate">{agent}</div>
+                   <div className="text-sm font-mono font-bold">{tokens.toLocaleString()} <span className="text-[9px] font-normal text-muted-foreground">tk</span></div>
+                   <div className="mt-1 h-1 w-full bg-secondary rounded-full overflow-hidden">
+                      <div className="h-full bg-accent grayscale group-hover:grayscale-0 transition-all" style={{ width: `${Math.min(100, (tokens/tokenBreakdown.totalTokens)*100)}%` }} />
+                   </div>
+                 </div>
+               ))}
+             </div>
+           )}
+        </CardContent>
+      </Card>
+
+      <Card className="border-accent/20 bg-accent/5">
+        <CardHeader className="py-3 px-4">
+          <CardTitle className="text-xs uppercase tracking-wider text-accent flex items-center gap-2">
+            Cost Intelligence (System API)
+            {costLoading && <Badge variant="outline" className="animate-pulse h-3.5 border-accent/20">Syncing...</Badge>}
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="px-4 pb-4">
+          {costError ? (
+            <div className="text-xs text-destructive/80 bg-destructive/10 rounded p-2 border border-destructive/20">{costError}</div>
+          ) : costRuns.length === 0 ? (
+            <div className="text-center py-4 text-xs text-muted-foreground">No historical billing data available.</div>
+          ) : (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <div className="space-y-0.5">
+                  <div className="text-[10px] text-muted-foreground uppercase">Project Total</div>
+                  <div className="text-2xl font-mono font-bold">${costInsights.totalUsd.toFixed(4)}</div>
+                </div>
+                <div className="text-right space-y-0.5">
+                  <div className="text-[10px] text-muted-foreground uppercase">Tokens Processed</div>
+                  <div className="text-lg font-mono">{costInsights.totalTokens.toLocaleString()}</div>
+                </div>
               </div>
-            ))}
-          </div>
-        )}
-      </div>
 
-      <div className="rounded-md border border-white/10 bg-slate-900/40 p-3">
-        <div className="text-xs uppercase tracking-wide text-slate-400">LLM Call Inspector</div>
-        {llmRows.length === 0 ? (
-          <div className="mt-2 text-xs text-slate-500">No llm events yet.</div>
-        ) : (
-          <div className="mt-2 max-h-36 overflow-auto space-y-1">
-            {llmRows.map((row) => (
-              <div key={row.key} className="rounded border border-white/10 bg-black/20 px-2 py-1 text-xs text-slate-300">
-                {row.provider} · {row.model}
-                {row.latencyMs !== null ? <span className="text-slate-500"> · {row.latencyMs}ms</span> : null}
-                <span className="text-slate-500"> · in={row.promptSize} · out={row.outputSize}</span>
-                <span className={`text-xs ${row.status === 'paired' ? 'text-emerald-400' : 'text-amber-400'}`}> · {row.status}</span>
+              <div className="space-y-2">
+                <div className="text-[9px] text-muted-foreground uppercase tracking-widest">Recent Run Efficiency</div>
+                <div className="flex flex-col gap-1.5">
+                  {runCostGraph.map((row) => (
+                    <div key={row.runId} className="group">
+                      <div className="flex justify-between items-center mb-0.5 font-mono text-[9px]">
+                        <span className="text-muted-foreground group-hover:text-foreground transition-colors">ID: {row.runId}</span>
+                        <span className="text-accent">${row.cost.toFixed(4)}</span>
+                      </div>
+                      <div className="h-1.5 rounded-full bg-secondary overflow-hidden">
+                        <div className="h-full bg-accent/80 transition-all duration-500" style={{ width: `${row.widthPct}%` }} />
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
-            ))}
-          </div>
-        )}
-      </div>
 
-      <div className="rounded-md border border-white/10 bg-slate-900/40 p-3">
-        <button
-          className="text-xs uppercase tracking-wide text-slate-300 hover:text-white"
-          onClick={() => setPromptOpen((v) => !v)}
-        >
-          Raw Prompt Logging {promptOpen ? '▾' : '▸'}
-        </button>
-        {promptLogs.length === 0 ? (
-          <div className="mt-2 text-xs text-slate-500">No prompt/response logs yet.</div>
-        ) : promptOpen ? (
-          <div className="mt-2 max-h-64 overflow-auto space-y-2">
-            {promptLogs.map((row) => (
-              <div key={row.key} className="rounded border border-white/10 bg-black/20 p-2 text-xs text-slate-300">
-                <div className="text-slate-400">step={row.step} · model={row.model}</div>
-                <div className="mt-1 text-slate-200"><strong>Prompt:</strong> {row.prompt || '(empty)'}</div>
-                <div className="mt-1 text-slate-300"><strong>Response:</strong> {row.response || '(empty)'}</div>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+                 <div className="rounded border bg-background/50 p-2 transition-colors hover:bg-background">
+                    <span className="block text-[8px] text-muted-foreground uppercase font-bold mb-1">Top Spend Run</span>
+                    <span className="text-[10px] font-mono truncate block">
+                      {costInsights.topRun ? `${String(costInsights.topRun.runId).slice(0, 8)} ($${Number(costInsights.topRun.totalCostUsd || 0).toFixed(4)})` : 'n/a'}
+                    </span>
+                 </div>
+                 <div className="rounded border bg-background/50 p-2 transition-colors hover:bg-background">
+                    <span className="block text-[8px] text-muted-foreground uppercase font-bold mb-1">Hungriest Agent</span>
+                    <span className="text-[10px] font-mono truncate block">
+                      {costInsights.topAgent ? `${costInsights.topAgent[0]} ($${Number(costInsights.topAgent[1] || 0).toFixed(4)})` : 'n/a'}
+                    </span>
+                 </div>
+                 <div className="rounded border bg-background/50 p-2 transition-colors hover:bg-background">
+                    <span className="block text-[8px] text-muted-foreground uppercase font-bold mb-1">Worst Workspace</span>
+                    <span className="text-[10px] font-mono truncate block">
+                      {costInsights.topWorkspace ? `${costInsights.topWorkspace[0]} ($${Number(costInsights.topWorkspace[1] || 0).toFixed(4)})` : 'n/a'}
+                    </span>
+                 </div>
               </div>
-            ))}
-          </div>
-        ) : (
-          <div className="mt-2 text-xs text-slate-500">Entries: {promptLogs.length}</div>
-        )}
-      </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
-      <div className="rounded-md border border-white/10 bg-slate-900/40 p-3">
-        <button
-          className="text-xs uppercase tracking-wide text-slate-300 hover:text-white"
-          onClick={() => setDebugOpen((v) => !v)}
-        >
-          Debug / Raw Events {debugOpen ? '▾' : '▸'}
-        </button>
-        {debugOpen ? (
-          <pre className="mt-2 max-h-64 overflow-auto rounded bg-black/40 p-2 text-[11px] text-slate-300">
-            {JSON.stringify(events.slice(-50), null, 2)}
-          </pre>
-        ) : null}
+      <Card>
+        <CardHeader className="py-2 px-4 cursor-pointer hover:bg-secondary/10 transition-colors" onClick={() => setPlanOpen((v) => !v)}>
+          <CardTitle className="text-xs uppercase flex items-center justify-between">
+            Execution Plan Viewer
+            <span className="text-muted-foreground">{planOpen ? '▼' : '►'}</span>
+          </CardTitle>
+        </CardHeader>
+        {planOpen && (
+          <CardContent className="px-4 pb-4">
+             {!latestPlan ? (
+               <div className="py-4 text-center text-xs text-muted-foreground">No plan found in run.started payload.</div>
+             ) : (
+               <ScrollArea className="h-64 rounded-md border bg-black/40">
+                  <pre className="p-3 text-[10px] font-mono leading-relaxed text-slate-300">
+                    {JSON.stringify(latestPlan, null, 2)}
+                  </pre>
+               </ScrollArea>
+             )}
+          </CardContent>
+        )}
+      </Card>
+
+      <Card>
+        <CardHeader className="py-3 px-4">
+          <CardTitle className="text-xs uppercase tracking-wider text-muted-foreground">Workbench / Tool Usage</CardTitle>
+        </CardHeader>
+        <CardContent className="px-4 pb-4">
+          <div className="flex items-center gap-4 mb-3 text-[10px]">
+             <div className="bg-secondary/30 rounded px-2 py-1 border">
+               <span className="text-muted-foreground">Top Tool:</span> <span className="font-mono">{toolUsageSummary.topTool ? `${toolUsageSummary.topTool[0]} (${toolUsageSummary.topTool[1].count})` : 'n/a'}</span>
+             </div>
+             <div className="bg-secondary/30 rounded px-2 py-1 border">
+               <span className="text-muted-foreground">Top Agent:</span> <span className="font-mono">{toolUsageSummary.topAgent ? `${toolUsageSummary.topAgent[0]} (${toolUsageSummary.topAgent[1].count})` : 'n/a'}</span>
+             </div>
+          </div>
+          <ScrollArea className="h-36">
+            {toolRows.length === 0 ? (
+              <div className="py-4 text-center text-xs text-muted-foreground italic">No tool events logged.</div>
+            ) : (
+              <div className="flex flex-col gap-1.5 font-mono text-[10px]">
+                {toolRows.slice(-20).map((row, i) => (
+                  <div key={`${row.at}:${row.agent}:${row.tool}:${i}`} className="flex items-start gap-2 rounded bg-secondary/10 p-2 hover:bg-secondary/20 transition-colors">
+                    <span className="text-muted-foreground/50 shrink-0">{new Date(row.at).toLocaleTimeString()}</span>
+                    <div className="flex-1">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-accent underline decoration-accent/20 underline-offset-2">@{row.agent}</span>
+                        <span className="text-foreground/80 font-bold">{row.tool}</span>
+                      </div>
+                      {row.summary && <div className="mt-1 text-muted-foreground leading-tight italic">{row.summary}</div>}
+                      {Number.isFinite(row.durationMs) && row.durationMs > 0 && (
+                         <div className="mt-1 text-right"><Badge variant="outline" className="h-3.5 px-1 text-[8px] bg-background/50">{row.durationMs}ms</Badge></div>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </ScrollArea>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="py-2 px-4 cursor-pointer hover:bg-secondary/10 transition-colors" onClick={() => setDebugOpen((v) => !v)}>
+          <CardTitle className="text-xs uppercase flex items-center justify-between">
+            Debug / Raw Events
+            <span className="text-muted-foreground">{debugOpen ? '▼' : '►'}</span>
+          </CardTitle>
+        </CardHeader>
+        {debugOpen && (
+          <CardContent className="px-4 pb-4">
+             <ScrollArea className="h-64 rounded-md border bg-black/40">
+                <pre className="p-3 text-[10px] font-mono leading-relaxed text-slate-300">
+                  {JSON.stringify(events.slice(-50), null, 2)}
+                </pre>
+             </ScrollArea>
+          </CardContent>
+        )}
+      </Card>
+    </div>
+  );
+};
+) : null}
       </div>
     </div>
   );

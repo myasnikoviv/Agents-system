@@ -1,4 +1,4 @@
-export function AppLoadingScreen() {
+export default function AppLoadingScreen() {
   return (
     <div className="flex h-screen items-center justify-center bg-slate-950 font-['IBM_Plex_Sans','Sora','Segoe_UI',sans-serif] text-slate-100">
       <div className="text-center">
