@@ -11,5 +11,6 @@
 
 ## Status
 - Pipeline: sprint-35
-- Stage: backlog
-- Owner: TBD
+- Stage: in-progress
+- Owner: PM-Orchestrator
+- Progress: Integrated loop outcome collection in GovernanceLogger.

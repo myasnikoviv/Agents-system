@@ -330,6 +330,62 @@ export function enforceBoundedAdaptation(
   };
 }
 
+import { patternDetector } from './PatternDetector';
+
+export async function applyPerformanceAwarePolicy(input: {
+  workspacePath: string;
+  projectId: string;
+  assetId: string;
+  decision: ModelRouteDecision;
+  mode?: 'cost_saver' | 'balanced' | 'quality_first';
+}): Promise<ModelRouteDecision> {
+  const patterns = await patternDetector.detectPatterns(input.projectId, input.assetId);
+  if (!patterns || patterns.length === 0) return input.decision;
+
+  let nextTier = input.decision.modelTier;
+  let reason = input.decision.reason;
+
+  const criticalDeterioration = patterns.find((p) => p.type === 'SUCCESS_DETERIORATION' && p.severity === 'critical');
+  const warningDeterioration = patterns.find((p) => p.type === 'SUCCESS_DETERIORATION' && p.severity === 'warn');
+  const stablePattern = patterns.find((p) => p.type === 'STABLE');
+
+  if (criticalDeterioration) {
+    nextTier = 'expensive';
+    reason += `;pattern_aware:CRITICAL_DETERIORATION:force_expensive`;
+  } else if (warningDeterioration) {
+    const currentRank = tierRank(nextTier);
+    if (currentRank < 3) {
+      nextTier = tierByRank(currentRank + 1);
+      reason += `;pattern_aware:DETERIORATION:tier_upgrade`;
+    }
+  } else if (stablePattern && input.mode === 'cost_saver') {
+    const currentRank = tierRank(nextTier);
+    if (currentRank > 1) {
+      nextTier = tierByRank(currentRank - 1);
+      reason += `;pattern_aware:STABLE_COST_SAVER:tier_downgrade_trial`;
+    }
+  }
+
+  if (nextTier === input.decision.modelTier) return input.decision;
+
+  const policy = loadModelRoutingPolicy(input.workspacePath);
+  return {
+    ...input.decision,
+    modelTier: nextTier,
+    model: pickDeterministicModelForTier(policy, nextTier),
+    reason,
+  };
+}
+
+export async function getAggregatedContext(projectId: string, assetId: string): Promise<any> {
+  try {
+    const { signalAggregator } = require('./SignalAggregator');
+    return await signalAggregator.aggregateSignals(projectId, assetId);
+  } catch (e) {
+    return null;
+  }
+}
+
 export function writeAdaptiveLog(workspacePath: string, payload: {
   runId: string;
   projectId: string;
