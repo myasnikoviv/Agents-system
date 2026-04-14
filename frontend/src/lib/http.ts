@@ -30,8 +30,14 @@ const looksLikeHtml = (payload: string): boolean => {
 };
 
 export async function fetchJsonSafe<T = unknown>(path: string, init?: RequestInit): Promise<T | null> {
+  const token = localStorage.getItem('agsys_token');
+  const headers = new Headers(init?.headers || {});
+  if (token && !headers.has('Authorization')) {
+    headers.set('Authorization', `Bearer ${token}`);
+  }
+
   try {
-    const res = await fetch(apiUrl(path), init);
+    const res = await fetch(apiUrl(path), { ...init, headers });
     if (!res.ok) return null;
     const text = await res.text();
     if (!text.trim()) return null;
@@ -42,8 +48,14 @@ export async function fetchJsonSafe<T = unknown>(path: string, init?: RequestIni
 }
 
 export async function fetchJsonStrict<T>(path: string, init?: RequestInit): Promise<T> {
+  const token = localStorage.getItem('agsys_token');
+  const headers = new Headers(init?.headers || {});
+  if (token && !headers.has('Authorization')) {
+    headers.set('Authorization', `Bearer ${token}`);
+  }
+
   const tryRequest = async (url: string) => {
-    const res = await fetch(url, init);
+    const res = await fetch(url, { ...init, headers });
     const raw = await res.text();
     const isHtml = looksLikeHtml(raw);
     let parsed: T | null = null;
