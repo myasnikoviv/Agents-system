@@ -5,6 +5,15 @@ import { ArtifactRenderer } from './ArtifactRenderer';
 import { apiUrl, fetchJsonSafe } from '../../lib/http';
 import { StreamRenderer, type RuntimeEvent } from './StreamRenderer';
 import { ObservabilityPanels } from './ObservabilityPanels';
+
+// UI Kit Imports
+import { Card, CardHeader, CardTitle, CardContent } from '../ui/card';
+import { Badge } from '../ui/badge';
+import { Button } from '../ui/button';
+import { Input } from '../ui/input';
+import { ScrollArea } from '../ui/scroll-area';
+import { Separator } from '../ui/separator';
+
 import './CockpitPage.css';
 const CHAT_EVENT_RENDER_MODE_KEY = 'cockpit.chat.event.render.mode.v1';
 
@@ -2082,222 +2091,295 @@ export function CockpitPage() {
     };
 
     return (
-        <div className="cockpit-container">
-            {/* Header */}
-            <header className="cockpit-header">
-                <div className="header-title">
-                    <LayoutDashboard size={24} />
-                    Agent Cockpit
-                    {providerMessage && <span className="provider-feedback">{providerMessage}</span>}
-                </div>
-                <div className="header-actions">
-                    <button type="button" className="header-icon-btn" onClick={() => navigate('/cockpit/governance')} title="Governance Center" aria-label="Governance Center">
-                        <ShieldCheck size={15} />
-                    </button>
-                    <button type="button" className="header-icon-btn" onClick={() => navigate('/cockpit/settings/general')} title="Settings" aria-label="Settings">
-                        <Settings size={15} />
-                    </button>
-                </div>
-            </header>
-
-            <main className="cockpit-main">
-                <aside className={`rail-panel ${railCollapsed ? 'collapsed' : ''}`}>
-                    <div className="rail-head">
-                        <span>{railCollapsed ? 'AC' : 'Agent Cockpit'}</span>
-                        <button type="button" className="rail-toggle" onClick={() => setRailCollapsed((p) => !p)} title={railCollapsed ? 'Open sidebar' : 'Hide sidebar'} aria-label={railCollapsed ? 'Open sidebar' : 'Hide sidebar'}>
-                            {railCollapsed ? <PanelLeftOpen size={13} /> : <PanelLeftClose size={13} />}
-                        </button>
+        <div className="flex h-full overflow-hidden">
+            <main className="flex-1 flex overflow-hidden">
+                <aside className={`flex flex-col border-r border-border/50 bg-sidebar/5 transition-all duration-300 ${railCollapsed ? 'w-12' : 'w-72'}`}>
+                    <div className="flex items-center justify-between h-12 px-3 border-b border-border/50">
+                        {!railCollapsed && <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Workspace</span>}
+                        <Button variant="ghost" size="icon" className="size-8 ml-auto" onClick={() => setRailCollapsed((p) => !p)} title={railCollapsed ? 'Open sidebar' : 'Hide sidebar'}>
+                            {railCollapsed ? <PanelLeftOpen className="size-4" /> : <PanelLeftClose className="size-4" />}
+                        </Button>
                     </div>
                     {!railCollapsed && (
-                        <div className="rail-body">
-                            <div className="rail-top-actions">
-                                <button
-                                    type="button"
-                                    className="rail-top-btn"
+                        <div className="flex-1 flex flex-col overflow-hidden p-3 gap-4">
+                            <div className="flex flex-col gap-2">
+                                <Button
+                                    variant="secondary"
+                                    size="sm"
+                                    className="justify-start gap-2 h-9"
                                     onClick={() => {
                                         if (!selectedProject) {
-                                                    openProjectModal();
+                                            openProjectModal();
                                             return;
                                         }
                                         setIsChainModalOpen(true);
                                     }}
                                 >
-                                    <PencilLine size={13} />
-                                    <span>Новий ланцюжок</span>
-                                </button>
-                                <button type="button" className="rail-top-btn" onClick={openProjectModal}>
-                                    <FolderPlus size={13} />
-                                    <span>Add new project</span>
-                                </button>
+                                    <PencilLine className="size-4" />
+                                    <span>New Thread</span>
+                                </Button>
+                                <Button
+                                   variant="ghost"
+                                   size="sm"
+                                   className="justify-start gap-2 h-9 text-muted-foreground hover:text-foreground"
+                                   onClick={openProjectModal}
+                                >
+                                    <FolderPlus className="size-4" />
+                                    <span>Add Project</span>
+                                </Button>
                             </div>
-                            <div className="rail-section-head">
-                                <span>Projects</span>
+                            <Separator className="bg-border/50" />
+                            <div className="flex items-center gap-2 px-1 py-2">
+                                <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/70 flex-1">Projects</span>
                             </div>
-                            <div className="rail-project-list">
-                                {railProjects.length === 0 ? (
-                                    <div className="rail-empty-state">
-                                        <div className="rail-empty-title">No projects yet</div>
-                                        <div className="rail-empty-text">Create a project to start chats in a selected worktree.</div>
-                                        <button type="button" className="rail-empty-action" onClick={openProjectModal}>
-                                            <FolderPlus size={13} />
-                                            <span>Add project</span>
-                                        </button>
-                                    </div>
-                                ) : railProjects.map((project) => (
-                                    <div key={project.id} className="rail-project-node">
-                                        <div className="rail-item-row">
-                                            <button
-                                                type="button"
-                                                className={`rail-project-btn ${selectedProject === project.id ? 'active' : ''}`}
-                                                onClick={() => {
-                                                    setSelectedProject(project.id);
-                                                    setSelectedThread((railThreadsByProject[project.id] || [])[0]?.id || '');
-                                                    void syncProjectRuntimeContext(project.id);
-                                                }}
-                                            >
-                                                <Folder size={13} />
-                                                <span className="rail-project-label">{project.label}</span>
-                                            </button>
-                                            <button
-                                                type="button"
-                                                className="rail-delete-btn"
-                                                title="Delete project"
-                                                aria-label={`Delete project ${project.label}`}
-                                                onClick={(event) => {
-                                                    event.stopPropagation();
-                                                    void handleDeleteProject(project.id);
-                                                }}
-                                            >
-                                                <Trash2 size={12} />
-                                            </button>
+                            <ScrollArea className="flex-1 -mx-1 px-1">
+                                <div className="flex flex-col gap-1">
+                                    {railProjects.length === 0 ? (
+                                        <div className="flex flex-col items-center justify-center py-8 px-4 text-center gap-2 opacity-60">
+                                            <Folder className="size-8 text-muted-foreground/40" />
+                                            <div className="text-xs font-medium">No projects yet</div>
+                                            <Button variant="outline" size="sm" className="h-8 gap-2 mt-2" onClick={openProjectModal}>
+                                                <FolderPlus className="size-3.5" />
+                                                Add Project
+                                            </Button>
                                         </div>
-                                        {selectedProject === project.id && (
-                                            <div className="rail-thread-list nested">
-                                                {(railThreadsByProject[project.id] || []).map((thread) => (
-                                                    <div key={thread.id} className="rail-item-row rail-item-row-thread">
-                                                        <button
-                                                            type="button"
-                                                            className={`rail-thread-btn ${selectedThread === thread.id ? 'active' : ''}`}
-                                                            onClick={() => setSelectedThread(thread.id)}
-                                                        >
-                                                            <span className="rail-thread-label">{thread.label}</span>
-                                                            <span className="rail-thread-age">{new Date(thread.updatedAt).toLocaleDateString()}</span>
-                                                        </button>
-                                                        <button
-                                                            type="button"
-                                                            className="rail-delete-btn"
-                                                            title="Delete chat"
-                                                            aria-label={`Delete chat ${thread.label}`}
-                                                            onClick={(event) => {
-                                                                event.stopPropagation();
-                                                                void handleDeleteThread(project.id, thread.id);
-                                                            }}
-                                                        >
-                                                            <Trash2 size={12} />
-                                                        </button>
-                                                    </div>
-                                                ))}
+                                    ) : railProjects.map((project) => (
+                                        <div key={project.id} className="flex flex-col gap-0.5">
+                                            <div className="group flex items-center gap-1">
+                                                <Button
+                                                    variant={selectedProject === project.id ? "secondary" : "ghost"}
+                                                    size="sm"
+                                                    className="flex-1 justify-start gap-2 h-8 px-2 text-xs font-medium"
+                                                    onClick={() => {
+                                                        setSelectedProject(project.id);
+                                                        setSelectedThread((railThreadsByProject[project.id] || [])[0]?.id || '');
+                                                        void syncProjectRuntimeContext(project.id);
+                                                    }}
+                                                >
+                                                    <Folder className={`size-3.5 ${selectedProject === project.id ? 'text-primary' : 'text-muted-foreground'}`} />
+                                                    <span className="truncate">{project.label}</span>
+                                                </Button>
+                                                <Button
+                                                    variant="ghost"
+                                                    size="icon"
+                                                    className="size-7 opacity-0 group-hover:opacity-100 transition-opacity hover:text-destructive"
+                                                    onClick={(event) => {
+                                                        event.stopPropagation();
+                                                        void handleDeleteProject(project.id);
+                                                    }}
+                                                >
+                                                    <Trash2 className="size-3" />
+                                                </Button>
                                             </div>
-                                        )}
-                                    </div>
-                                ))}
-                            </div>
+                                            {selectedProject === project.id && (
+                                                <div className="flex flex-col gap-0.5 ml-4 pl-2 border-l border-border/50 my-1">
+                                                    {(railThreadsByProject[project.id] || []).map((thread) => (
+                                                        <div key={thread.id} className="group flex items-center gap-1">
+                                                            <Button
+                                                                variant={selectedThread === thread.id ? "ghost" : "ghost"}
+                                                                size="sm"
+                                                                className={`flex-1 justify-start gap-2 h-7 px-2 text-[11px] font-normal ${selectedThread === thread.id ? 'bg-primary/10 text-primary hover:bg-primary/20' : 'text-muted-foreground hover:text-foreground'}`}
+                                                                onClick={() => setSelectedThread(thread.id)}
+                                                            >
+                                                                <span className="truncate flex-1 text-left">{thread.label}</span>
+                                                                <span className="text-[9px] opacity-40 shrink-0">{new Date(thread.updatedAt).toLocaleDateString()}</span>
+                                                            </Button>
+                                                            <Button
+                                                                variant="ghost"
+                                                                size="icon"
+                                                                className="size-6 opacity-0 group-hover:opacity-100 transition-opacity hover:text-destructive"
+                                                                onClick={(event) => {
+                                                                    event.stopPropagation();
+                                                                    void handleDeleteThread(project.id, thread.id);
+                                                                }}
+                                                            >
+                                                                <Trash2 className="size-2.5" />
+                                                            </Button>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            )}
+                                        </div>
+                                    ))}
+                                </div>
+                            </ScrollArea>
                         </div>
                     )}
                 </aside>
                 {/* Left Panel: Chat Input */}
-                <section className="left-panel">
-                    <div className="panel-title">
-                        <Terminal size={20} />
-                        Command Interface
+                <section className="flex-1 flex flex-col min-w-0 bg-background">
+                    <div className="flex items-center h-12 px-4 border-b border-border/50 bg-background/50 backdrop-blur-sm sticky top-0 z-10">
+                        <Terminal className="size-4 mr-2 text-primary" />
+                        <span className="text-sm font-semibold">Command Interface</span>
+                        {providerMessage && (
+                            <Badge variant="outline" className="ml-4 text-[10px] font-normal border-primary/20 bg-primary/5 text-primary">
+                                {providerMessage}
+                            </Badge>
+                        )}
                     </div>
 
-                    <div className="chat-container">
-                        {observability && (
-                            <div className="observability-card">
-                                <div className="observability-title">Pipeline Observability</div>
-                                <div className="observability-grid">
-                                    <span>Pipeline</span><strong>{observability.pipeline}</strong>
-                                    <span>Stage</span><strong>{observability.stage}</strong>
-                                    <span>Next</span><strong>{observability.nextStage}</strong>
-                                    <span>Gates</span><strong>{observability.blockingGates}</strong>
-                                    <span>Approval</span><strong>{observability.approvalReason}</strong>
+                    <ScrollArea className="flex-1">
+                        <div className="max-w-4xl mx-auto w-full p-4 lg:p-6 flex flex-col gap-6">
+                            {observability && (
+                                <Card className="border-primary/20 bg-primary/5 shadow-none overflow-hidden">
+                                    <CardHeader className="py-2 px-4 border-b border-primary/10 bg-primary/10">
+                                        <CardTitle className="text-[11px] font-bold uppercase tracking-wider text-primary">Pipeline Observability</CardTitle>
+                                    </CardHeader>
+                                    <CardContent className="p-4 grid grid-cols-2 md:grid-cols-5 gap-4">
+                                        <div className="flex flex-col gap-1">
+                                            <span className="text-[10px] text-muted-foreground uppercase font-medium">Pipeline</span>
+                                            <span className="text-sm font-mono truncate">{observability.pipeline}</span>
+                                        </div>
+                                        <div className="flex flex-col gap-1">
+                                            <span className="text-[10px] text-muted-foreground uppercase font-medium">Stage</span>
+                                            <Badge variant="secondary" className="w-fit h-5 text-[10px]">{observability.stage}</Badge>
+                                        </div>
+                                        <div className="flex flex-col gap-1">
+                                            <span className="text-[10px] text-muted-foreground uppercase font-medium">Next</span>
+                                            <span className="text-sm truncate opacity-70 italic">{observability.nextStage}</span>
+                                        </div>
+                                        <div className="flex flex-col gap-2">
+                                            <span className="text-[10px] text-muted-foreground uppercase font-medium">Gates</span>
+                                            <span className="text-sm font-medium">{observability.blockingGates}</span>
+                                        </div>
+                                        <div className="flex flex-col gap-1">
+                                            <span className="text-[10px] text-muted-foreground uppercase font-medium">Approval</span>
+                                            <Badge variant={observability.approvalRequired ? "destructive" : "outline"} className="w-fit h-5 text-[10px]">
+                                                {observability.approvalReason}
+                                            </Badge>
+                                        </div>
+                                    </CardContent>
+                                </Card>
+                            )}
+
+                            {(currentTicketId || gitContext) && (
+                                <div className="flex flex-wrap items-center gap-2 p-1.5 rounded-lg bg-muted/30 border border-border/50">
+                                    {currentTicketId && (
+                                        <Badge variant="secondary" className="gap-1.5 py-1 px-2.5 h-7">
+                                            <span className="text-[10px] font-bold opacity-50">TICKET:</span>
+                                            {planeTicketUrl(currentTicketId) ? (
+                                                <a href={planeTicketUrl(currentTicketId)!} target="_blank" rel="noreferrer" className="hover:underline">{currentTicketId}</a>
+                                            ) : (
+                                                currentTicketId
+                                            )}
+                                        </Badge>
+                                    )}
+                                    {gitContext?.activeBranch && (
+                                        <Badge variant="outline" className="gap-1.5 py-1 px-2.5 h-7 border-border/50 bg-background/50">
+                                            <GitBranch className="size-3 opacity-50" />
+                                            <span>{gitContext.activeBranch}</span>
+                                        </Badge>
+                                    )}
+                                    {gitContext?.worktreePath && (
+                                        <Badge variant="outline" className="gap-1.5 py-1 px-2.5 h-7 border-border/50 bg-background/50">
+                                            <Folder className="size-3 opacity-50" />
+                                            <span className="truncate max-w-[200px]">{gitContext.worktreePath}</span>
+                                        </Badge>
+                                    )}
+                                    {gitContext?.preflightToken && (
+                                        <Badge variant="outline" className="gap-1.5 py-1 px-2.5 h-7 border-border/50 bg-background/50">
+                                            <ShieldCheck className="size-3 opacity-50" />
+                                            <span className="truncate max-w-[150px]">{gitContext.preflightToken}</span>
+                                        </Badge>
+                                    )}
                                 </div>
-                            </div>
-                        )}
-                        {(currentTicketId || gitContext) && (
-                            <div className="artifact-strip">
-                                {currentTicketId && (
-                                    <div>
-                                        <strong>Ticket:</strong>{' '}
-                                        {planeTicketUrl(currentTicketId) ? (
-                                            <a href={planeTicketUrl(currentTicketId)!} target="_blank" rel="noreferrer">{currentTicketId}</a>
-                                        ) : (
-                                            currentTicketId
-                                        )}
-                                    </div>
-                                )}
-                                {gitContext?.activeBranch && <div><strong>Branch:</strong> {gitContext.activeBranch}</div>}
-                                {gitContext?.worktreePath && <div><strong>Worktree:</strong> {gitContext.worktreePath}</div>}
-                                {gitContext?.preflightToken && <div><strong>Preflight:</strong> {gitContext.preflightToken}</div>}
-                            </div>
-                        )}
+                            )}
                         {scopeCardPinned && workScope.items.length > 0 && (
-                            <div className="chat-scope-card">
-                                <div className="chat-scope-head">
-                                    <div>
-                                        <strong>Execution Scope</strong>
-                                        <div className="chat-scope-sub">PM checklist: Sprint / Story / Task</div>
+                            <Card className="shadow-lg border-primary/20 bg-background/80 backdrop-blur-sm">
+                                <CardHeader className="py-2.5 px-4 flex-row items-center justify-between border-b border-border/50">
+                                    <div className="flex flex-col">
+                                        <CardTitle className="text-xs font-bold uppercase tracking-wider">Execution Scope</CardTitle>
+                                        <span className="text-[10px] text-muted-foreground">PM checklist: Sprint / Story / Task</span>
                                     </div>
-                                    <button type="button" className="context-pill" onClick={() => setScopeCardPinned(false)}>Unpin</button>
-                                </div>
-                                <div className="health-grid">
-                                    <span>Total</span><strong>{workScope.statusSummary.total}</strong>
-                                    <span>Done</span><strong className="health-ok">{workScope.statusSummary.done}</strong>
-                                    <span>In Progress</span><strong>{workScope.statusSummary.inProgress}</strong>
-                                    <span>Todo</span><strong>{workScope.statusSummary.todo}</strong>
-                                </div>
-                                <div className="scope-multiselect">
-                                    {workScope.items.slice(0, 10).map((it) => {
-                                        const checked = selectedScopeItemIds.includes(it.id);
-                                        return (
-                                            <label key={`chat-scope-${it.id}`} className="scope-check-item">
-                                                <input
-                                                    type="checkbox"
-                                                    checked={checked}
-                                                    onChange={() =>
-                                                        setSelectedScopeItemIds((prev) =>
-                                                            checked ? prev.filter((id) => id !== it.id) : [...prev, it.id]
-                                                        )
-                                                    }
-                                                />
-                                                <span><strong>{it.key}</strong> {it.name}</span>
-                                            </label>
-                                        );
-                                    })}
-                                </div>
-                            </div>
+                                    <Button variant="ghost" size="sm" className="h-7 text-[10px]" onClick={() => setScopeCardPinned(false)}>Unpin</Button>
+                                </CardHeader>
+                                <CardContent className="p-4 flex flex-col gap-4">
+                                    <div className="grid grid-cols-4 gap-2 border-b border-border/50 pb-4">
+                                        <div className="flex flex-col items-center">
+                                            <span className="text-[10px] text-muted-foreground uppercase font-medium">Total</span>
+                                            <span className="text-lg font-bold">{workScope.statusSummary.total}</span>
+                                        </div>
+                                        <div className="flex flex-col items-center">
+                                            <span className="text-[10px] text-emerald-500 uppercase font-medium">Done</span>
+                                            <span className="text-lg font-bold text-emerald-500">{workScope.statusSummary.done}</span>
+                                        </div>
+                                        <div className="flex flex-col items-center">
+                                            <span className="text-[10px] text-amber-500 uppercase font-medium">In Progress</span>
+                                            <span className="text-lg font-bold text-amber-500">{workScope.statusSummary.inProgress}</span>
+                                        </div>
+                                        <div className="flex flex-col items-center">
+                                            <span className="text-[10px] text-muted-foreground uppercase font-medium">Todo</span>
+                                            <span className="text-lg font-bold">{workScope.statusSummary.todo}</span>
+                                        </div>
+                                    </div>
+                                    <ScrollArea className="h-48">
+                                        <div className="flex flex-col gap-1.5 pr-3">
+                                            {workScope.items.slice(0, 50).map((it) => {
+                                                const checked = selectedScopeItemIds.includes(it.id);
+                                                return (
+                                                    <label key={`chat-scope-${it.id}`} className="flex items-start gap-2.5 p-2 rounded-md hover:bg-accent/50 cursor-pointer transition-colors group">
+                                                        <div className={`mt-0.5 size-4 rounded border flex items-center justify-center transition-colors ${checked ? 'bg-primary border-primary shadow-sm shadow-primary/20' : 'border-border group-hover:border-primary/50'}`}>
+                                                            {checked && <div className="size-1.5 rounded-full bg-primary-foreground" />}
+                                                        </div>
+                                                        <input
+                                                            type="checkbox"
+                                                            className="sr-only"
+                                                            checked={checked}
+                                                            onChange={() =>
+                                                                setSelectedScopeItemIds((prev) =>
+                                                                    checked ? prev.filter((id) => id !== it.id) : [...prev, it.id]
+                                                                )
+                                                            }
+                                                        />
+                                                        <div className="flex flex-col gap-0.5">
+                                                            <div className="flex items-center gap-2">
+                                                                <Badge variant="outline" className="h-4 px-1 text-[9px] font-mono opacity-60">{it.key}</Badge>
+                                                                <span className={`text-[11px] font-medium leading-tight ${checked ? 'line-through text-muted-foreground' : ''}`}>{it.name}</span>
+                                                            </div>
+                                                        </div>
+                                                    </label>
+                                                );
+                                            })}
+                                        </div>
+                                    </ScrollArea>
+                                </CardContent>
+                            </Card>
                         )}
                         {!scopeCardPinned && workScope.items.length > 0 && (
-                            <button type="button" className="scope-pin-restore" onClick={() => setScopeCardPinned(true)}>
+                            <Button variant="outline" className="w-full dashed border-border/50 h-9 gap-2 text-xs" onClick={() => setScopeCardPinned(true)}>
+                                <Plus className="size-3.5" />
                                 Pin Scope Checklist
-                            </button>
+                            </Button>
                         )}
 
-                        {messages.length === 0 && status === 'idle' ? (
-                            <div style={{opacity: 0.5, fontStyle: 'italic', margin: 'auto'}}>
-                                No tasks yet. How can the Swarm assist you today?
-                            </div>
-                        ) : null}
-                        
-                        {messages.map((m) => (
-                            <div key={m.id} className={`chat-bubble ${m.role}`}>
-                                <div className="chat-meta">
-                                    <span>{m.role === 'user' ? 'Me' : 'Agent'}</span>
-                                    <span>{m.timestamp.toLocaleTimeString()}</span>
+                        <div className="flex flex-col gap-8 pb-32">
+                            {messages.length === 0 && status === 'idle' ? (
+                                <div className="flex flex-col items-center justify-center py-20 text-center gap-4 opacity-40">
+                                    <div className="size-16 rounded-full bg-muted flex items-center justify-center">
+                                        <Terminal className="size-8" />
+                                    </div>
+                                    <p className="text-sm font-medium italic max-w-xs">
+                                        No tasks yet. How can the Swarm assist you today?
+                                    </p>
                                 </div>
-                                {(() => {
-                                    const meeting = parseMeetingViewPayload(m.content);
+                            ) : (
+                                messages.map((m) => (
+                                    <div key={m.id} className={`flex flex-col gap-2 ${m.role === 'user' ? 'items-end' : 'items-start'}`}>
+                                        <div className="flex items-center gap-2 px-1">
+                                            <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+                                                {m.role === 'user' ? 'Operator' : 'Swarm'}
+                                            </span>
+                                            <span className="text-[10px] text-muted-foreground/50">
+                                                {m.timestamp.toLocaleTimeString()}
+                                            </span>
+                                        </div>
+                                        <div className={`relative max-w-[85%] px-4 py-3 rounded-2xl text-sm leading-relaxed shadow-sm ${
+                                            m.role === 'user' 
+                                            ? 'bg-primary text-primary-foreground rounded-tr-none' 
+                                            : 'bg-muted border border-border/50 text-foreground rounded-tl-none'
+                                        }`}>
+                                            {(() => {
+                                                const meeting = parseMeetingViewPayload(m.content);
                                     if (!meeting) return null;
                                     return (
                                         <div className="meeting-card">
@@ -2367,9 +2449,11 @@ export function CockpitPage() {
                                     <ArtifactRenderer content={toRenderableMarkdown(m.content)} />
                                 </div>
                             </div>
-                        ))}
-
-                        {isAwaitingAgentReply && (
+                        </div>
+                    ))
+                )}
+                    
+                    {isAwaitingAgentReply && (
                             <div className="chat-bubble agent border-dashed border-slate-500/70 bg-slate-900/60">
                                 <div className="chat-meta">
                                     <span>Agent</span>
@@ -2401,823 +2485,536 @@ export function CockpitPage() {
                         
                         <div ref={scrollRef} />
                     </div>
+                    </ScrollArea>
 
-                    <div className="task-input-wrapper">
-                        {showCatalogPicker && (
-                            <div className="composer-catalog-popover">
-                                <div className="catalog-section">
-                                    <strong>Agents</strong>
-                                    <div className="catalog-chip-list">
-                                        {catalog.agents.length === 0 && <span className="catalog-list">No data</span>}
-                                        {catalog.agents.map((item) => (
-                                            <button
-                                                key={`agent-pop-${item}`}
-                                                className="catalog-chip"
-                                                onClick={() => appendCommand('agent', item)}
-                                            >
-                                                @{item}
-                                            </button>
-                                        ))}
-                                    </div>
-                                </div>
-                                <div className="catalog-section">
-                                    <strong>Pipelines</strong>
-                                    <div className="catalog-chip-list">
-                                        {catalog.pipelines.length === 0 && <span className="catalog-list">No data</span>}
-                                        {catalog.pipelines.map((item) => (
-                                            <button
-                                                key={`pipeline-pop-${item}`}
-                                                className="catalog-chip"
-                                                onClick={() => appendCommand('pipeline', item)}
-                                            >
-                                                /{item}
-                                            </button>
-                                        ))}
-                                    </div>
-                                </div>
-                                <div className="catalog-section">
-                                    <strong>Skills</strong>
-                                    <div className="catalog-chip-list">
-                                        {catalog.skills.length === 0 && <span className="catalog-list">No data</span>}
-                                        {catalog.skills.map((item) => (
-                                            <button
-                                                key={`skill-pop-${item}`}
-                                                className="catalog-chip"
-                                                onClick={() => appendCommand('skill', item)}
-                                            >
-                                                #{item}
-                                            </button>
-                                        ))}
-                                    </div>
-                                </div>
-                            </div>
-                        )}
-                        {promptTokens.length > 0 && (
-                            <div className="composer-chip-strip">
-                                {promptTokens.map((token) => (
-                                    <button
-                                        key={`${token.kind}:${token.value}`}
-                                        className="composer-chip"
-                                        onClick={() => removeToken(token.kind, token.value)}
-                                        onContextMenu={(e) => {
+                    {/* Chat Input Area (Fixed at bottom of left panel) */}
+                    <div className="p-4 border-t border-border/50 bg-background/80 backdrop-blur-md sticky bottom-0">
+                        <div className="max-w-4xl mx-auto flex flex-col gap-3">
+                            <div className="relative group">
+                                <Input 
+                                    className="pr-12 py-6 text-sm bg-muted/50 border-border/50 focus-visible:ring-primary/20 transition-all rounded-xl"
+                                    placeholder="Execute command or ask the Swarm..."
+                                    value={inputValue}
+                                    onChange={(e) => setInputValue(e.target.value)}
+                                    onKeyDown={(e) => {
+                                        if (e.key === 'Enter' && !e.shiftKey) {
                                             e.preventDefault();
-                                            rehydrateTokenIntoInput(token);
-                                            removeToken(token.kind, token.value);
-                                        }}
-                                        title="Remove token"
-                                    >
-                                        {token.kind}: {token.value} ×
-                                    </button>
-                                ))}
-                            </div>
-                        )}
-                        <textarea 
-                            ref={textareaRef}
-                            className="task-textarea"
-                            placeholder="Describe the feature, issue, or strategy idea..."
-                            value={input}
-                            disabled={isProcessing || isAwaitingAgentReply}
-                            onChange={e => {
-                                const value = e.target.value;
-                                const cursor = e.target.selectionStart ?? value.length;
-                                setInput(value);
-                                updateAutocomplete(value, cursor);
-                            }}
-                            onDragOver={(e) => e.preventDefault()}
-                            onDrop={handleTokenDrop}
-                            onKeyDown={e => {
-                                if (metaAutocomplete.open) {
-                                    if (e.key === 'ArrowDown') {
-                                        e.preventDefault();
-                                        setMetaAutocomplete((prev) => ({
-                                            ...prev,
-                                            selectedIndex: (prev.selectedIndex + 1) % prev.suggestions.length,
-                                        }));
-                                        return;
-                                    }
-                                    if (e.key === 'ArrowUp') {
-                                        e.preventDefault();
-                                        setMetaAutocomplete((prev) => ({
-                                            ...prev,
-                                            selectedIndex: prev.selectedIndex === 0 ? prev.suggestions.length - 1 : prev.selectedIndex - 1,
-                                        }));
-                                        return;
-                                    }
-                                    if (e.key === 'Enter' || e.key === 'Tab') {
-                                        e.preventDefault();
-                                        applyAutocompleteChoice();
-                                        return;
-                                    }
-                                    if (e.key === 'Escape') {
-                                        e.preventDefault();
-                                        closeAutocomplete();
-                                        return;
-                                    }
-                                }
-                                if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
-                                    e.preventDefault();
-                                    setShowCatalogPicker((prev) => !prev);
-                                    return;
-                                }
-                                if (e.key === 'Backspace' && !input.trim() && promptTokens.length > 0) {
-                                    e.preventDefault();
-                                    const last = promptTokens[promptTokens.length - 1];
-                                    removeToken(last.kind, last.value);
-                                    return;
-                                }
-                                if (e.key === 'Enter' && !e.shiftKey) {
-                                    e.preventDefault();
-                                    handleSend();
-                                }
-                            }}
-                            rows={2}
-                        />
-                        {metaAutocomplete.open && (
-                            <div className="meta-autocomplete">
-                                {metaAutocomplete.suggestions.map((item, idx) => (
-                                    <button
-                                        key={`${metaAutocomplete.kind}-${item}`}
-                                        className={`meta-option ${idx === metaAutocomplete.selectedIndex ? 'active' : ''}`}
-                                        type="button"
-                                        onMouseDown={(e) => e.preventDefault()}
-                                        onClick={() => applyAutocompleteChoice(idx)}
-                                    >
-                                        <span className="meta-prefix">{metaAutocomplete.kind === 'agent' ? '@' : metaAutocomplete.kind === 'pipeline' ? '/' : '#'}</span>
-                                        <span>{item}</span>
-                                    </button>
-                                ))}
-                            </div>
-                        )}
-
-                        {ghostText && (
-                            <div className="ghost-text-overlay">
-                                <span className="ghost-label">Listening:</span> {ghostText}...
-                            </div>
-                        )}
-                        <div className="composer-controls-row">
-                            <div className="input-context-selectors">
-                                <div className="runtime-picker">
-                                    <button
-                                        type="button"
-                                        className="runtime-picker-btn runtime-inline-btn"
-                                        onClick={(event) => {
-                                            event.stopPropagation();
-                                            setRuntimePickerOpen((prev) => (prev === 'voice' ? null : 'voice'));
-                                        }}
-                                        aria-label="Voice language"
-                                        title="Voice language"
-                                    >
-                                        <Globe2 size={12} />
-                                        <span>{voiceLang === 'auto' ? 'Auto' : voiceLang.toUpperCase()}</span>
-                                        <ChevronDown size={12} />
-                                    </button>
-                                    {runtimePickerOpen === 'voice' && (
-                                        <div className="runtime-picker-menu" onClick={(event) => event.stopPropagation()}>
-                                            {([
-                                                { id: 'auto', label: 'Auto' },
-                                                { id: 'uk', label: 'UA' },
-                                                { id: 'en', label: 'EN' },
-                                            ] as const).map((item) => (
-                                                <button
-                                                    key={`voice-${item.id}`}
-                                                    type="button"
-                                                    className={`runtime-picker-option ${voiceLang === item.id ? 'active' : ''}`}
-                                                    onClick={() => {
-                                                        setVoiceLang(item.id);
-                                                        setRuntimePickerOpen(null);
-                                                    }}
-                                                >
-                                                    {item.label}
-                                                </button>
-                                            ))}
-                                        </div>
-                                    )}
-                                </div>
-                                <div className="runtime-picker">
-                                    <button
-                                        type="button"
-                                        className="runtime-picker-btn"
-                                        onClick={(event) => {
-                                            event.stopPropagation();
-                                            setRuntimePickerOpen((prev) => (prev === 'provider' ? null : 'provider'));
-                                        }}
-                                        aria-label="Provider"
-                                    >
-                                        <span>{selectedProvider}</span>
-                                        <ChevronDown size={12} />
-                                    </button>
-                                    {runtimePickerOpen === 'provider' && (
-                                        <div className="runtime-picker-menu" onClick={(event) => event.stopPropagation()}>
-                                            {(['claude-cli', 'codex-cli', 'openhands-sdk'] as const).map((provider) => (
-                                                <button
-                                                    key={`provider-${provider}`}
-                                                    type="button"
-                                                    className={`runtime-picker-option ${selectedProvider === provider ? 'active' : ''}`}
-                                                    onClick={() => {
-                                                        const defaultModel = providerModelPresets[provider]?.[0] || 'auto';
-                                                        setSelectedProvider(provider);
-                                                        setSelectedModel(defaultModel);
-                                                        setRuntimePickerOpen(null);
-                                                        void applyRuntimeSelection(provider, defaultModel);
-                                                    }}
-                                                >
-                                                    {provider}
-                                                </button>
-                                            ))}
-                                        </div>
-                                    )}
-                                </div>
-                                <div className="runtime-picker">
-                                    <button
-                                        type="button"
-                                        className="runtime-picker-btn"
-                                        onClick={(event) => {
-                                            event.stopPropagation();
-                                            setRuntimePickerOpen((prev) => (prev === 'model' ? null : 'model'));
-                                        }}
-                                        aria-label="Model"
-                                    >
-                                        <span>{selectedModel}</span>
-                                        <ChevronDown size={12} />
-                                    </button>
-                                    {runtimePickerOpen === 'model' && (
-                                        <div className="runtime-picker-menu" onClick={(event) => event.stopPropagation()}>
-                                            {(providerModelPresets[selectedProvider] || ['auto']).map((model) => (
-                                                <button
-                                                    key={`model-${model}`}
-                                                    type="button"
-                                                    className={`runtime-picker-option ${selectedModel === model ? 'active' : ''}`}
-                                                    onClick={() => {
-                                                        setSelectedModel(model);
-                                                        setRuntimePickerOpen(null);
-                                                        void applyRuntimeSelection(selectedProvider, model);
-                                                    }}
-                                                >
-                                                    {model}
-                                                </button>
-                                            ))}
-                                        </div>
-                                    )}
-                                </div>
-                                <div className="runtime-picker">
-                                    <button
-                                        type="button"
-                                        className={`runtime-picker-btn runtime-inline-btn icon-only ${showPlusMenu ? 'active' : ''}`}
-                                        onClick={(event) => {
-                                            event.stopPropagation();
-                                            setShowPlusMenu((prev) => !prev);
-                                        }}
-                                        title="Add action"
-                                        aria-label="Add action"
-                                    >
-                                        <Plus size={13} />
-                                    </button>
-                                    {showPlusMenu && (
-                                        <div className="runtime-picker-menu" onClick={(event) => event.stopPropagation()}>
-                                            <button
-                                                type="button"
-                                                className={`runtime-picker-option ${showCatalogPicker ? 'active' : ''}`}
-                                                onClick={() => {
-                                                    setShowCatalogPicker((prev) => !prev);
-                                                    setShowPlusMenu(false);
-                                                }}
-                                            >
-                                                Toggle catalog
-                                            </button>
-                                            <button
-                                                type="button"
-                                                className="runtime-picker-option"
-                                                onClick={() => {
-                                                    fileInputRef.current?.click();
-                                                    setShowPlusMenu(false);
-                                                }}
-                                            >
-                                                Attach file token
-                                            </button>
-                                        </div>
-                                    )}
-                                </div>
-                            </div>
-                            <div className="input-actions">
-                                <button 
-                                    className={`icon-btn icon-btn-codex-mic ${isRecording ? 'recording' : ''}`}
-                                    onClick={toggleRecording}
-                                    disabled={isProcessing}
-                                    title="Use Voice Input"
-                                >
-                                    <Mic size={15} />
-                                </button>
-                                {(isProcessing || isAwaitingAgentReply || status === 'running') ? (
-                                    <button
-                                        className="icon-btn icon-btn-codex-send"
-                                        onClick={handleStop}
-                                        disabled={false}
-                                        aria-label="Stop run"
-                                        title="Stop run"
-                                        style={{ color: '#ef4444' }}
-                                    >
-                                        <Square size={14} />
-                                    </button>
-                                ) : (
-                                    <button 
-                                        className="icon-btn icon-btn-codex-send"
-                                        onClick={handleSend}
-                                        disabled={(!input.trim() && promptTokens.length === 0) || isRecording || isAwaitingAgentReply}
-                                        aria-label="Send task"
-                                        title="Send task"
-                                    >
-                                        <Send size={15} />
-                                    </button>
-                                )}
-                            </div>
-                        </div>
-                        <input
-                            ref={fileInputRef}
-                            type="file"
-                            multiple
-                            style={{ display: 'none' }}
-                            onChange={handleFileAttach}
-                        />
-                        <div className="composer-shortcuts compact">
-                            <kbd>Ctrl/Cmd</kbd>+<kbd>K</kbd> catalog
-                        </div>
-                        <div className="runtime-footer-strip">
-                            <div className="runtime-picker">
-                                <button
-                                    type="button"
-                                    className="runtime-footer-item"
-                                    title="Execution target"
-                                    onClick={(event) => {
-                                        event.stopPropagation();
-                                        setRuntimePickerOpen((prev) => (prev === 'target' ? null : 'target'));
+                                            handleSendMessage();
+                                        }
                                     }}
+                                />
+                                <Button 
+                                    className="absolute right-2 top-1/2 -translate-y-1/2 size-8 p-0 rounded-lg shadow-lg shadow-primary/20"
+                                    onClick={handleSendMessage}
+                                    disabled={!inputValue.trim()}
                                 >
-                                    <Laptop size={12} />
-                                    <span>{runtimeFooter.executionTarget === 'local' ? 'Локально' : 'Віддалено'}</span>
-                                    <ChevronDown size={11} />
-                                </button>
-                                {runtimePickerOpen === 'target' && (
-                                    <div className="runtime-picker-menu" onClick={(event) => event.stopPropagation()}>
-                                        <button type="button" className={`runtime-picker-option ${runtimeFooter.executionTarget === 'local' ? 'active' : ''}`} onClick={() => { void updateRuntimeFooter({ executionTarget: 'local' }); setRuntimePickerOpen(null); }}>
-                                            Локально
-                                        </button>
-                                        <button type="button" className={`runtime-picker-option ${runtimeFooter.executionTarget === 'remote' ? 'active' : ''}`} onClick={() => { void updateRuntimeFooter({ executionTarget: 'remote' }); setRuntimePickerOpen(null); }}>
-                                            Віддалено
-                                        </button>
-                                    </div>
-                                )}
+                                    <Send className="size-4" />
+                                </Button>
                             </div>
-                            <div className="runtime-picker">
-                                <button
-                                    type="button"
-                                    className="runtime-footer-item runtime-footer-item-accent"
-                                    title="Access policy"
-                                    onClick={(event) => {
-                                        event.stopPropagation();
-                                        setRuntimePickerOpen((prev) => (prev === 'access' ? null : 'access'));
-                                    }}
+                            <div className="flex items-center justify-between px-1">
+                                <div className="flex items-center gap-1.5 overflow-hidden">
+                                    <div className="flex items-center gap-1">
+                                        <Badge variant="outline" className="h-6 gap-1 border-border/50 bg-muted/30 hover:bg-muted/50 cursor-pointer transition-colors"
+                                             onClick={(e) => { e.stopPropagation(); setRuntimePickerOpen(p => p === 'target' ? null : 'target'); }}>
+                                            <Globe2 className="size-3 opacity-50" />
+                                            <span>{runtimeFooter.executionTarget === 'local' ? 'Local' : 'Remote'}</span>
+                                            <ChevronDown className="size-2.5 opacity-30" />
+                                        </Badge>
+                                        <Badge variant="outline" className="h-6 gap-1 border-border/50 bg-muted/30 hover:bg-muted/50 cursor-pointer transition-colors"
+                                             onClick={(e) => { e.stopPropagation(); setRuntimePickerOpen(p => p === 'access' ? null : 'access'); }}>
+                                            <ShieldCheck className="size-3 opacity-50 text-amber-500" />
+                                            <span>{runtimeFooter.accessPolicy === 'full-access' ? 'Full Access' : 'Sandbox'}</span>
+                                            <ChevronDown className="size-2.5 opacity-30" />
+                                        </Badge>
+                                    </div>
+                                    <Separator orientation="vertical" className="h-3 mx-1" />
+                                    <div className="flex items-center gap-2 text-[10px] text-muted-foreground truncate opacity-60">
+                                        <span className="font-medium text-foreground/50">{runtimeModeLabel}</span>
+                                        {mode === 'multiple_agents' && swarmSummary.workersTotal > 0 && <span className="text-emerald-500">• distributed active</span>}
+                                    </div>
+                                </div>
+                                <Button 
+                                    variant="ghost" 
+                                    size="icon" 
+                                    className="size-6 text-muted-foreground hover:text-foreground"
+                                    onClick={() => void loadRuntimeFooter()}
+                                    title="Refresh runtime"
                                 >
-                                    <ShieldCheck size={12} />
-                                    <span>{runtimeFooter.accessPolicy === 'full-access' ? 'Повний доступ' : 'Sandbox'}</span>
-                                    <ChevronDown size={11} />
-                                </button>
-                                {runtimePickerOpen === 'access' && (
-                                    <div className="runtime-picker-menu" onClick={(event) => event.stopPropagation()}>
-                                        <button type="button" className={`runtime-picker-option ${runtimeFooter.accessPolicy === 'full-access' ? 'active' : ''}`} onClick={() => { void updateRuntimeFooter({ accessPolicy: 'full-access' }); setRuntimePickerOpen(null); }}>
-                                            Повний доступ
-                                        </button>
-                                        <button type="button" className={`runtime-picker-option ${runtimeFooter.accessPolicy === 'sandbox' ? 'active' : ''}`} onClick={() => { void updateRuntimeFooter({ accessPolicy: 'sandbox' }); setRuntimePickerOpen(null); }}>
-                                            Sandbox
-                                        </button>
-                                    </div>
-                                )}
+                                    <RefreshCw className="size-3" />
+                                </Button>
                             </div>
-                            <div className="runtime-picker">
-                                <button
-                                    type="button"
-                                    className="runtime-footer-item runtime-footer-item-branch"
-                                    title="Git branch"
-                                    onClick={(event) => {
-                                        event.stopPropagation();
-                                        setRuntimePickerOpen((prev) => (prev === 'branch' ? null : 'branch'));
-                                    }}
-                                >
-                                    <GitBranch size={12} />
-                                    <span>{runtimeFooter.activeBranch || gitContext?.activeBranch || 'main'}</span>
-                                    <ChevronDown size={11} />
-                                </button>
-                                {runtimePickerOpen === 'branch' && (
-                                    <div className="runtime-picker-menu" onClick={(event) => event.stopPropagation()}>
-                                        <button type="button" className="runtime-picker-option">
-                                            Branch: {runtimeFooter.activeBranch || gitContext?.activeBranch || 'main'}
-                                        </button>
-                                        <button
-                                            type="button"
-                                            className="runtime-picker-option"
-                                            onClick={() => {
-                                                const value = runtimeFooter.worktreePath || gitContext?.worktreePath || '';
-                                                if (value) void navigator.clipboard?.writeText(value);
-                                                setRuntimePickerOpen(null);
-                                            }}
-                                        >
-                                            {runtimeFooter.worktreePath || gitContext?.worktreePath ? 'Copy worktree path' : 'Worktree path unavailable'}
-                                        </button>
-                                        <button
-                                            type="button"
-                                            className="runtime-picker-option"
-                                            onClick={() => {
-                                                const value = runtimeFooter.preflightToken || gitContext?.preflightToken || '';
-                                                if (value) void navigator.clipboard?.writeText(value);
-                                                setRuntimePickerOpen(null);
-                                            }}
-                                        >
-                                            {runtimeFooter.preflightToken || gitContext?.preflightToken ? 'Copy preflight token path' : 'Preflight token unavailable'}
-                                        </button>
-                                    </div>
-                                )}
-                            </div>
-                            <button type="button" className="runtime-footer-item runtime-footer-item-mode" title="Runtime mode">
-                                <span>
-                                    {runtimeModeLabel}
-                                    {mode === 'multiple_agents'
-                                        ? (swarmSummary.workersTotal > 0 ? ' · distributed runtime active' : ' · distributed runtime not confirmed')
-                                        : ''}
-                                </span>
-                            </button>
-                            <button type="button" className="runtime-footer-item icon-only" title="Refresh runtime state" onClick={() => void loadRuntimeFooter()}>
-                                <RefreshCw size={12} />
-                            </button>
                         </div>
                     </div>
-
                 </section>
 
                 {/* Right Panel: Event Feed & Active Agent */}
-                <section className="right-panel">
-                    <div className="right-panel-sticky">
-                        <div className="panel-title">
-                            <Activity size={20} />
-                            Live Hive State
-                        </div>
-
-                        <div className="agent-status-card">
-                            <div className="agent-avatar">
-                                <Cpu size={24} color={'white'} />
-                            </div>
-                            <div className="agent-info">
-                                <div className="agent-name">Swarm Controller</div>
-                                <div className="agent-activity">
-                                    {swarmSummary.workersTotal > 0
-                                        ? `${swarmSummary.activeWorkers} active / ${swarmSummary.workersTotal} workers`
-                                        : sortedAgentStatusRows.length > 0
-                                            ? `${sortedAgentStatusRows.filter((row) => row.status === 'active').length} active / ${sortedAgentStatusRows.length} total agents`
-                                            : 'No discovered agents yet'}
-                                </div>
-                            </div>
-                        </div>
-
-                        <div className="catalog-card">
-                            <div className="catalog-title">Runtime Summary</div>
-                            <div className="catalog-section">
-                                <span className={statusBadgeClass(status)}>{status || 'idle'}</span>
-                                <span className={swarmSummary.activeWorkers >= 2 ? 'text-emerald-400' : 'text-slate-300'}>
-                                    Parallel execution: {swarmSummary.activeWorkers >= 2 ? 'on' : 'off'}
-                                </span>
-                                <span>Project scope: {selectedProject || 'global/unbound'}</span>
-                                <span>Active thread: {selectedThread || 'n/a'}</span>
-                                <span>Ticket: {currentTicketId || 'n/a'}</span>
-                                <span>Branch: {gitContext?.activeBranch || runtimeFooter.activeBranch || 'n/a'}</span>
-                                <span>Worktree: {gitContext?.worktreePath || runtimeFooter.worktreePath || 'n/a'}</span>
-                                <span>Queue pressure: {swarmSummary.queuePressure}</span>
-                                <span>Unhealthy workers: {swarmSummary.unhealthyWorkers}</span>
-                                <span className={resourcePressure.className}>Resource pressure: {resourcePressure.label}</span>
-                                {projectSwitchFeedback && (
-                                    <>
-                                        <span>
-                                            Switch: {projectSwitchFeedback.fromProjectId || 'n/a'} {'->'} {projectSwitchFeedback.toProjectId || 'n/a'}
-                                        </span>
-                                        <span className={projectSwitchFeedback.switching ? 'text-amber-300' : 'text-emerald-300'}>
-                                            Transition: {projectSwitchFeedback.switching ? 'warming up...' : 'ready'}
-                                        </span>
-                                        <span>
-                                            Spawned: {projectSwitchFeedback.spawned} | Demoted: {projectSwitchFeedback.demoted} | Cold: {projectSwitchFeedback.coldWorkers}
-                                        </span>
-                                        <span>
-                                            Warmup: {projectSwitchFeedback.warmupMs === null ? 'n/a' : `${Math.max(0, Math.floor(projectSwitchFeedback.warmupMs))}ms`}
-                                        </span>
-                                    </>
-                                )}
-                                <div className="mt-2 text-[0.72rem] text-slate-400">
-                                    Runtime controls are managed in the platform control plane.
-                                </div>
-                            </div>
-                        </div>
+                <aside className="w-80 border-l border-border/50 bg-sidebar/5 flex flex-col overflow-hidden">
+                    <div className="flex items-center h-12 px-4 border-b border-border/50 bg-background/50">
+                        <Activity className="size-4 mr-2 text-primary" />
+                        <span className="text-sm font-semibold">Hive Monitor</span>
                     </div>
 
-                    <div className="catalog-card">
-                        <div className="catalog-title">Agent Runtime Board</div>
-                        <div className="catalog-section">
-                            <span>Project agents: {sortedAgentStatusRows.length}</span>
-                            <span>Workers: {projectRosterSummary.totalWorkers}</span>
-                            <span>Enabled workers: {projectRosterSummary.enabled}</span>
-                            <span>Hot workers: {projectRosterSummary.hot}</span>
-                            <span>Cold workers: {projectRosterSummary.cold}</span>
+                    <ScrollArea className="flex-1">
+                        <div className="p-4 flex flex-col gap-4">
+                            {/* Swarm Controller Card */}
+                            <Card className="border-border/50 bg-background/50 shadow-none">
+                                <CardContent className="p-3 flex items-center gap-3">
+                                    <div className="size-10 rounded-xl bg-primary flex items-center justify-center shadow-lg shadow-primary/20">
+                                        <Cpu className="size-5 text-primary-foreground" />
+                                    </div>
+                                    <div className="flex flex-col min-w-0">
+                                        <span className="text-sm font-bold truncate">Swarm Controller</span>
+                                        <div className="flex items-center gap-1.5">
+                                            <div className="size-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                                            <span className="text-[10px] font-medium text-muted-foreground truncate">
+                                                {swarmSummary.workersTotal > 0
+                                                    ? `${swarmSummary.activeWorkers} active / ${swarmSummary.workersTotal} workers`
+                                                    : sortedAgentStatusRows.length > 0
+                                                        ? `${sortedAgentStatusRows.filter((row) => row.status === 'active').length} active agents`
+                                                        : 'Searching agents...'}
+                                            </span>
+                                        </div>
+                                    </div>
+                                </CardContent>
+                            </Card>
+
+                            <Card className="border-border/50 bg-background/50 shadow-none overflow-hidden">
+                                <CardHeader className="py-2 px-3 border-b border-border/30 bg-muted/20">
+                                    <CardTitle className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Runtime Info</CardTitle>
+                                </CardHeader>
+                                <CardContent className="p-3 flex flex-col gap-2.5">
+                                    <div className="flex items-center justify-between">
+                                        <span className="text-xs text-muted-foreground">Status</span>
+                                        <Badge variant={status === 'running' ? "default" : "secondary"} className="h-5 text-[9px] uppercase tracking-wider">{status || 'idle'}</Badge>
+                                    </div>
+                                    <div className="flex items-center justify-between">
+                                        <span className="text-xs text-muted-foreground">Parallel Execution</span>
+                                        <span className={`text-[11px] font-bold ${swarmSummary.activeWorkers >= 2 ? 'text-emerald-500' : 'text-muted-foreground/50'}`}>
+                                            {swarmSummary.activeWorkers >= 2 ? 'ENABLED' : 'DISABLED'}
+                                        </span>
+                                    </div>
+                                    <Separator className="bg-border/30" />
+                                    <div className="flex flex-col gap-2">
+                                        <div className="flex items-center justify-between text-[11px]">
+                                            <span className="text-muted-foreground">Queue Pressure</span>
+                                            <span className="font-mono font-bold">{swarmSummary.queuePressure}</span>
+                                        </div>
+                                        <div className="flex items-center justify-between text-[11px]">
+                                            <span className="text-muted-foreground">Unhealthy Nodes</span>
+                                            <span className={`font-mono font-bold ${swarmSummary.unhealthyWorkers > 0 ? 'text-destructive' : ''}`}>{swarmSummary.unhealthyWorkers}</span>
+                                        </div>
+                                    </div>
+                                    {projectSwitchFeedback && (
+                                         <div className="mt-2 p-2 rounded bg-amber-500/5 border border-amber-500/20 flex flex-col gap-1.5 text-[10px]">
+                                            <div className="flex items-center justify-between">
+                                                <span className="text-amber-500/70 font-medium">Project Migration</span>
+                                                <Badge variant="outline" className="h-4 border-amber-500/30 text-amber-500 text-[8px]">{projectSwitchFeedback.switching ? 'IN_PROGRESS' : 'READY'}</Badge>
+                                            </div>
+                                            <div className="flex items-center justify-between opacity-70">
+                                                <span>Spawned: {projectSwitchFeedback.spawned}</span>
+                                                <span>Demoted: {projectSwitchFeedback.demoted}</span>
+                                            </div>
+                                         </div>
+                                    )}
+                                </CardContent>
+                            </Card>
                         </div>
-                        <div className="agent-board">
-                            {sortedAgentStatusRows.length === 0 ? (
-                                <div className="agent-board-empty">No agent registry data.</div>
-                            ) : (
-                                sortedAgentStatusRows.map((row) => (
-                                    <div key={row.slug} className="agent-board-row">
-                                        <div className={`agent-dot ${row.isPaused ? 'standby' : row.status}`} />
-                                        <div className="agent-board-main">
-                                            <div className="agent-board-title">{row.callsign || row.title}</div>
-                                            <div className="agent-board-sub">{row.slug}</div>
-                                            {row.delegatedFrom && (
-                                                <div className="inline-flex items-center gap-1 mt-0.5 text-[0.72rem] text-amber-400 opacity-80">
-                                                    <span>⤷ delegated from</span>
-                                                    <span className="font-medium">{row.delegatedFrom}</span>
+                    </ScrollArea>
+                            {/* Agent Runtime Board */}
+                            <Card className="border-border/50 bg-background/50 shadow-none overflow-hidden flex flex-col min-h-0">
+                                <CardHeader className="py-2 px-3 border-b border-border/30 bg-muted/20 flex-row items-center justify-between">
+                                    <div className="flex flex-col">
+                                        <CardTitle className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Agent Registry</CardTitle>
+                                        <div className="flex items-center gap-2 mt-0.5">
+                                            <span className="text-[9px] text-muted-foreground opacity-60">Project Agents: {sortedAgentStatusRows.length}</span>
+                                            <Separator orientation="vertical" className="h-2" />
+                                            <span className="text-[9px] text-muted-foreground opacity-60">Hot: {projectRosterSummary.hot}</span>
+                                        </div>
+                                    </div>
+                                    <Badge variant="outline" className="h-4 px-1 text-[8px] opacity-50">{sortedAgentStatusRows.length}</Badge>
+                                </CardHeader>
+                                <CardContent className="p-0">
+                                    <ScrollArea className="h-[180px]">
+                                        <div className="flex flex-col">
+                                            {sortedAgentStatusRows.length === 0 ? (
+                                                <div className="p-6 text-center text-[10px] text-muted-foreground italic opacity-50">
+                                                    No agents in active scope
                                                 </div>
+                                            ) : (
+                                                sortedAgentStatusRows.map((row) => (
+                                                    <div key={row.slug} className="flex items-start gap-3 p-3 border-b border-border/10 hover:bg-muted/30 transition-colors group">
+                                                        <div className="relative mt-0.5">
+                                                            <div className={`size-8 rounded-lg bg-muted flex items-center justify-center border border-border/50 group-hover:border-primary/30 transition-all shadow-sm`}>
+                                                                <Bot className="size-4 opacity-50" />
+                                                            </div>
+                                                            <div className={`absolute -bottom-0.5 -right-0.5 size-2 rounded-full border-2 border-background ${
+                                                                row.isPaused ? 'bg-muted-foreground/30' : 
+                                                                row.status === 'active' ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500'
+                                                            }`} />
+                                                        </div>
+                                                        <div className="flex flex-col min-w-0 flex-1 gap-1">
+                                                            <div className="flex items-center justify-between gap-2">
+                                                                <span className="text-[11px] font-bold truncate tracking-tight">{row.callsign || row.title}</span>
+                                                                <Badge variant="outline" className="h-3.5 px-1 text-[8px] font-mono opacity-40 lowercase">{row.status}</Badge>
+                                                            </div>
+                                                            <div className="flex flex-col gap-0.5">
+                                                                <span className="text-[10px] text-muted-foreground truncate opacity-60 font-mono italic">@{row.slug}</span>
+                                                                <span className="text-[10px] text-foreground/70 truncate leading-tight">
+                                                                    {row.isPaused ? 'Lifecycle paused' : (row.currentTask || 'Warming up context...')}
+                                                                </span>
+                                                            </div>
+                                                            {row.delegatedFrom && (
+                                                                <div className="flex items-center gap-1 text-[9px] text-amber-500/70 font-medium">
+                                                                    <ArrowUpRight className="size-2.5" />
+                                                                    <span>Delegated from {row.delegatedFrom}</span>
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                ))
                                             )}
                                         </div>
-                                        <div className="agent-board-meta">
-                                            <span>{row.isPaused ? 'paused' : row.status}</span>
-                                            <span>stage: {row.currentStage}</span>
-                                            <span>task: {row.currentTask}</span>
-                                            <span>issue: {row.currentIssue}</span>
+                                    </ScrollArea>
+                                </CardContent>
+                            </Card>
+
+                            {/* Worker Runtime Board */}
+                            <Card className="border-border/50 bg-background/50 shadow-none overflow-hidden flex flex-col min-h-0">
+                                <CardHeader className="py-2 px-3 border-b border-border/30 bg-muted/20 flex-row items-center justify-between">
+                                    <div className="flex flex-col">
+                                        <CardTitle className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Worker Nodes</CardTitle>
+                                        <div className="flex items-center gap-2 mt-0.5">
+                                            <span className="text-[9px] text-muted-foreground opacity-60">Total: {projectRosterSummary.totalWorkers}</span>
+                                            <Separator orientation="vertical" className="h-2" />
+                                            <span className="text-[9px] text-emerald-500 font-medium">Hot: {projectRosterSummary.hot}</span>
                                         </div>
                                     </div>
-                                ))
-                            )}
-                        </div>
-                    </div>
+                                    <Badge variant="outline" className="h-4 px-1 text-[8px] opacity-50">{projectScopedWorkers.length}</Badge>
+                                </CardHeader>
+                                <CardContent className="p-0">
+                                    <ScrollArea className="h-[240px]">
+                                        <div className="flex flex-col">
+                                            {projectScopedWorkers.length === 0 ? (
+                                                <div className="p-8 text-center flex flex-col items-center gap-2 opacity-30">
+                                                    <Server className="size-6" />
+                                                    <span className="text-[10px] italic">No worker runtime data.</span>
+                                                </div>
+                                            ) : (
+                                                projectScopedWorkers.map((worker) => {
+                                                    const heartbeatFresh = worker.heartbeatFreshness === 'fresh';
+                                                    const heartbeatStale = worker.heartbeatFreshness === 'stale';
+                                                    return (
+                                                        <div key={`${worker.projectId}:${worker.agentSlug}:${worker.workerId}`} 
+                                                             className="flex flex-col p-3 border-b border-border/10 hover:bg-muted/30 transition-colors">
+                                                            <div className="flex items-center justify-between mb-2">
+                                                                <div className="flex items-center gap-2">
+                                                                    <div className={`size-1.5 rounded-full ${heartbeatFresh ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]' : heartbeatStale ? 'bg-amber-500' : 'bg-destructive'}`} />
+                                                                    <span className="text-[11px] font-bold font-mono tracking-tighter">{worker.workerId.slice(0, 12)}</span>
+                                                                </div>
+                                                                <Badge variant={worker.executionState === 'active' ? 'default' : 'secondary'} className="h-4 px-1 text-[8px] font-bold uppercase">
+                                                                    {worker.executionState}
+                                                                </Badge>
+                                                            </div>
+                                                            <div className="flex flex-col gap-1.5">
+                                                                <div className="flex items-center justify-between text-[10px]">
+                                                                    <span className="text-muted-foreground font-medium">{worker.agentSlug}</span>
+                                                                    <span className={`font-mono ${worker.availabilityState === 'hot' ? 'text-emerald-500' : 'text-muted-foreground/60'}`}>{worker.availabilityState}</span>
+                                                                </div>
+                                                                <div className="grid grid-cols-2 gap-2 mt-0.5">
+                                                                    <div className="bg-muted/30 rounded p-1.5 border border-border/30">
+                                                                        <div className="text-[8px] uppercase tracking-tighter text-muted-foreground mb-0.5">Task / Stage</div>
+                                                                        <div className="text-[10px] font-mono truncate">{worker.assignedTask?.taskId || 'n/a'}</div>
+                                                                    </div>
+                                                                    <div className="bg-muted/30 rounded p-1.5 border border-border/30">
+                                                                        <div className="text-[8px] uppercase tracking-tighter text-muted-foreground mb-0.5">Heartbeat</div>
+                                                                        <div className="text-[10px] font-mono">{Math.max(0, Math.floor(worker.heartbeatAgeMs / 1000))}s ago</div>
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    );
+                                                })
+                                            )}
+                                        </div>
+                                    </ScrollArea>
+                                </CardContent>
+                            </Card>
 
-                    <div className="catalog-card">
-                        <div className="catalog-title">Worker Runtime Board</div>
-                        <div className="agent-board">
-                            {projectScopedWorkers.length === 0 ? (
-                                <div className="agent-board-empty">No worker runtime data.</div>
-                            ) : (
-                                projectScopedWorkers.map((worker) => {
-                                    const availabilityClass = worker.availabilityState === 'hot' ? 'text-emerald-400' : 'text-slate-400';
-                                    const executionClass = worker.executionState === 'active' ? 'text-amber-300' : 'text-slate-300';
-                                    const heartbeatClass =
-                                        worker.heartbeatFreshness === 'fresh'
-                                            ? 'text-emerald-400'
-                                            : worker.heartbeatFreshness === 'stale'
-                                                ? 'text-amber-300'
-                                                : 'text-red-400';
-                                    const healthLabel =
-                                        worker.heartbeatFreshness === 'dead'
-                                            ? 'dead'
-                                            : worker.heartbeatFreshness === 'stale'
-                                                ? 'degraded'
-                                                : 'healthy';
-                                    const healthClass =
-                                        healthLabel === 'healthy'
-                                            ? 'text-emerald-400'
-                                            : healthLabel === 'degraded'
-                                                ? 'text-amber-300'
-                                                : 'text-red-400';
-                                    const assignedTask = worker.assignedTask?.taskId || 'n/a';
-                                    const assignedStage = worker.assignedTask?.stageId || 'n/a';
-                                    return (
-                                        <div key={`${worker.projectId}:${worker.agentSlug}:${worker.workerId}`} className="agent-board-row">
-                                            <div className={`agent-dot ${worker.executionState === 'active' ? 'active' : 'standby'}`} />
-                                            <div className="agent-board-main">
-                                                <div className="agent-board-title">{worker.agentSlug}</div>
-                                                <div className="agent-board-sub">{worker.workerId}</div>
+                            {/* Queue & Dispatch Board */}
+                            <Card className="border-border/50 bg-background/50 shadow-none overflow-hidden flex flex-col min-h-0">
+                                <CardHeader className="py-2 px-3 border-b border-border/30 bg-muted/20 flex-row items-center justify-between">
+                                    <div className="flex flex-col">
+                                        <CardTitle className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Queue & Dispatch</CardTitle>
+                                        <div className="flex items-center gap-2 mt-0.5">
+                                            <span className="text-[9px] text-muted-foreground opacity-60">Length: {queueSnapshot.queueLength}</span>
+                                            <Separator orientation="vertical" className="h-2" />
+                                            <span className="text-[9px] text-muted-foreground opacity-60">Avg Latency: {dispatchLatencySummary.avgMs ?? 'n/a'}ms</span>
+                                        </div>
+                                    </div>
+                                    {dispatchLatencySummary.warning && <Badge variant="destructive" className="h-4 px-1 text-[8px] animate-bounce">LAG</Badge>}
+                                </CardHeader>
+                                <CardContent className="p-0">
+                                    <ScrollArea className="h-[200px]">
+                                        <div className="flex flex-col">
+                                            {queueSnapshot.waiting.length === 0 ? (
+                                                <div className="p-8 text-center flex flex-col items-center gap-2 opacity-30">
+                                                    <Clock className="size-6" />
+                                                    <span className="text-[10px] italic">Queue is currently clear.</span>
+                                                </div>
+                                            ) : (
+                                                queueSnapshot.waiting.slice(0, 15).map((task) => (
+                                                    <div key={`queue-${task.taskId}`} className="flex items-center gap-3 p-2.5 border-b border-border/10">
+                                                        <div className="size-7 rounded-md bg-muted flex items-center justify-center border border-border/30">
+                                                            <Hash className="size-3.5 opacity-40" />
+                                                        </div>
+                                                        <div className="flex flex-col min-w-0 flex-1">
+                                                            <div className="flex items-center justify-between">
+                                                                <span className="text-[10px] font-bold truncate">{task.taskId}</span>
+                                                                <span className="text-[9px] text-muted-foreground font-mono">{new Date(task.updatedAt).toLocaleTimeString([], {hour12: false})}</span>
+                                                            </div>
+                                                            <div className="flex items-center gap-2 mt-0.5">
+                                                                <Badge variant="outline" className="h-3.5 px-1 text-[8px] font-mono opacity-50 uppercase">{task.agentSlug}</Badge>
+                                                                <span className="text-[9px] text-muted-foreground">stage: {task.stageId}</span>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                ))
+                                            )}
+                                        </div>
+                                    </ScrollArea>
+                                </CardContent>
+                                <CardFooter className="p-2 border-t border-border/10 bg-muted/5 flex items-center justify-between text-[9px] text-muted-foreground opacity-60">
+                                    <span>Tracked: {queueSnapshot.totalTracked}</span>
+                                    <span>Completed: {queueSnapshot.completed.length}</span>
+                                </CardFooter>
+                            </Card>
+
+                            {/* Worker Lifecycle Timeline */}
+                            <Card className="border-border/50 bg-background/50 shadow-none overflow-hidden flex flex-col min-h-0">
+                                <CardHeader className="py-2 px-3 border-b border-border/30 bg-muted/20 flex-row items-center justify-between">
+                                    <div className="flex flex-col">
+                                        <CardTitle className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Lifecycle Events</CardTitle>
+                                    </div>
+                                    <Badge variant="outline" className="h-4 px-1 text-[8px] opacity-50">{workerLifecycleTimeline.length}</Badge>
+                                </CardHeader>
+                                <CardContent className="p-0">
+                                    <ScrollArea className="h-[180px]">
+                                        <div className="flex flex-col p-3 gap-3">
+                                            {workerLifecycleTimeline.length === 0 ? (
+                                                <div className="p-4 text-center text-[10px] text-muted-foreground italic opacity-50">
+                                                    No lifecycle events yet.
+                                                </div>
+                                            ) : (
+                                                workerLifecycleTimeline.map((row) => (
+                                                    <div key={`lifecycle-${row.id}`} className="flex flex-col gap-0.5 border-b border-border/5 pb-2 last:border-0">
+                                                        <div className="flex items-center justify-between">
+                                                            <div className="flex items-center gap-2">
+                                                                <div className={`size-1.5 rounded-full ${row.type.includes('failed') ? 'bg-destructive' : 'bg-emerald-500'}`} />
+                                                                <span className="text-[10px] font-bold text-foreground/80">{row.type}</span>
+                                                            </div>
+                                                            <span className="text-[8px] text-muted-foreground font-mono opacity-50">{new Date(row.at).toLocaleTimeString([], {hour12: false})}</span>
+                                                        </div>
+                                                        <div className="flex items-center gap-1.5 text-[9px] text-muted-foreground opacity-60 ml-3.5">
+                                                            <span className="font-mono">@{row.workerId.slice(0, 6)}</span>
+                                                            <Separator orientation="vertical" className="h-1.5" />
+                                                            <span className="truncate italic">{row.from} {'->'} {row.to}</span>
+                                                        </div>
+                                                    </div>
+                                                ))
+                                            )}
+                                        </div>
+                                    </ScrollArea>
+                                </CardContent>
+                            </Card>
+
+                            {/* Worker Debug Logs */}
+                            <Card className="border-border/50 bg-background/50 shadow-none overflow-hidden flex flex-col min-h-0">
+                                <CardHeader className="py-2 px-3 border-b border-border/30 bg-muted/20 flex-row items-center justify-between">
+                                    <div className="flex flex-col">
+                                        <CardTitle className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Runtime Debug</CardTitle>
+                                    </div>
+                                    <Badge variant="outline" className="h-4 px-1 text-[8px] opacity-50">v2.1 live</Badge>
+                                </CardHeader>
+                                <CardContent className="p-0">
+                                    <ScrollArea className="h-[200px]">
+                                        <div className="flex flex-col p-3 gap-3">
+                                            {workerDebugRows.length === 0 ? (
+                                                <div className="p-4 text-center text-[10px] text-muted-foreground italic opacity-50">
+                                                    Waiting for debug signals...
+                                                </div>
+                                            ) : (
+                                                workerDebugRows.map((row) => (
+                                                    <div key={`debug-${row.id}`} className="flex flex-col gap-0.5 border-b border-border/5 pb-2 last:border-0 overflow-hidden">
+                                                        <div className="flex items-center justify-between mb-0.5">
+                                                            <Badge variant="outline" className="h-3 px-1 text-[7px] font-mono opacity-60 bg-muted/30">{row.type.split('.').pop()}</Badge>
+                                                            <span className="text-[8px] text-muted-foreground font-mono opacity-40">{new Date(row.at).toLocaleTimeString([], {hour12: false})}</span>
+                                                        </div>
+                                                        <div className="flex flex-wrap gap-1.5 items-center">
+                                                            <span className="text-[9px] font-mono font-bold opacity-80 text-primary/80">@{row.workerId.slice(0, 4)}</span>
+                                                            <span className="text-[9px] text-muted-foreground italic truncate max-w-[150px]">
+                                                                {row.summary || `Executing stage ${row.stageId || 'n/a'}`}
+                                                            </span>
+                                                        </div>
+                                                        <div className="flex items-center gap-2 mt-0.5">
+                                                            {row.agentSlug && <span className="text-[7px] bg-muted px-1 rounded opacity-50">AGENT:{row.agentSlug}</span>}
+                                                            {row.tool && <span className="text-[7px] text-emerald-500 font-mono">TOOL:{row.tool}</span>}
+                                                        </div>
+                                                    </div>
+                                                ))
+                                            )}
+                                        </div>
+                                    </ScrollArea>
+                                </CardContent>
+                            </Card>
+
+                            {/* Execution Trace Per Worker */}
+                            <Card className="border-border/50 bg-background/50 shadow-none overflow-hidden flex flex-col min-h-0">
+                                <CardHeader className="py-2 px-3 border-b border-border/30 bg-muted/20 flex-row items-center justify-between">
+                                    <div className="flex flex-col">
+                                        <CardTitle className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Execution Load</CardTitle>
+                                    </div>
+                                    <Badge variant="outline" className="h-4 px-1 text-[8px] opacity-50">REAL_TIME</Badge>
+                                </CardHeader>
+                                <CardContent className="p-0">
+                                    <ScrollArea className="h-[200px]">
+                                        <div className="grid gap-3 p-3">
+                                            {workerTraceRows.length === 0 ? (
+                                                <div className="p-4 text-center text-[10px] text-muted-foreground italic opacity-50">
+                                                    No execution activity detected.
+                                                </div>
+                                            ) : (
+                                                workerTraceRows.map((row) => (
+                                                    <div key={`trace-${row.agentSlug}-${row.workerId}`} className="bg-muted/10 rounded border border-border/20 p-2 group hover:bg-muted/20 transition-colors">
+                                                        <div className="flex items-center justify-between mb-2">
+                                                            <div className="flex items-center gap-1.5">
+                                                                <div className="size-1 rounded-full bg-emerald-500 animate-pulse" />
+                                                                <span className="text-[10px] font-bold text-foreground/80">{row.agentSlug}</span>
+                                                            </div>
+                                                            <span className="text-[8px] text-muted-foreground font-mono opacity-40">@{row.workerId.slice(0, 6)}</span>
+                                                        </div>
+                                                        <div className="grid grid-cols-3 gap-1.5">
+                                                            <div className="flex flex-col items-center bg-background/50 rounded py-1 border border-border/10 shadow-sm">
+                                                                <span className="text-[7px] uppercase tracking-tighter text-muted-foreground font-bold">Steps</span>
+                                                                <span className="text-[10px] font-mono font-bold">{row.steps}</span>
+                                                            </div>
+                                                            <div className="flex flex-col items-center bg-background/50 rounded py-1 border border-border/10 shadow-sm">
+                                                                <span className="text-[7px] uppercase tracking-tighter text-muted-foreground font-bold">Tools</span>
+                                                                <span className="text-[10px] font-mono font-bold">{row.toolCalls}</span>
+                                                            </div>
+                                                            <div className="flex flex-col items-center bg-background/50 rounded py-1 border border-primary/20 shadow-sm bg-primary/5">
+                                                                <span className="text-[7px] uppercase tracking-tighter text-primary/80 font-bold">LLM</span>
+                                                                <span className="text-[10px] font-mono font-bold text-primary">{row.llmCalls}</span>
+                                                            </div>
+                                                        </div>
+                                                        <div className="mt-2 flex items-center justify-end gap-1 text-[7px] text-muted-foreground italic opacity-40">
+                                                            <span>Last activity: {new Date(row.lastAt).toLocaleTimeString([], {hour12: false})}</span>
+                                                        </div>
+                                                    </div>
+                                                ))
+                                            )}
+                                        </div>
+                                    </ScrollArea>
+                                </CardContent>
+                            </Card>
+
+                            {/* Session Replay Control */}
+                            <Card className="border-dashed border-border group bg-muted/5 hover:bg-muted/10 transition-colors">
+                                <CardContent className="p-3 py-4 flex flex-col gap-3">
+                                    <div className="flex items-center justify-between">
+                                        <div className="flex items-center gap-2">
+                                            <Rewind className="size-4 text-muted-foreground group-hover:text-primary transition-colors" />
+                                            <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground group-hover:text-foreground transition-colors">Session Replay</span>
+                                        </div>
+                                        <Badge variant="secondary" className="h-4 px-1 text-[8px] opacity-60">ADMIN</Badge>
+                                    </div>
+                                    <div className="flex flex-col gap-2">
+                                        <div className="flex items-center gap-1.5">
+                                            <Button 
+                                                variant="outline" 
+                                                size="sm" 
+                                                className={`h-7 px-2 text-[10px] flex-1 transition-all ${chatEventRenderMode === 'raw' ? 'bg-amber-500/10 text-amber-500 border-amber-500/40' : 'hover:border-primary/50 text-muted-foreground'}`}
+                                                onClick={() => setChatEventRenderMode('raw')}
+                                            >
+                                                RAW
+                                            </Button>
+                                            <Button 
+                                                variant="outline" 
+                                                size="sm" 
+                                                className={`h-7 px-2 text-[10px] flex-1 transition-all ${chatEventRenderMode === 'formatted' ? 'bg-emerald-500/10 text-emerald-500 border-emerald-500/40' : 'hover:border-primary/50 text-muted-foreground'}`}
+                                                onClick={() => setChatEventRenderMode('humanized')}
+                                            >
+                                                FORMATTED
+                                            </Button>
+                                        </div>
+                                        <div className="flex items-center gap-1.5">
+                                            <Button
+                                                variant="outline"
+                                                size="sm"
+                                                className={`h-7 px-2 text-[10px] flex-1 ${replayEnabled ? 'text-cyan-500 border-cyan-500/30 bg-cyan-500/5' : 'text-muted-foreground opacity-50'}`}
+                                                onClick={() => {
+                                                    setReplayEnabled((v) => !v);
+                                                    setReplayPlaying(false);
+                                                    setReplayIndex(0);
+                                                }}
+                                            >
+                                                {replayEnabled ? 'Disable' : 'Enable'}
+                                            </Button>
+                                            <Button
+                                                variant="outline"
+                                                size="sm"
+                                                className="h-7 px-2 text-[10px] flex-1 text-muted-foreground disabled:opacity-20"
+                                                disabled={!replayEnabled || activeEvents.length === 0}
+                                                onClick={() => setReplayPlaying((v) => !v)}
+                                            >
+                                                {replayPlaying ? 'Pause' : 'Play'}
+                                            </Button>
+                                            <Button
+                                                variant="ghost"
+                                                size="sm"
+                                                className="h-7 px-2 text-[10px] text-muted-foreground"
+                                                disabled={!replayEnabled}
+                                                onClick={() => {
+                                                    setReplayPlaying(false);
+                                                    setReplayIndex(0);
+                                                }}
+                                            >
+                                                Reset
+                                            </Button>
+                                        </div>
+                                        <div className="flex items-center justify-between px-1 border-t border-border/10 pt-2">
+                                            <div className="flex items-center gap-1.5">
+                                                <span className="text-[9px] text-muted-foreground uppercase opacity-40">Speed</span>
+                                                <select
+                                                    className="bg-transparent text-[10px] font-mono outline-none cursor-pointer text-primary"
+                                                    value={replaySpeedMs}
+                                                    onChange={(e) => setReplaySpeedMs(Number(e.target.value))}
+                                                    disabled={!replayEnabled}
+                                                >
+                                                    <option value={150}>FAST</option>
+                                                    <option value={350}>NORM</option>
+                                                    <option value={700}>SLOW</option>
+                                                </select>
                                             </div>
-                                            <div className="agent-board-meta">
-                                                <span>project: {worker.projectId || 'n/a'}</span>
-                                                <span className={availabilityClass}>availability: {worker.availabilityState}</span>
-                                                <span className={executionClass}>execution: {worker.executionState}</span>
-                                                <span>paused: {worker.isPaused ? 'yes' : 'no'}</span>
-                                                <span>lifecycle: {worker.rawLifecycleState}</span>
-                                                <span className={healthClass}>health: {healthLabel}</span>
-                                                <span className={heartbeatClass}>heartbeat: {worker.heartbeatFreshness}</span>
-                                                <span>last heartbeat: {Math.max(0, Math.floor(worker.heartbeatAgeMs / 1000))}s ago</span>
-                                                <span>heartbeat ts: {formatHeartbeatTimestamp(Number(worker.lastHeartbeatAt || 0))}</span>
-                                                <span>task: {assignedTask}</span>
-                                                <span>stage: {assignedStage}</span>
-                                            </div>
-                                        </div>
-                                    );
-                                })
-                            )}
-                        </div>
-                    </div>
-
-                    <div className="catalog-card">
-                        <div className="catalog-title">Queue & Dispatch</div>
-                        <div className="catalog-section">
-                            <span>Project: {selectedProject || 'global/unbound'}</span>
-                            <span>Queue length: {queueSnapshot.queueLength}</span>
-                            <span>Waiting tasks: {queueSnapshot.waiting.length}</span>
-                            <span>Assigned tasks: {queueSnapshot.assigned.length}</span>
-                            <span>Completed tasks: {queueSnapshot.completed.length}</span>
-                            <span>Tracked tasks: {queueSnapshot.totalTracked}</span>
-                            <span>Dispatch avg: {dispatchLatencySummary.avgMs === null ? 'n/a' : `${dispatchLatencySummary.avgMs}ms`}</span>
-                            <span>Dispatch max: {dispatchLatencySummary.maxMs === null ? 'n/a' : `${dispatchLatencySummary.maxMs}ms`}</span>
-                            <span className={dispatchLatencySummary.warning ? 'text-amber-300' : 'text-slate-300'}>
-                                Dispatch warning: {dispatchLatencySummary.warning ? `max > ${dispatchLatencySummary.warningThresholdMs}ms` : 'none'}
-                            </span>
-                        </div>
-                        <div className="agent-board">
-                            {queueSnapshot.waiting.length === 0 ? (
-                                <div className="agent-board-empty">No waiting tasks in current event stream.</div>
-                            ) : (
-                                queueSnapshot.waiting.slice(0, 8).map((task) => (
-                                    <div key={`queue-${task.taskId}`} className="agent-board-row">
-                                        <div className="agent-dot standby" />
-                                        <div className="agent-board-main">
-                                            <div className="agent-board-title">{task.taskId}</div>
-                                            <div className="agent-board-sub">stage: {task.stageId}</div>
-                                        </div>
-                                        <div className="agent-board-meta">
-                                            <span>status: {task.status}</span>
-                                            <span>agent: {task.agentSlug}</span>
-                                            <span>updated: {new Date(task.updatedAt).toLocaleTimeString()}</span>
+                                            {replayEnabled && (
+                                                <span className="text-[10px] font-mono text-muted-foreground opacity-60">
+                                                    {Math.min(replayIndex, activeEvents.length)}/{activeEvents.length}
+                                                </span>
+                                            )}
                                         </div>
                                     </div>
-                                ))
-                            )}
-                        </div>
-                        <div className="agent-board mt-2">
-                            {taskWorkerMapping.length === 0 ? (
-                                <div className="agent-board-empty">No task-to-worker assignments yet.</div>
-                            ) : (
-                                taskWorkerMapping.slice(0, 10).map((row) => (
-                                    <div key={`map-${row.projectId}-${row.taskId}-${row.workerId}`} className="agent-board-row">
-                                        <div className={`agent-dot ${row.status === 'assigned' ? 'active' : 'standby'}`} />
-                                        <div className="agent-board-main">
-                                            <div className="agent-board-title">{row.taskId}</div>
-                                            <div className="agent-board-sub">worker: {row.workerId}</div>
-                                        </div>
-                                        <div className="agent-board-meta">
-                                            <span>status: {row.status}</span>
-                                            <span>agent: {row.agentSlug}</span>
-                                            <span>stage: {row.stageId}</span>
-                                            <span>project: {row.projectId}</span>
-                                        </div>
-                                    </div>
-                                ))
-                            )}
-                        </div>
-                    </div>
+                                </CardContent>
+                            </Card>
 
-                    <div className="catalog-card">
-                        <div className="catalog-title">Worker Lifecycle Timeline</div>
-                        <div className="agent-board">
-                            {workerLifecycleTimeline.length === 0 ? (
-                                <div className="agent-board-empty">No worker lifecycle events yet.</div>
-                            ) : (
-                                workerLifecycleTimeline.map((row) => (
-                                    <div key={`lifecycle-${row.id}`} className="agent-board-row">
-                                        <div className={`agent-dot ${row.type === 'worker.failed' || row.type === 'worker.unhealthy' ? 'unavailable' : 'active'}`} />
-                                        <div className="agent-board-main">
-                                            <div className="agent-board-title">{row.type}</div>
-                                            <div className="agent-board-sub">{new Date(row.at).toLocaleTimeString()}</div>
-                                        </div>
-                                        <div className="agent-board-meta">
-                                            <span>worker: {row.workerId}</span>
-                                            <span>agent: {row.agentSlug}</span>
-                                            {row.from && row.to && <span>state: {row.from} {'->'} {row.to}</span>}
-                                            {row.taskId && <span>task: {row.taskId}</span>}
-                                        </div>
-                                    </div>
-                                ))
-                            )}
-                        </div>
-                    </div>
-
-                    <div className="catalog-card">
-                        <div className="catalog-title">Worker Debug Logs</div>
-                        <div className="agent-board">
-                            {workerDebugRows.length === 0 ? (
-                                <div className="agent-board-empty">No worker debug events yet.</div>
-                            ) : (
-                                workerDebugRows.map((row) => (
-                                    <div key={`debug-${row.id}`} className="agent-board-row">
-                                        <div className={`agent-dot ${row.type.includes('failed') || row.type.includes('unhealthy') ? 'unavailable' : 'standby'}`} />
-                                        <div className="agent-board-main">
-                                            <div className="agent-board-title">{row.type}</div>
-                                            <div className="agent-board-sub">{new Date(row.at).toLocaleTimeString()}</div>
-                                        </div>
-                                        <div className="agent-board-meta">
-                                            <span>worker: {row.workerId}</span>
-                                            <span>agent: {row.agentSlug}</span>
-                                            {row.taskId ? <span>task: {row.taskId}</span> : null}
-                                            {row.stageId ? <span>stage: {row.stageId}</span> : null}
-                                            {row.tool ? <span>tool: {row.tool}</span> : null}
-                                            {row.model ? <span>model: {row.model}</span> : null}
-                                            {row.summary ? <span>detail: {row.summary}</span> : null}
-                                        </div>
-                                    </div>
-                                ))
-                            )}
-                        </div>
-                    </div>
-
-                    <div className="catalog-card">
-                        <div className="catalog-title">Execution Trace Per Worker</div>
-                        <div className="agent-board">
-                            {workerTraceRows.length === 0 ? (
-                                <div className="agent-board-empty">No worker trace yet.</div>
-                            ) : (
-                                workerTraceRows.map((row) => (
-                                    <div key={`trace-${row.agentSlug}-${row.workerId}`} className="agent-board-row">
-                                        <div className="agent-dot active" />
-                                        <div className="agent-board-main">
-                                            <div className="agent-board-title">{row.agentSlug}</div>
-                                            <div className="agent-board-sub">worker: {row.workerId}</div>
-                                        </div>
-                                        <div className="agent-board-meta">
-                                            <span>steps: {row.steps}</span>
-                                            <span>tool calls: {row.toolCalls}</span>
-                                            <span>llm calls: {row.llmCalls}</span>
-                                            <span>last: {new Date(row.lastAt).toLocaleTimeString()}</span>
-                                        </div>
-                                    </div>
-                                ))
-                            )}
-                        </div>
-                    </div>
-
-                    <div className="feed-container">
-                        <div className="mb-2 rounded-md border border-white/10 bg-slate-900/40 px-3 py-2">
-                            <div className="flex items-center gap-2 text-xs text-slate-300">
-                                <span className="uppercase tracking-wide text-slate-400">Run Replay</span>
-                                <button
-                                    className={`rounded border px-2 py-0.5 ${
-                                        chatEventRenderMode === 'raw'
-                                            ? 'border-amber-500/40 text-amber-300'
-                                            : chatEventRenderMode === 'both'
-                                                ? 'border-violet-500/40 text-violet-300'
-                                                : 'border-emerald-500/40 text-emerald-300'
-                                    }`}
-                                    onClick={() =>
-                                        setChatEventRenderMode((prev) =>
-                                            prev === 'humanized' ? 'raw' : prev === 'raw' ? 'both' : 'humanized'
-                                        )
-                                    }
-                                    title="Switch chat event rendering mode"
-                                >
-                                    Chat: {chatEventRenderMode === 'raw' ? 'Raw' : chatEventRenderMode === 'both' ? 'Both' : 'Humanized'}
-                                </button>
-                                <button
-                                    className={`rounded border px-2 py-0.5 ${replayEnabled ? 'border-cyan-500/40 text-cyan-300' : 'border-white/20 text-slate-300'}`}
-                                    onClick={() => {
-                                        setReplayEnabled((v) => !v);
-                                        setReplayPlaying(false);
-                                        setReplayIndex(0);
-                                    }}
-                                >
-                                    {replayEnabled ? 'Disable' : 'Enable'}
-                                </button>
-                                <button
-                                    className="rounded border border-white/20 px-2 py-0.5 text-slate-300 disabled:opacity-40"
-                                    disabled={!replayEnabled || activeEvents.length === 0}
-                                    onClick={() => setReplayPlaying((v) => !v)}
-                                >
-                                    {replayPlaying ? 'Pause' : 'Play'}
-                                </button>
-                                <button
-                                    className="rounded border border-white/20 px-2 py-0.5 text-slate-300 disabled:opacity-40"
-                                    disabled={!replayEnabled}
-                                    onClick={() => {
-                                        setReplayPlaying(false);
-                                        setReplayIndex(0);
-                                    }}
-                                >
-                                    Reset
-                                </button>
-                                <label className="ml-2 text-slate-400">
-                                    speed
-                                    <select
-                                        className="ml-1 rounded border border-white/20 bg-slate-950 px-1 py-0.5 text-slate-200"
-                                        value={replaySpeedMs}
-                                        onChange={(e) => setReplaySpeedMs(Number(e.target.value))}
-                                        disabled={!replayEnabled}
-                                    >
-                                        <option value={150}>fast</option>
-                                        <option value={350}>normal</option>
-                                        <option value={700}>slow</option>
-                                    </select>
-                                </label>
-                                {replayEnabled && (
-                                    <span className="ml-auto text-slate-500">
-                                        {Math.min(replayIndex, activeEvents.length)} / {activeEvents.length}
-                                    </span>
-                                )}
+                            <div className="mt-4 p-3 border-t border-border/10">
+                                <StreamRenderer events={replayVisibleEvents} />
+                                <ObservabilityPanels events={replayVisibleEvents} selectedProject={selectedProject} />
+                                <div ref={feedEndRef} />
                             </div>
                         </div>
-                        <StreamRenderer events={replayVisibleEvents} />
-                        <ObservabilityPanels events={replayVisibleEvents} selectedProject={selectedProject} />
-                        <div ref={feedEndRef} />
-                    </div>
-                </section>
+                    </ScrollArea>
+                </aside>
             </main>
+
 
             {isProjectModalOpen && (
                 <div className="cockpit-modal-overlay" role="dialog" aria-modal="true" aria-labelledby="project-modal-title">
