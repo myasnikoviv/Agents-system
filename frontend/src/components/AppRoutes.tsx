@@ -4,6 +4,7 @@ import { CockpitSettingsPage } from './cockpit/CockpitSettingsPage';
 import { GovernanceCenterPage } from './cockpit/GovernanceCenterPage';
 import { LoginPage } from './auth/LoginPage';
 import { AuthGuard } from './auth/AuthGuard';
+import { PageShell } from './ui/page-shell';
 
 export function AppRoutes() {
   return (
@@ -12,13 +13,15 @@ export function AppRoutes() {
         <Route path="/login" element={<LoginPage />} />
         <Route path="/cockpit/*" element={
           <AuthGuard>
-            <Routes>
-              <Route path="/" element={<CockpitPage />} />
-              <Route path="/settings" element={<CockpitSettingsPage />} />
-              <Route path="/settings/:section" element={<CockpitSettingsPage />} />
-              <Route path="/governance" element={<GovernanceCenterPage />} />
-              <Route path="/:section" element={<CockpitPage />} />
-            </Routes>
+            <PageShell>
+              <Routes>
+                <Route path="/" element={<CockpitPage />} />
+                <Route path="/settings" element={<CockpitSettingsPage />} />
+                <Route path="/settings/:section" element={<CockpitSettingsPage />} />
+                <Route path="/governance" element={<GovernanceCenterPage />} />
+                <Route path="/:section" element={<CockpitPage />} />
+              </Routes>
+            </PageShell>
           </AuthGuard>
         } />
         <Route path="/" element={<Navigate to="/cockpit" replace />} />
