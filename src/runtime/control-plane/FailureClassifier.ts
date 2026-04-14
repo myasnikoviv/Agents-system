@@ -27,7 +27,7 @@ export function classifyFailure(runtime: ServiceRuntimeState): FailureClassifica
   if (runtime.status === 'failed') kind = 'crash';
   if (normalized.includes('timeout') || normalized.includes('timed out')) kind = 'timeout';
 
-  return {
+  const classification = {
     serviceId: runtime.serviceId,
     kind,
     reason,
@@ -38,6 +38,24 @@ export function classifyFailure(runtime: ServiceRuntimeState): FailureClassifica
       timestamp: nowIso(),
     },
   };
+
+  // AGSYS-3522: Emit Telemetry Signal for failures
+  if (kind !== 'none') {
+    try {
+      const { signalCollector } = require('../adaptive/SignalCollector');
+      signalCollector.emit({
+        type: 'failure',
+        assetId: runtime.serviceId,
+        projectId: 'system',
+        value: kind,
+        metadata: { reason }
+      });
+    } catch (e) {
+      // Non-blocking telemetry failure
+    }
+  }
+
+  return classification;
 }
 
 export class FailureTelemetryBuffer {

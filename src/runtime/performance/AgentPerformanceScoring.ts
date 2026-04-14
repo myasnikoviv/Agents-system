@@ -15,6 +15,7 @@ export interface AgentPerformanceScore {
   retryCount: number;
   latencyMs: number;
   tokenUsage: number;
+  invocationCount: number;
 }
 
 function clamp01(value: number): number {
@@ -45,5 +46,6 @@ export function scoreAgentPerformance(input: AgentPerformanceInput): AgentPerfor
     retryCount: Number(input.retryTaskCount || 0),
     latencyMs: Number(input.avgTaskDurationMs || 0),
     tokenUsage: Number(input.tokenUsage || 0),
+    invocationCount: Number(input.invocationCount || 0),
   };
 }

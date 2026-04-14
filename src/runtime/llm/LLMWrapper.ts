@@ -39,7 +39,29 @@ export async function wrapLLMCall<T>(
     const result = await callFn(prompt);
     const durationMs = Date.now() - startTime;
 
-    // 3. Emit llm.response
+    // 3. AGSYS-3522: Emit Telemetry Signals
+    try {
+      const { signalCollector } = require('../adaptive/SignalCollector');
+      signalCollector.emit({
+        type: 'latency',
+        assetId: options.model,
+        projectId: options.projectId,
+        value: durationMs,
+        metadata: { requestId, source: options.source }
+      });
+
+      signalCollector.emit({
+        type: 'token_usage',
+        assetId: options.model,
+        projectId: options.projectId,
+        value: result.tokensInput + result.tokensOutput,
+        metadata: { requestId, input: result.tokensInput, output: result.tokensOutput }
+      });
+    } catch (e) {
+      // Non-blocking telemetry failure
+    }
+
+    // 4. Emit llm.response
     const trace: LLMTrace = {
       requestId,
       runId: options.runId,

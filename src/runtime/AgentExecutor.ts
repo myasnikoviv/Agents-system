@@ -13,6 +13,7 @@ import { SkillRegistry } from './registries/SkillRegistry';
 import { BlackboardService } from './BlackboardService';
 import { NativeToolLoopRunner } from './NativeToolLoopRunner';
 import { logGovernance } from './governance/GovernanceLogger';
+import { applyPerformanceAwarePolicy, ModelRouteDecision } from './adaptive/AdaptiveIntelligenceEngine';
 
 type RuntimeBackend = 'claude-cli' | 'codex-cli' | 'openhands-sdk' | 'gemini' | 'langchain';
 
@@ -53,13 +54,13 @@ export class AgentExecutor {
     return Array.from(new Set(chain));
   }
 
-  private createAdapter(backend: RuntimeBackend): ExecutionAdapter | null {
+  private createAdapter(backend: RuntimeBackend, modelOverride?: string): ExecutionAdapter | null {
     if (backend === 'claude-cli') return new ClaudeCliAdapter();
     if (backend === 'codex-cli') return new CodexCliAdapter();
     if (backend === 'openhands-sdk') return new OpenHandsAdapter();
     if (backend === 'gemini') {
       if (!process.env.GOOGLE_API_KEY) return null;
-      return new GeminiAdapter(process.env.GOOGLE_API_KEY, process.env.GOOGLE_MODEL || 'gemini-1.5-flash');
+      return new GeminiAdapter(process.env.GOOGLE_API_KEY, modelOverride || process.env.GOOGLE_MODEL || 'gemini-1.5-flash');
     }
     if (backend === 'langchain') {
       if (!process.env.OPENAI_API_KEY) return null;
@@ -94,6 +95,30 @@ export class AgentExecutor {
   }
 
   async run(context: RunContext, providedAdapter?: ExecutionAdapter): Promise<ExecutionResult> {
+    // AGSYS-3525: Adaptive Model Switching
+    const workspacePath = context.workspacePath || process.cwd();
+    const initialDecision: ModelRouteDecision = {
+      runId: context.runId,
+      projectId: context.projectId,
+      taskType: 'general',
+      modelTier: (process.env.RUNTIME_MODEL_TIER as any) || 'medium',
+      model: context.model || process.env.RUNTIME_MODEL_NAME || 'gpt-4o',
+      reason: 'initial_request'
+    };
+
+    const adaptiveDecision = await applyPerformanceAwarePolicy({
+      workspacePath,
+      projectId: context.projectId,
+      assetId: context.agent.slug,
+      decision: initialDecision,
+      mode: process.env.RUNTIME_ROUTING_POLICY_MODE as any
+    });
+
+    if (adaptiveDecision.modelTier !== initialDecision.modelTier) {
+      console.log(`[AgentExecutor] Adaptive Model Switch: ${context.agent.slug} -> ${adaptiveDecision.modelTier} (${adaptiveDecision.reason})`);
+      context.model = adaptiveDecision.model;
+    }
+
     const chain = providedAdapter ? [] : this.resolveExecutionChain(context);
     const failures: string[] = [];
     let result: ExecutionResult | null = null;
@@ -107,7 +132,7 @@ export class AgentExecutor {
     } else {
       for (let i = 0; i < chain.length; i += 1) {
         const backend = chain[i];
-        const adapter = this.createAdapter(backend);
+        const adapter = this.createAdapter(backend, context.model);
         if (!adapter) {
           failures.push(`${backend}:adapter_unavailable`);
           continue;
@@ -190,6 +215,30 @@ export class AgentExecutor {
 
       // Telemetry
       await this.emitTelemetry(context, result, durationMs);
+
+      // AGSYS-3522: Emit Telemetry Signals to Redis Collector
+      try {
+        const { signalCollector } = require('./adaptive/SignalCollector');
+        signalCollector.emit({
+          type: 'latency',
+          assetId: context.agent.slug,
+          projectId: context.projectId,
+          value: durationMs,
+          metadata: { runId: context.runId, stageId: context.pipeline.currentStageId }
+        });
+
+        if (result.usage) {
+          signalCollector.emit({
+            type: 'token_usage',
+            assetId: context.agent.slug,
+            projectId: context.projectId,
+            value: result.usage.totalTokens,
+            metadata: { runId: context.runId, input: result.usage.inputTokens, output: result.usage.outputTokens }
+          });
+        }
+      } catch (e) {
+        // Non-blocking telemetry failure
+      }
     } else {
       throw new Error(`Execution failed across backup chain: ${failures.join(' | ') || result?.error || 'unknown'}`);
     }
