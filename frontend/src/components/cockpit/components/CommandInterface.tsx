@@ -116,7 +116,7 @@ export const CommandInterface: FC = () => {
                             )}
                         </div>
                     )}
-                    
+
                     {scopeCardPinned && workScope.items.length > 0 && (
                         <Card className="shadow-lg border-primary/20 bg-background/80 backdrop-blur-sm">
                             <CardHeader className="py-2.5 px-4 flex-row items-center justify-between border-b border-border/50">
@@ -200,7 +200,7 @@ export const CommandInterface: FC = () => {
                             messages.map((m) => {
                                 const meeting = parseMeetingViewPayload(m.content);
                                 const insight = parseMemoryInsightPayload(m.content);
-                                
+
                                 return (
                                     <div key={m.id} className={`flex flex-col gap-2 ${m.role === 'user' ? 'items-end' : 'items-start'}`}>
                                         <div className="flex items-center gap-2 px-1">
@@ -211,11 +211,10 @@ export const CommandInterface: FC = () => {
                                                 {m.timestamp.toLocaleTimeString()}
                                             </span>
                                         </div>
-                                        <div className={`relative max-w-[85%] px-4 py-3 rounded-2xl text-sm leading-relaxed shadow-sm ${
-                                            m.role === 'user' 
-                                            ? 'bg-primary text-primary-foreground rounded-tr-none' 
+                                        <div className={`relative max-w-[85%] px-4 py-3 rounded-2xl text-sm leading-relaxed shadow-sm ${m.role === 'user'
+                                            ? 'bg-primary text-primary-foreground rounded-tr-none'
                                             : 'bg-muted border border-border/50 text-foreground rounded-tl-none'
-                                        }`}>
+                                            }`}>
                                             {meeting && (
                                                 <div className="meeting-card mb-4 bg-background/50 rounded-xl p-3 border border-border/50">
                                                     <div className="flex items-center justify-between mb-3">
@@ -274,7 +273,7 @@ export const CommandInterface: FC = () => {
                                 );
                             })
                         )}
-                        
+
                         {isAwaitingAgentReply && (
                             <div className="flex flex-col items-start gap-2 ml-4">
                                 <div className="flex items-center gap-2 px-1">
@@ -292,7 +291,7 @@ export const CommandInterface: FC = () => {
                                 </div>
                             </div>
                         )}
-                        
+
                         {status === 'awaiting_approval' && (
                             <Card className="border-destructive/20 bg-destructive/5 p-4 flex flex-col gap-3">
                                 <p className="text-xs font-medium">Agent is waiting for your approval to proceed to the next stage.</p>
@@ -301,7 +300,7 @@ export const CommandInterface: FC = () => {
                                 </Button>
                             </Card>
                         )}
-                        
+
                         <div ref={scrollRef} />
                     </div>
                 </div>

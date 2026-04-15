@@ -1,39 +1,40 @@
-import React, { useState, useEffect } from 'react';
-import { 
-  FileText, 
-  Plus, 
-  Trash2, 
-  Save, 
-  AlertCircle, 
-  CheckCircle, 
-  Database, 
-  LayoutGrid, 
-  Cpu, 
-  GitBranch, 
-  Lock, 
-  Key, 
-  Layers, 
+import { useState, useEffect, type FC } from 'react';
+import {
+  FileText,
+  Trash2,
+  Save,
+  AlertCircle,
+  CheckCircle,
+  Database,
+  Cpu,
+  GitBranch,
+  Lock,
+  Key,
+  Layers,
   Wrench,
   ToggleLeft,
-  ToggleRight
+  ToggleRight,
+  Shield,
+  Loader2,
+  Plus
 } from 'lucide-react';
 import { fetchJsonStrict } from '../../lib/http';
 import type { ProjectPolicy, GovernanceRule } from './governanceTypes';
+import { Card, CardHeader, CardTitle, CardContent } from '../ui/card';
+import { Button } from '../ui/button';
+import { Badge } from '../ui/badge';
+import { Input } from '../ui/input';
 
 interface ProjectPolicyManagerProps {
   projectId?: string;
 }
 
-const ProjectPolicyManager: React.FC<ProjectPolicyManagerProps> = ({ projectId = 'default' }) => {
+export const ProjectPolicyManager: FC<ProjectPolicyManagerProps> = ({ projectId = 'default' }) => {
   const [policy, setPolicy] = useState<ProjectPolicy | null>(null);
   const [rules, setRules] = useState<GovernanceRule[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
-
-  useEffect(() => {
-    loadData();
-  }, [projectId]);
 
   const loadData = async () => {
     setLoading(true);
@@ -44,6 +45,7 @@ const ProjectPolicyManager: React.FC<ProjectPolicyManagerProps> = ({ projectId =
       ]);
       setPolicy(policyData.policy);
       setRules(rulesData.rules || []);
+      setMessage(null);
     } catch (err) {
       console.error('Failed to load project policy:', err);
       setMessage({ type: 'error', text: 'Failed to load governance policy' });
@@ -51,6 +53,10 @@ const ProjectPolicyManager: React.FC<ProjectPolicyManagerProps> = ({ projectId =
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    void loadData();
+  }, [projectId]);
 
   const handleSave = async () => {
     if (!policy) return;
@@ -73,21 +79,21 @@ const ProjectPolicyManager: React.FC<ProjectPolicyManagerProps> = ({ projectId =
   const toggleExecutionProfile = () => {
     if (!policy) return;
     const nextProfile = policy.executionProfile === 'engineering' ? 'non_engineering' : 'engineering';
-    
+
     // Auto-update git policy defaults when switching profile
-    const gitDefaults = nextProfile === 'engineering' 
+    const gitDefaults = nextProfile === 'engineering'
       ? {
-          enforceMainBranchProtection: true,
-          requirePreflightToken: true,
-          requireWorktreeIsolation: true,
-          allowGitMutations: true,
-        }
+        enforceMainBranchProtection: true,
+        requirePreflightToken: true,
+        requireWorktreeIsolation: true,
+        allowGitMutations: true,
+      }
       : {
-          enforceMainBranchProtection: false,
-          requirePreflightToken: false,
-          requireWorktreeIsolation: false,
-          allowGitMutations: false,
-        };
+        enforceMainBranchProtection: false,
+        requirePreflightToken: false,
+        requireWorktreeIsolation: false,
+        allowGitMutations: false,
+      };
 
     setPolicy({
       ...policy,
@@ -113,7 +119,7 @@ const ProjectPolicyManager: React.FC<ProjectPolicyManagerProps> = ({ projectId =
     if (!rule) return;
 
     const newOverrides = { ...policy.ruleOverrides };
-    newOverrides[ruleId] = { 
+    newOverrides[ruleId] = {
       evidence: [...rule.evidence],
       thresholds: rule.thresholds ? { ...rule.thresholds } : {}
     };
@@ -129,23 +135,20 @@ const ProjectPolicyManager: React.FC<ProjectPolicyManagerProps> = ({ projectId =
 
   const toggleRuleState = (ruleId: string) => {
     if (!policy) return;
-    
+
     const isExplicitlyEnabled = policy.enabledRules.includes(ruleId);
     const isExplicitlyDisabled = policy.disabledRules.includes(ruleId);
-    
+
     let nextEnabled = [...policy.enabledRules];
     let nextDisabled = [...policy.disabledRules];
-    
+
     if (isExplicitlyDisabled) {
-      // Move from disabled to enabled
       nextDisabled = nextDisabled.filter(id => id !== ruleId);
       nextEnabled = [...new Set([...nextEnabled, ruleId])];
     } else if (isExplicitlyEnabled) {
-      // Move from enabled to disabled
       nextEnabled = nextEnabled.filter(id => id !== ruleId);
       nextDisabled = [...new Set([...nextDisabled, ruleId])];
     } else {
-      // Check if it was neutral (using default)
       const isDefaultEnabled = policy.defaultEnabledRules.includes(ruleId);
       if (isDefaultEnabled) {
         nextDisabled = [...nextDisabled, ruleId];
@@ -163,90 +166,105 @@ const ProjectPolicyManager: React.FC<ProjectPolicyManagerProps> = ({ projectId =
 
   if (loading || !policy) {
     return (
-      <div className="flex items-center justify-center h-64 bg-slate-900/20 rounded-xl border border-dashed border-slate-800">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
+      <div className="flex flex-col items-center justify-center h-64 bg-secondary/10 rounded-xl border border-dashed border-border/50">
+        <Loader2 className="animate-spin text-primary/50 mb-3" size={32} />
+        <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground italic">Synchronizing Governance Stack...</span>
       </div>
     );
   }
 
   const activeOverrides = Object.keys(policy.ruleOverrides);
   const availableRulesForOverride = rules.filter(r => !activeOverrides.includes(r.id));
+  const sublabelClass = "text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2 px-1 mb-4";
 
   return (
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
       {/* Policy Header */}
-      <div className="bg-slate-900/50 border border-slate-800 rounded-2xl p-6 backdrop-blur-xl flex flex-col md:flex-row md:items-center justify-between gap-6">
-        <div className="flex items-center gap-5">
-          <div className="p-4 bg-blue-600/10 text-blue-400 rounded-2xl border border-blue-500/20 shadow-[0_0_20px_rgba(37,99,235,0.1)]">
-            <Lock className="w-8 h-8" />
-          </div>
-          <div>
-            <h2 className="text-xl font-bold text-white tracking-tight">Project Governance Policy</h2>
-            <div className="flex items-center gap-3 mt-1">
-              <span className="text-xs text-slate-500">Active Project:</span>
-              <code className="text-[11px] font-bold text-blue-400 bg-blue-950/40 px-2 py-0.5 rounded border border-blue-500/30 uppercase tracking-widest">{projectId}</code>
+      <Card className="border-border/50 bg-secondary/5 backdrop-blur-xl overflow-hidden shadow-2xl">
+        <CardContent className="p-6 flex flex-col md:flex-row md:items-center justify-between gap-6">
+          <div className="flex items-center gap-5">
+            <div className="p-4 bg-primary/10 text-primary rounded-2xl border border-primary/20 shadow-lg shadow-primary/10">
+              <Lock className="size-8" />
+            </div>
+            <div>
+              <h2 className="text-xl font-bold tracking-tight text-foreground">Project Governance Policy</h2>
+              <div className="flex items-center gap-3 mt-1.5">
+                <span className="text-[10px] uppercase font-black tracking-widest text-muted-foreground">Active Context:</span>
+                <Badge variant="secondary" className="font-mono text-[10px] font-bold uppercase tracking-widest h-5 px-2">
+                  {projectId}
+                </Badge>
+              </div>
             </div>
           </div>
-        </div>
-        
-        <div className="flex items-center gap-4">
-          {message && (
-            <div className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium animate-in fade-in slide-in-from-right-4 ${
-              message.type === 'success' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-red-500/10 text-red-400 border border-red-500/20'
-            }`}>
-              {message.type === 'success' ? <CheckCircle className="w-4 h-4" /> : <AlertCircle className="w-4 h-4" />}
-              {message.text}
-            </div>
-          )}
-          <button
-            onClick={handleSave}
-            disabled={saving}
-            className={`flex items-center gap-3 px-8 py-3 rounded-2xl text-sm font-bold transition-all shadow-xl ${
-              saving ? 'bg-slate-800 text-slate-500 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-500 text-white shadow-blue-600/30 hover:shadow-blue-600/40 hover:-translate-y-0.5 active:translate-y-0'
-            }`}
-          >
-            {saving ? <div className="animate-spin h-4 w-4 border-b-2 border-white/50 rounded-full" /> : <Save className="w-4 h-4" />}
-            {saving ? 'Synchronizing...' : 'Commit Policy Changes'}
-          </button>
-        </div>
-      </div>
+
+          <div className="flex items-center gap-4">
+            {message && (
+              <Badge
+                variant={message.type === 'success' ? "outline" : "destructive"}
+                className={`flex items-center gap-2 h-9 px-4 text-[10px] font-bold uppercase tracking-wider animate-in fade-in slide-in-from-right-4 ${message.type === 'success' ? 'border-emerald-500/30 text-emerald-500' : ''}`}
+              >
+                {message.type === 'success' ? <CheckCircle className="size-4" /> : <AlertCircle className="size-4" />}
+                {message.text}
+              </Badge>
+            )}
+            <Button
+              onClick={() => void handleSave()}
+              disabled={saving}
+              className="px-8 h-12 text-xs font-black uppercase tracking-widest shadow-xl shadow-primary/20"
+            >
+              {saving ? <Loader2 className="animate-spin size-4 mr-2" /> : <Save className="size-4 mr-2" />}
+              {saving ? 'Synchronizing...' : 'Commit Changes'}
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
         {/* Left Column: Core Configuration */}
         <div className="space-y-8">
           {/* Execution Profile */}
           <section className="space-y-4">
-            <h3 className="text-xs font-bold text-slate-500 uppercase tracking-widest flex items-center gap-2 px-1">
-              <Cpu className="w-4 h-4" />
+            <h3 className={sublabelClass}>
+              <Cpu className="size-4" />
               Runtime Execution Profile
             </h3>
-            <div className="bg-slate-900/40 border border-slate-800 rounded-2xl p-6 space-y-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h4 className="text-base font-bold text-slate-200">
+            <Card className="border-border/50 bg-secondary/5 p-6 shadow-sm">
+              <div className="flex items-center justify-between gap-4">
+                <div className="flex-1">
+                  <h4 className="text-sm font-bold text-foreground flex items-center gap-2">
                     {policy.executionProfile === 'engineering' ? 'Software Engineering Mode' : 'Operational / Non-Engineering'}
+                    <Badge variant={policy.executionProfile === 'engineering' ? 'default' : 'secondary'} className="text-[8px] h-4">
+                      {policy.executionProfile.toUpperCase()}
+                    </Badge>
                   </h4>
-                  <p className="text-xs text-slate-500 mt-1 max-w-[300px]">
-                    {policy.executionProfile === 'engineering' 
+                  <p className="text-xs text-muted-foreground mt-2 leading-relaxed italic">
+                    {policy.executionProfile === 'engineering'
                       ? 'Optimized for version-controlled development with strict Git Flow and preflight validation.'
                       : 'Lightweight governance for content, data, or administrative tasks without code-level constraints.'}
                   </p>
                 </div>
-                <button 
-                  onClick={toggleExecutionProfile}
-                  className="flex items-center gap-2 p-1 bg-slate-950 rounded-full border border-slate-800 transition-all hover:border-slate-700"
-                >
-                  <div className={`px-4 py-1.5 rounded-full text-[10px] font-bold uppercase transition-all ${policy.executionProfile === 'engineering' ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-500'}`}>Engineering</div>
-                  <div className={`px-4 py-1.5 rounded-full text-[10px] font-bold uppercase transition-all ${policy.executionProfile === 'non_engineering' ? 'bg-purple-600 text-white shadow-lg' : 'text-slate-500'}`}>Ops</div>
-                </button>
+                <div className="flex bg-background/50 p-1 rounded-full border border-border shadow-inner">
+                  <button
+                    onClick={toggleExecutionProfile}
+                    className={`px-4 py-2 rounded-full text-[9px] font-black uppercase tracking-widest transition-all ${policy.executionProfile === 'engineering' ? 'bg-primary text-primary-foreground shadow-md' : 'text-muted-foreground hover:text-foreground'}`}
+                  >
+                    Engineering
+                  </button>
+                  <button
+                    onClick={toggleExecutionProfile}
+                    className={`px-4 py-2 rounded-full text-[9px] font-black uppercase tracking-widest transition-all ${policy.executionProfile === 'non_engineering' ? 'bg-secondary text-secondary-foreground shadow-md' : 'text-muted-foreground hover:text-foreground'}`}
+                  >
+                    Ops
+                  </button>
+                </div>
               </div>
-            </div>
+            </Card>
           </section>
 
           {/* Git Policy */}
           <section className="space-y-4">
-            <h3 className="text-xs font-bold text-slate-500 uppercase tracking-widest flex items-center gap-2 px-1">
-              <GitBranch className="w-4 h-4" />
+            <h3 className={sublabelClass}>
+              <GitBranch className="size-4" />
               Automated Git Controls
             </h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -255,45 +273,45 @@ const ProjectPolicyManager: React.FC<ProjectPolicyManagerProps> = ({ projectId =
                 { key: 'requirePreflightToken', label: 'Preflight Tokens', icon: Key, desc: 'Mandatory atomic task ID' },
                 { key: 'requireWorktreeIsolation', label: 'Worktree Isolation', icon: Layers, desc: 'Isolated filesystem per task' },
                 { key: 'allowGitMutations', label: 'Allow Mutations', icon: Wrench, desc: 'Permit agent branch operations' },
-              ].map((item) => (
-                <button
-                  key={item.key}
-                  onClick={() => toggleGitPolicy(item.key as any)}
-                  className={`p-4 rounded-2xl border transition-all text-left flex flex-col gap-3 group relative overflow-hidden ${
-                    policy.gitPolicy[item.key as keyof typeof policy.gitPolicy]
-                      ? 'bg-slate-900/60 border-blue-500/50 shadow-[0_0_15px_rgba(37,99,235,0.1)]'
-                      : 'bg-slate-950/50 border-slate-800 opacity-60 hover:opacity-100'
-                  }`}
-                >
-                  <div className="flex items-center justify-between">
-                    <div className={`p-2 rounded-lg ${policy.gitPolicy[item.key as keyof typeof policy.gitPolicy] ? 'bg-blue-500/10 text-blue-400' : 'bg-slate-900 text-slate-600'}`}>
-                      <item.icon className="w-4 h-4" />
+              ].map((item) => {
+                const isActive = policy.gitPolicy[item.key as keyof typeof policy.gitPolicy];
+                return (
+                  <button
+                    key={item.key}
+                    onClick={() => toggleGitPolicy(item.key as any)}
+                    className={`p-4 rounded-2xl border transition-all text-left flex flex-col gap-3 group relative overflow-hidden text-balance ${isActive
+                        ? 'bg-primary/5 border-primary/50 shadow-lg shadow-primary/5 translate-y-[-2px]'
+                        : 'bg-secondary/5 border-border hover:border-muted-foreground/30 opacity-70 hover:opacity-100'
+                      }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className={`p-2 rounded-lg transition-colors ${isActive ? 'bg-primary/20 text-primary' : 'bg-background text-muted-foreground'}`}>
+                        <item.icon className="size-4" />
+                      </div>
+                      <div className={`size-5 rounded-full border-2 flex items-center justify-center transition-all ${isActive ? 'border-primary bg-primary text-primary-foreground' : 'border-border'}`}>
+                        {isActive && <CheckCircle className="size-3" />}
+                      </div>
                     </div>
-                    {policy.gitPolicy[item.key as keyof typeof policy.gitPolicy] ? (
-                      <CheckCircle className="w-4 h-4 text-blue-500" />
-                    ) : (
-                      <span className="w-4 h-4 rounded-full border-2 border-slate-800" />
-                    )}
-                  </div>
-                  <div>
-                    <h5 className="text-sm font-bold text-slate-200">{item.label}</h5>
-                    <p className="text-[10px] text-slate-500 mt-1">{item.desc}</p>
-                  </div>
-                </button>
-              ))}
+                    <div>
+                      <h5 className="text-xs font-bold text-foreground uppercase tracking-tight">{item.label}</h5>
+                      <p className="text-[10px] text-muted-foreground mt-1 leading-tight">{item.desc}</p>
+                    </div>
+                  </button>
+                );
+              })}
             </div>
           </section>
         </div>
 
         {/* Right Column: Rule Overrides & Toggles */}
         <div className="space-y-8">
-           {/* Rule Dashboard (Quick Toggles) */}
-           <section className="space-y-4">
-            <h3 className="text-xs font-bold text-slate-500 uppercase tracking-widest flex items-center gap-2 px-1">
-              <Shield className="w-4 h-4" />
-              Project-Level Rule Overrides
+          {/* Rule Dashboard (Quick Toggles) */}
+          <section className="space-y-4">
+            <h3 className={sublabelClass}>
+              <Shield className="size-4" />
+              Governance Rule Configuration
             </h3>
-            <div className="bg-slate-900/40 border border-slate-800 rounded-2xl overflow-hidden divide-y divide-slate-800/50">
+            <Card className="border-border/50 bg-secondary/5 overflow-hidden shadow-sm divide-y divide-border/20">
               {rules.map(rule => {
                 const isExplicitlyEnabled = policy.enabledRules.includes(rule.id);
                 const isExplicitlyDisabled = policy.disabledRules.includes(rule.id);
@@ -302,131 +320,130 @@ const ProjectPolicyManager: React.FC<ProjectPolicyManagerProps> = ({ projectId =
                 const isOverridden = isExplicitlyEnabled || isExplicitlyDisabled;
 
                 return (
-                  <div key={rule.id} className="p-4 flex items-center justify-between gap-4 hover:bg-slate-900 transition-colors">
+                  <div key={rule.id} className="p-4 flex items-center justify-between gap-4 hover:bg-background/40 transition-colors group">
                     <div className="flex items-center gap-3">
-                      <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${isActive ? 'bg-emerald-500/10 text-emerald-500' : 'bg-slate-950 text-slate-700'}`}>
-                        <Shield className="w-4 h-4" />
+                      <div className={`size-8 rounded-lg flex items-center justify-center transition-colors ${isActive ? 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/20' : 'bg-muted text-muted-foreground border border-border'}`}>
+                        <Shield className="size-4" />
                       </div>
                       <div>
-                        <p className="text-sm font-bold text-slate-200">{rule.metadata.name}</p>
-                        <div className="flex items-center gap-2">
-                          <span className={`text-[9px] font-bold uppercase tracking-tight px-1 rounded ${isActive ? 'text-emerald-500/70' : 'text-slate-600'}`}>
-                            {isActive ? 'Active' : 'Disabled'}
+                        <p className="text-xs font-bold text-foreground group-hover:text-primary transition-colors">{rule.metadata.name}</p>
+                        <div className="flex items-center gap-2 mt-0.5">
+                          <span className={`text-[9px] font-black uppercase tracking-widest ${isActive ? 'text-emerald-500/80' : 'text-muted-foreground'}`}>
+                            {isActive ? 'Active' : 'Standby'}
                           </span>
                           {isOverridden && (
-                            <span className="text-[9px] font-bold uppercase tracking-tight text-blue-400 bg-blue-500/10 px-1 rounded">Deviated</span>
+                            <Badge variant="outline" className="text-[8px] font-bold uppercase tracking-widest text-primary border-primary/30 h-3.5 px-1 bg-primary/5">Deviated</Badge>
                           )}
                         </div>
                       </div>
                     </div>
-                    <button 
+                    <button
                       onClick={() => toggleRuleState(rule.id)}
-                      className="text-slate-600 hover:text-white transition-colors"
+                      className="transition-all hover:scale-110 active:scale-95"
                     >
-                      {isActive ? <ToggleRight className="w-8 h-8 text-blue-500" /> : <ToggleLeft className="w-8 h-8" />}
+                      {isActive ? <ToggleRight className="size-8 text-primary" /> : <ToggleLeft className="size-8 text-muted-foreground" />}
                     </button>
                   </div>
                 );
               })}
-            </div>
+            </Card>
           </section>
 
-          {/* Evidence Configuration (Inherited from EvidenceOverrideManager) */}
+          {/* Evidence Configuration */}
           <section className="space-y-4">
-            <h3 className="text-xs font-bold text-slate-500 uppercase tracking-widest flex items-center gap-2 px-1">
-              <Database className="w-4 h-4" />
-              Custom Evidence Mapping
+            <h3 className={sublabelClass}>
+              <Database className="size-4" />
+              Active Evidence Mapping
             </h3>
-            <div className="bg-slate-900/40 border border-slate-800 rounded-2xl p-6 space-y-6">
+            <Card className="border-border/50 bg-secondary/5 p-6 shadow-sm">
               {activeOverrides.length === 0 ? (
-                <div className="text-center py-10">
-                   <p className="text-sm text-slate-500 italic mb-4">No custom patterns configured.</p>
-                   <div className="flex flex-wrap gap-2 justify-center">
-                     {availableRulesForOverride.slice(0, 3).map(rule => (
-                       <button 
-                         key={rule.id}
-                         onClick={() => addOverride(rule.id)}
-                         className="px-3 py-1 bg-slate-950 border border-slate-800 rounded-lg text-[10px] text-slate-400 hover:text-blue-400 hover:border-blue-500/50 transition-all font-bold uppercase"
-                       >
-                         + {rule.metadata.name}
-                       </button>
-                     ))}
-                   </div>
+                <div className="text-center py-8">
+                  <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest italic mb-6">No custom evidence patterns defined for this context.</p>
+                  <div className="flex flex-wrap gap-2 justify-center">
+                    {availableRulesForOverride.slice(0, 3).map(rule => (
+                      <Button
+                        key={rule.id}
+                        variant="outline"
+                        size="sm"
+                        onClick={() => addOverride(rule.id)}
+                        className="text-[9px] font-black uppercase tracking-widest h-7 border-dashed border-border hover:border-primary/50"
+                      >
+                        <Plus className="size-3 mr-1.5" /> {rule.metadata.name}
+                      </Button>
+                    ))}
+                  </div>
                 </div>
               ) : (
                 <div className="space-y-6">
-                   {activeOverrides.map(ruleId => {
-                     const rule = rules.find(r => r.id === ruleId);
-                     const override = policy.ruleOverrides[ruleId];
-                     if (!rule) return null;
-                     return (
-                       <div key={ruleId} className="space-y-3 bg-slate-950/50 p-4 rounded-xl border border-slate-800/50 relative group">
-                         <div className="flex items-center justify-between">
-                           <h5 className="text-xs font-bold text-slate-300">{rule.metadata.name}</h5>
-                           <button 
+                  {activeOverrides.map(ruleId => {
+                    const rule = rules.find(r => r.id === ruleId);
+                    const override = policy.ruleOverrides[ruleId];
+                    if (!rule) return null;
+                    return (
+                      <div key={ruleId} className="space-y-3 bg-background/50 p-4 rounded-xl border border-border/50 relative group hover:border-primary/20 transition-all">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <h5 className="text-[10px] font-black text-foreground uppercase tracking-widest">{rule.metadata.name}</h5>
+                            <code className="text-[9px] text-muted-foreground font-mono opacity-50">{ruleId}</code>
+                          </div>
+                          <Button
+                            variant="ghost"
+                            size="sm"
                             onClick={() => removeOverride(ruleId)}
-                            className="p-1 hover:bg-red-500/10 text-slate-600 hover:text-red-400 rounded transition-all"
-                           >
-                              <Trash2 className="w-3.5 h-3.5" />
-                           </button>
-                         </div>
-                         <div className="space-y-2">
-                           {(override.evidence || []).map((pattern, idx) => (
-                             <div key={idx} className="relative">
-                               <FileText className="absolute left-3 top-1/2 -translate-y-1/2 w-3 h-3 text-slate-600" />
-                               <input
-                                 type="text"
-                                 value={pattern}
-                                 onChange={(e) => {
-                                   const nextEvidence = [...(override.evidence || [])];
-                                   nextEvidence[idx] = e.target.value;
-                                   setPolicy({
-                                     ...policy,
-                                     ruleOverrides: {
-                                       ...policy.ruleOverrides,
-                                       [ruleId]: { ...override, evidence: nextEvidence }
-                                     }
-                                   });
-                                 }}
-                                 className="w-full pl-9 pr-3 py-1.5 bg-slate-950 border border-slate-800 rounded-lg text-xs text-slate-400 focus:outline-none focus:ring-1 focus:ring-blue-500/50 transition-all font-mono"
-                               />
-                             </div>
-                           ))}
-                         </div>
-                       </div>
-                     );
-                   })}
-                   <div className="pt-2 border-t border-slate-800">
-                      <select 
-                        onChange={(e) => {
-                          if (e.target.value) {
-                            addOverride(e.target.value);
-                            e.target.value = '';
-                          }
-                        }}
-                        className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-[11px] font-bold text-slate-500 focus:outline-none hover:border-slate-700 transition-all"
-                      >
-                         <option value="">+ Add custom evidence override...</option>
-                         {availableRulesForOverride.map(rule => (
-                           <option key={rule.id} value={rule.id}>{rule.metadata.name}</option>
-                         ))}
-                      </select>
-                   </div>
+                            className="size-7 p-0 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                          >
+                            <Trash2 className="size-3.5" />
+                          </Button>
+                        </div>
+                        <div className="space-y-2">
+                          {(override.evidence || []).map((pattern, idx) => (
+                            <div key={idx} className="relative group/input">
+                              <FileText className="absolute left-3 top-1/2 -translate-y-1/2 size-3 text-muted-foreground group-focus-within/input:text-primary transition-colors" />
+                              <Input
+                                value={pattern}
+                                onChange={(e) => {
+                                  const nextEvidence = [...(override.evidence || [])];
+                                  nextEvidence[idx] = e.target.value;
+                                  setPolicy({
+                                    ...policy,
+                                    ruleOverrides: {
+                                      ...policy.ruleOverrides,
+                                      [ruleId]: { ...override, evidence: nextEvidence }
+                                    }
+                                  });
+                                }}
+                                className="pl-8 h-8 bg-background border-border/50 text-[10px] font-mono"
+                              />
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })}
+                  <div className="pt-4 border-t border-border/20">
+                    <select
+                      onChange={(e) => {
+                        if (e.target.value) {
+                          addOverride(e.target.value);
+                          e.target.value = '';
+                        }
+                      }}
+                      className="w-full bg-background border border-dashed border-border rounded-lg px-3 py-2 text-[10px] font-black uppercase tracking-widest text-muted-foreground focus:outline-none hover:border-primary/50 transition-all appearance-none cursor-pointer"
+                    >
+                      <option value="">+ Add custom evidence override...</option>
+                      {availableRulesForOverride.map(rule => (
+                        <option key={rule.id} value={rule.id}>{rule.metadata.name}</option>
+                      ))}
+                    </select>
+                  </div>
                 </div>
               )}
-            </div>
+            </Card>
           </section>
         </div>
       </div>
     </div>
   );
 };
-
-// Local Shield icon for fallback
-const Shield = ({ className }: { className?: string }) => (
-  <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
-    <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
-  </svg>
-);
 
 export default ProjectPolicyManager;

@@ -1,4 +1,4 @@
-import React from 'react';
+
 import { CockpitProvider } from './context/CockpitContext';
 import { ProjectSidebar } from './components/ProjectSidebar';
 import { CommandInterface } from './components/CommandInterface';

@@ -1,14 +1,17 @@
-import React from 'react';
+import { type FC, type ReactNode } from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
+import { ShieldAlert, ArrowLeft } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
-import { AppLoadingScreen } from '../AppLoadingScreen';
+import AppLoadingScreen from '../AppLoadingScreen';
+import { Button } from '../ui/button';
+import { Badge } from '../ui/badge';
 
 interface AuthGuardProps {
-    children: React.ReactNode;
+    children: ReactNode;
     minRole?: 'owner' | 'admin' | 'member' | 'viewer';
 }
 
-export const AuthGuard: React.FC<AuthGuardProps> = ({ children, minRole }) => {
+export const AuthGuard: FC<AuthGuardProps> = ({ children, minRole }) => {
     const { isAuthenticated, isLoading, user } = useAuth();
     const location = useLocation();
 
@@ -32,19 +35,48 @@ export const AuthGuard: React.FC<AuthGuardProps> = ({ children, minRole }) => {
 
         if (roles[user.role] < roles[minRole]) {
             return (
-                <div className="min-h-screen bg-slate-950 flex items-center justify-center p-6 text-center">
-                    <div className="max-w-md space-y-4">
-                        <div className="inline-flex p-4 bg-red-500/10 text-red-500 rounded-full border border-red-500/20 mb-4">
-                            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" /></svg>
+                <div className="min-h-screen bg-background flex items-center justify-center p-6 text-center overflow-hidden font-sans relative">
+                    <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_50%,rgba(var(--destructive-rgb),0.05),transparent_70%)] pointer-events-none" />
+                    
+                    <div className="max-w-md w-full space-y-8 animate-in fade-in zoom-in duration-500 relative z-10">
+                        <div className="mx-auto size-24 bg-destructive/10 text-destructive rounded-full border border-destructive/20 shadow-[0_0_50px_rgba(var(--destructive-rgb),0.2)] flex items-center justify-center group">
+                            <ShieldAlert className="size-12 transition-transform duration-500 group-hover:scale-110" />
                         </div>
-                        <h1 className="text-2xl font-bold text-white">Privileged Access Required</h1>
-                        <p className="text-slate-400">Your current clearance level ({user.role}) is insufficient for this terminal. Required: {minRole}.</p>
-                        <button
-                            onClick={() => window.history.back()}
-                            className="text-blue-500 font-bold uppercase tracking-widest text-xs hover:text-blue-400 transition-colors"
-                        >
-                            Return to safe zone
-                        </button>
+                        
+                        <div className="space-y-4">
+                            <h1 className="text-3xl font-black text-foreground uppercase tracking-tighter italic">Privileged Access Required</h1>
+                            <div className="flex flex-col gap-4 items-center">
+                                <p className="text-sm text-muted-foreground font-medium leading-relaxed">
+                                    Your current clearance level is insufficient for this terminal session.
+                                </p>
+                                <div className="flex items-center gap-3">
+                                    <Badge variant="outline" className="h-7 px-3 text-[10px] font-black uppercase tracking-widest border-border/50 bg-secondary/20">
+                                        Current: {user.role}
+                                    </Badge>
+                                    <div className="h-px w-4 bg-border/50" />
+                                    <Badge variant="destructive" className="h-7 px-3 text-[10px] font-black uppercase tracking-widest bg-destructive/10 text-destructive border-destructive/20 shadow-sm">
+                                        Required: {minRole}+
+                                    </Badge>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="pt-8">
+                            <Button
+                                variant="outline"
+                                className="h-12 px-8 font-black uppercase tracking-[0.2em] text-[10px] gap-3 border-border/50 hover:bg-secondary/50 transition-all group"
+                                onClick={() => window.history.back()}
+                            >
+                                <ArrowLeft className="size-4 group-hover:-translate-x-1 transition-transform" />
+                                Return to safe zone
+                            </Button>
+                        </div>
+
+                        <div className="pt-12">
+                            <p className="text-[9px] font-black text-muted-foreground/30 uppercase tracking-[0.4em]">
+                                Security Protocol Active • Unauthorized Access Logged
+                            </p>
+                        </div>
                     </div>
                 </div>
             );
@@ -53,3 +85,5 @@ export const AuthGuard: React.FC<AuthGuardProps> = ({ children, minRole }) => {
 
     return <>{children}</>;
 };
+
+export default AuthGuard;

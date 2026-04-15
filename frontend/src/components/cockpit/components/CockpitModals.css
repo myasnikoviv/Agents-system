@@ -1,0 +1,127 @@
+.cockpit-modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.75);
+    backdrop-filter: blur(4px);
+    z-index: 100;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 1rem;
+    animation: fadeIn 0.2s ease-out;
+}
+
+.cockpit-modal-panel {
+    background: #1a1f2b;
+    border: 1px solid #2d364d;
+    border-radius: 0.85rem;
+    width: 100%;
+    max-width: 520px;
+    padding: 1.5rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5);
+}
+
+.cockpit-modal-title {
+    font-size: 1.15rem;
+    font-weight: 700;
+    color: #f1f5f9;
+}
+
+.cockpit-modal-subtitle {
+    font-size: 0.85rem;
+    color: #94a3b8;
+    margin-top: 0.25rem;
+}
+
+.cockpit-modal-form {
+    display: flex;
+    flex-direction: column;
+    gap: 0.85rem;
+}
+
+.cockpit-modal-label {
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: #64748b;
+}
+
+.cockpit-modal-input {
+    background: #0f172a;
+    border: 1px solid #334155;
+    border-radius: 0.5rem;
+    padding: 0.6rem 0.75rem;
+    color: #f1f5f9;
+    font-size: 0.9rem;
+    outline: none;
+    transition: border-color 0.2s;
+}
+
+.cockpit-modal-input:focus {
+    border-color: #3b82f6;
+}
+
+.cockpit-modal-row {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.cockpit-modal-hint {
+    font-size: 0.75rem;
+    color: #64748b;
+    margin-top: -0.25rem;
+}
+
+.cockpit-modal-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.75rem;
+    margin-top: 0.5rem;
+}
+
+.cockpit-modal-primary {
+    background: #3b82f6;
+    color: white;
+    border: none;
+    border-radius: 0.5rem;
+    padding: 0.6rem 1.25rem;
+    font-size: 0.85rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+
+.cockpit-modal-primary:hover:not(:disabled) {
+    background: #2563eb;
+}
+
+.cockpit-modal-primary:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.cockpit-modal-secondary {
+    background: #1e293b;
+    color: #cbd5e1;
+    border: 1px solid #334155;
+    border-radius: 0.5rem;
+    padding: 0.6rem 1.25rem;
+    font-size: 0.85rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+
+.cockpit-modal-secondary:hover {
+    background: #334155;
+}
+
+/* Secondary variants from downstream lines */
+.cockpit-modal-panel.large {
+    width: min(100%, 760px);
+    background: linear-gradient(180deg, rgba(15, 23, 42, 0.98), rgba(2, 6, 23, 0.98));
+}

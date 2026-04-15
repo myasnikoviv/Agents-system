@@ -1,7 +1,12 @@
-import React, { useState, useEffect } from 'react';
-import { X, Save, AlertTriangle, Shield, Settings, Info, CheckCircle, Trash2, Cpu, Activity, FileLock } from 'lucide-react';
+import { useState, useEffect, type FC } from 'react';
+import { X, Save, AlertTriangle, Shield, Settings, Info, CheckCircle, Trash2, Cpu, Activity, FileLock, History } from 'lucide-react';
 import { fetchJsonStrict } from '../../lib/http';
 import type { GovernanceRule } from './governanceTypes';
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetFooter } from '../ui/sheet';
+import { Button } from '../ui/button';
+import { Badge } from '../ui/badge';
+import { Card, CardContent } from '../ui/card';
+import { cn } from '../../lib/utils';
 
 interface GovernanceRuleEditorProps {
   ruleId: string;
@@ -9,14 +14,14 @@ interface GovernanceRuleEditorProps {
   onSaved: () => void;
 }
 
-const GovernanceRuleEditor: React.FC<GovernanceRuleEditorProps> = ({ ruleId, onClose, onSaved }) => {
+const GovernanceRuleEditor: FC<GovernanceRuleEditorProps> = ({ ruleId, onClose, onSaved }) => {
   const [rule, setRule] = useState<GovernanceRule | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    loadRule();
+    void loadRule();
   }, [ruleId]);
 
   const loadRule = async () => {
@@ -41,7 +46,7 @@ const GovernanceRuleEditor: React.FC<GovernanceRuleEditorProps> = ({ ruleId, onC
     setSaving(true);
     try {
       await fetch('/api/governance/rules/' + rule.id, {
-        method: 'POST', // Backend often expects POST for updates in this project's pattern
+        method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(rule)
       });
@@ -54,308 +59,217 @@ const GovernanceRuleEditor: React.FC<GovernanceRuleEditorProps> = ({ ruleId, onC
     }
   };
 
-  if (loading) {
-    return (
-      <div className="fixed inset-y-0 right-0 w-full max-w-xl bg-slate-950 shadow-2xl border-l border-slate-800 z-50 p-6 flex flex-col">
-        <div className="flex items-center justify-between mb-8">
-          <div className="h-8 w-48 bg-slate-900 animate-pulse rounded"></div>
-          <div className="h-8 w-8 bg-slate-900 animate-pulse rounded"></div>
-        </div>
-        <div className="space-y-4">
-          <div className="h-32 bg-slate-900 animate-pulse rounded"></div>
-          <div className="h-10 bg-slate-900 animate-pulse rounded"></div>
-          <div className="h-10 bg-slate-900 animate-pulse rounded"></div>
-        </div>
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="fixed inset-y-0 right-0 w-full max-w-xl bg-slate-950 shadow-2xl border-l border-slate-800 z-50 p-6 flex flex-col">
-         <div className="flex items-center justify-between mb-8">
-           <h2 className="text-xl font-bold text-white">Error</h2>
-           <button onClick={onClose} className="p-2 hover:bg-slate-800 rounded-full text-slate-400 hover:text-white transition-colors">
-            <X className="w-6 h-6" />
-          </button>
-         </div>
-         <div className="p-4 bg-red-900/20 border border-red-900/50 rounded-lg text-red-200 text-sm">
-           {error}
-         </div>
-      </div>
-    );
-  }
-
-  if (!rule) return null;
-
   return (
-    <div className="fixed inset-y-0 right-0 w-full max-w-xl bg-slate-950 shadow-2xl border-l border-slate-800 z-50 flex flex-col overflow-hidden animate-in slide-in-from-right duration-300">
-      {/* Header */}
-      <div className="p-6 border-b border-slate-800 bg-slate-950/50 backdrop-blur-md flex items-center justify-between">
-        <div>
-          <div className="flex items-center gap-2 mb-1">
-            <Shield className="w-5 h-5 text-blue-500" />
-            <h2 className="text-xl font-bold text-white tracking-tight">Configure Rule</h2>
-          </div>
-          <code className="text-[10px] text-slate-500 uppercase tracking-widest">{rule.id}</code>
-        </div>
-        <button onClick={onClose} className="p-2 hover:bg-slate-800 rounded-full text-slate-400 hover:text-white transition-colors">
-          <X className="w-6 h-6" />
-        </button>
-      </div>
-
-      {/* Content */}
-      <div className="flex-1 overflow-y-auto p-6 space-y-8">
-        {/* Info Card */}
-        <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4 space-y-3">
+    <Sheet open={true} onOpenChange={(open) => !open && onClose()}>
+      <SheetContent className="w-full sm:max-w-xl flex flex-col p-0 border-l border-border/50 bg-background/95 backdrop-blur-xl">
+        <SheetHeader className="p-6 border-b border-border/50 bg-secondary/10">
           <div className="flex items-center gap-3">
-            <div className="p-2 bg-blue-500/10 text-blue-400 rounded-lg">
-              <Info className="w-5 h-5" />
+            <div className="p-2 bg-primary/10 rounded-lg">
+              <Shield className="size-5 text-primary" />
             </div>
-            <h3 className="font-semibold text-slate-200">{rule.metadata.name}</h3>
+            <div>
+              <SheetTitle className="text-xl font-bold tracking-tight">Configure Rule</SheetTitle>
+              <code className="text-[10px] text-muted-foreground uppercase tracking-widest">{ruleId}</code>
+            </div>
           </div>
-          <p className="text-sm text-slate-400 leading-relaxed italic">
-            "{rule.metadata.description}"
-          </p>
-          <div className="flex items-center gap-4 text-[11px] text-slate-500 pt-2 border-t border-slate-800">
-            <span>Version: <span className="text-slate-300">{rule.metadata.version}</span></span>
-            <span>Owner: <span className="text-slate-300">{rule.metadata.owner}</span></span>
-          </div>
+        </SheetHeader>
+
+        <div className="flex-1 overflow-y-auto px-6 py-8 space-y-8">
+          {loading ? (
+            <div className="space-y-6">
+              <Card className="animate-pulse bg-secondary/20 border-border/50">
+                <CardContent className="h-32" />
+              </Card>
+              <div className="h-8 w-32 bg-secondary/20 animate-pulse rounded" />
+              <Card className="animate-pulse bg-secondary/20 border-border/50">
+                <CardContent className="h-48" />
+              </Card>
+            </div>
+          ) : error ? (
+            <Card className="border-destructive/20 bg-destructive/5">
+              <CardContent className="p-6 text-center">
+                <AlertTriangle className="mx-auto text-destructive mb-3" size={32} />
+                <p className="text-sm font-medium">{error}</p>
+                <Button variant="outline" size="sm" onClick={loadRule} className="mt-4">Try Again</Button>
+              </CardContent>
+            </Card>
+          ) : rule ? (
+            <>
+              {/* Info Card */}
+              <Card className="bg-primary/5 border-primary/10">
+                <CardContent className="p-4 space-y-3">
+                  <div className="flex items-center gap-3">
+                    <Info className="size-4 text-primary" />
+                    <h3 className="font-bold text-sm text-foreground">{rule.metadata.name}</h3>
+                  </div>
+                  <p className="text-xs text-muted-foreground leading-relaxed italic">
+                    {rule.metadata.description}
+                  </p>
+                  <div className="flex items-center gap-4 text-[10px] text-muted-foreground pt-3 border-t border-border/30">
+                    <span className="flex items-center gap-1"><History size={10} /> v{rule.metadata.version}</span>
+                    <span className="flex items-center gap-1 font-bold">Owner: {rule.metadata.owner}</span>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Risk & Compliance Extension */}
+              <div className="space-y-4">
+                <h4 className="text-[10px] font-black text-muted-foreground uppercase tracking-[0.2em] flex items-center gap-2">
+                  <Activity className="size-3" />
+                  Risk & Compliance
+                </h4>
+                <div className="space-y-6 bg-secondary/20 p-5 rounded-xl border border-border/50">
+                  <div>
+                    <label className="text-xs font-bold text-foreground block mb-3 uppercase tracking-wider">Risk Level</label>
+                    <div className="flex flex-wrap gap-2">
+                      {['low', 'medium', 'high', 'critical'].map((level) => (
+                        <Button
+                          key={level}
+                          size="sm"
+                          variant={rule.metadata.riskLevel === level ? 'default' : 'outline'}
+                          onClick={() => setRule({
+                            ...rule,
+                            metadata: { ...rule.metadata, riskLevel: level as any }
+                          })}
+                          className={cn(
+                            "h-8 text-[10px] font-bold uppercase tracking-widest px-4",
+                            rule.metadata.riskLevel === level && "shadow-lg shadow-primary/20"
+                          )}
+                        >
+                          {level}
+                        </Button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 gap-6">
+                    <div>
+                      <label className="text-xs font-bold text-foreground block mb-2 uppercase tracking-wider">Impact Areas</label>
+                      <div className="flex flex-wrap gap-2">
+                        {['reliability', 'security', 'cost', 'privacy', 'legal'].map((area) => {
+                          const isActive = (rule.metadata.impactArea || []).includes(area);
+                          return (
+                            <Badge
+                              key={area}
+                              variant={isActive ? 'secondary' : 'outline'}
+                              onClick={() => {
+                                const current = rule.metadata.impactArea || [];
+                                const next = isActive ? current.filter(a => a !== area) : [...current, area];
+                                setRule({ ...rule, metadata: { ...rule.metadata, impactArea: next } });
+                              }}
+                              className="cursor-pointer gap-1.5 py-1.5 px-3 uppercase text-[9px] font-black"
+                            >
+                              <Activity size={10} />
+                              {area}
+                            </Badge>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Enforcement Control */}
+              <div className="space-y-4">
+                <h4 className="text-[10px] font-black text-muted-foreground uppercase tracking-[0.2em] flex items-center gap-2">
+                  <Settings className="size-3" />
+                  Enforcement Profile
+                </h4>
+                <div className="space-y-6 bg-secondary/20 p-5 rounded-xl border border-border/50">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <label className="text-xs font-bold text-foreground block uppercase tracking-wider">State</label>
+                      <p className="text-[10px] text-muted-foreground">Enabled across all clusters</p>
+                    </div>
+                    <Button
+                      size="sm"
+                      variant={rule.is_enabled ? 'default' : 'secondary'}
+                      onClick={() => setRule({ ...rule, is_enabled: !rule.is_enabled })}
+                      className="h-8 font-black text-[10px] uppercase px-4"
+                    >
+                      {rule.is_enabled ? 'Active' : 'Disabled'}
+                    </Button>
+                  </div>
+
+                  <div className="pt-4 border-t border-border/30">
+                    <label className="text-xs font-bold text-foreground block mb-3 uppercase tracking-wider">Mode</label>
+                    <div className="grid grid-cols-2 gap-3">
+                      <Button
+                        variant={rule.enforcementMode === 'soft' ? 'secondary' : 'outline'}
+                        onClick={() => setRule({ ...rule, enforcementMode: 'soft' })}
+                        className="h-16 flex flex-col gap-1 border-border/50"
+                      >
+                        <CheckCircle size={14} />
+                        <span className="text-[10px] font-bold uppercase">Soft (Advice)</span>
+                      </Button>
+                      <Button
+                        variant={rule.enforcementMode === 'hard' ? 'destructive' : 'outline'}
+                        onClick={() => setRule({ ...rule, enforcementMode: 'hard' })}
+                        className="h-16 flex flex-col gap-1 border-border/50"
+                      >
+                        <AlertTriangle size={14} />
+                        <span className="text-[10px] font-bold uppercase">Hard (Block)</span>
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Decision Log Summary */}
+              <div className="space-y-4">
+                <h4 className="text-[10px] font-black text-muted-foreground uppercase tracking-[0.2em] flex items-center gap-2">
+                  <FileLock className="size-3" />
+                  Logic Manifest
+                </h4>
+                <div className="bg-background/40 border border-border/30 rounded-xl overflow-hidden p-1">
+                  <table className="w-full text-left text-[10px]">
+                    <thead className="bg-secondary/50 text-muted-foreground/60 uppercase font-black tracking-widest">
+                      <tr>
+                        <th className="px-3 py-2">Artifact Key</th>
+                        <th className="px-3 py-2 text-right">Scope</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border/20">
+                      {rule.evidence.map(key => (
+                        <tr key={key} className="hover:bg-secondary/20 transition-colors italic">
+                          <td className="px-3 py-2 text-primary/80 font-mono tracking-tight">{key}</td>
+                          <td className="px-3 py-2 text-right text-muted-foreground font-bold">MANDATORY</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </>
+          ) : null}
         </div>
 
-        {/* Risk & Compliance Extension */}
-        <section className="space-y-4">
-          <h4 className="text-xs font-bold text-slate-500 uppercase tracking-widest flex items-center gap-2">
-            <Activity className="w-3.5 h-3.5" />
-            Risk & Compliance
-          </h4>
-          <div className="bg-slate-900/40 p-5 rounded-xl border border-slate-800 space-y-6">
-            <div>
-              <label className="text-sm font-medium text-slate-200 block mb-3">Risk Level</label>
-              <div className="flex flex-wrap gap-2">
-                {['low', 'medium', 'high', 'critical'].map((level) => (
-                  <button
-                    key={level}
-                    onClick={() => setRule({
-                      ...rule,
-                      metadata: { ...rule.metadata, riskLevel: level as any }
-                    })}
-                    className={`px-3 py-1.5 rounded-lg border text-xs font-bold uppercase transition-all ${
-                      rule.metadata.riskLevel === level
-                        ? 'bg-blue-600 border-blue-500 text-white shadow-lg shadow-blue-500/20'
-                        : 'bg-slate-950 border-slate-800 text-slate-500 hover:border-slate-700'
-                    }`}
-                  >
-                    {level}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div>
-              <label className="text-sm font-medium text-slate-200 block mb-2">Impact Areas</label>
-              <div className="flex flex-wrap gap-2">
-                {['reliability', 'security', 'cost', 'privacy', 'legal'].map((area) => {
-                  const isActive = (rule.metadata.impactArea || []).includes(area);
-                  return (
-                    <button
-                      key={area}
-                      onClick={() => {
-                        const current = rule.metadata.impactArea || [];
-                        const next = isActive ? current.filter(a => a !== area) : [...current, area];
-                        setRule({
-                          ...rule,
-                          metadata: { ...rule.metadata, impactArea: next }
-                        });
-                      }}
-                      className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border text-xs transition-all ${
-                        isActive
-                          ? 'bg-purple-600 border-purple-500 text-white'
-                          : 'bg-slate-950 border-slate-800 text-slate-500 hover:border-slate-700'
-                      }`}
-                    >
-                      <Activity className="w-3 h-3" />
-                      {area}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            <div>
-              <label className="text-sm font-medium text-slate-200 block mb-2">Compliance Domains</label>
-              <div className="flex flex-wrap gap-2">
-                {['internal', 'soc2', 'hipaa', 'gdpr', 'pci'].map((domain) => {
-                  const isActive = (rule.metadata.complianceDomain || []).includes(domain);
-                  return (
-                    <button
-                      key={domain}
-                      onClick={() => {
-                        const current = rule.metadata.complianceDomain || [];
-                        const next = isActive ? current.filter(d => d !== domain) : [...current, domain];
-                        setRule({
-                          ...rule,
-                          metadata: { ...rule.metadata, complianceDomain: next }
-                        });
-                      }}
-                      className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border text-xs transition-all ${
-                        isActive
-                          ? 'bg-emerald-600 border-emerald-500 text-white'
-                          : 'bg-slate-950 border-slate-800 text-slate-500 hover:border-slate-700'
-                      }`}
-                    >
-                      <FileLock className="w-3 h-3" />
-                      {domain}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          </div>
-        </section>
-
-        {/* Global Settings */}
-        <section className="space-y-4">
-          <h4 className="text-xs font-bold text-slate-500 uppercase tracking-widest flex items-center gap-2">
-            <Settings className="w-3.5 h-3.5" />
-            Global Settings
-          </h4>
-
-          <div className="space-y-4 bg-slate-900/40 p-5 rounded-xl border border-slate-800">
-            <div className="flex items-center justify-between">
-              <div>
-                <label className="text-sm font-medium text-slate-200 block">Effectiveness Status</label>
-                <span className="text-xs text-slate-500">Enable or disable this rule across all projects by default.</span>
-              </div>
-              <button
-                onClick={() => setRule({ ...rule, is_enabled: !rule.is_enabled })}
-                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${
-                    rule.is_enabled ? 'bg-blue-600' : 'bg-slate-700'
-                }`}
-              >
-                <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                    rule.is_enabled ? 'translate-x-6' : 'translate-x-1'
-                }`} />
-              </button>
-            </div>
-
-            <div className="pt-4 border-t border-slate-800">
-              <label className="text-sm font-medium text-slate-200 block mb-3">Enforcement Mode</label>
-              <div className="grid grid-cols-2 gap-3">
-                <button
-                  onClick={() => setRule({ ...rule, enforcementMode: 'soft' })}
-                  className={`flex flex-col items-center gap-2 p-3 rounded-lg border transition-all ${
-                    rule.enforcementMode === 'soft' 
-                      ? 'bg-emerald-500/10 border-emerald-500/50 text-emerald-400 shadow-[0_0_15px_rgba(16,185,129,0.1)]' 
-                      : 'bg-slate-950 border-slate-800 text-slate-500 hover:border-slate-700'
-                  }`}
-                >
-                  <CheckCircle className="w-5 h-5" />
-                  <span className="text-xs font-bold uppercase tracking-wider">Soft (Advice)</span>
-                </button>
-                <button
-                  onClick={() => setRule({ ...rule, enforcementMode: 'hard' })}
-                  className={`flex flex-col items-center gap-2 p-3 rounded-lg border transition-all ${
-                    rule.enforcementMode === 'hard' 
-                      ? 'bg-red-500/10 border-red-500/50 text-red-400 shadow-[0_0_15px_rgba(239,68,68,0.1)]' 
-                      : 'bg-slate-950 border-slate-800 text-slate-500 hover:border-slate-700'
-                  }`}
-                >
-                  <AlertTriangle className="w-5 h-5" />
-                  <span className="text-xs font-bold uppercase tracking-wider">Hard (Block)</span>
-                </button>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        {/* Evaluation Logic */}
-        <section className="space-y-4">
-          <h4 className="text-xs font-bold text-slate-500 uppercase tracking-widest flex items-center gap-2">
-            <Cpu className="w-3.5 h-3.5" />
-            Evaluation Logic
-          </h4>
-          
-          <div className="bg-slate-900/40 p-5 rounded-xl border border-slate-800 space-y-4">
-             <div>
-                <label className="text-sm font-medium text-slate-200 block mb-1">Evaluation Type</label>
-                <div className="flex items-center gap-2 text-xs text-slate-400">
-                  <code className="px-2 py-0.5 bg-slate-950 rounded border border-slate-800 text-blue-400 font-bold">{rule.evaluationType}</code>
-                  <span>- Defined by core engine architecture.</span>
-                </div>
-             </div>
-
-             <div>
-                <label className="text-sm font-medium text-slate-200 block mb-2">Trigger Phases</label>
-                <div className="flex flex-wrap gap-2">
-                  {rule.triggerPhases.map(phase => (
-                    <span key={phase} className="px-2 py-1 bg-slate-950 border border-slate-800 rounded text-[10px] text-slate-300 font-bold tracking-widest uppercase">
-                      {phase}
-                    </span>
-                  ))}
-                </div>
-             </div>
-          </div>
-        </section>
-
-        {/* Required Evidence */}
-        <section className="space-y-4">
-          <h4 className="text-xs font-bold text-slate-500 uppercase tracking-widest flex items-center gap-2">
-            <Info className="w-3.5 h-3.5" />
-            Evidence Requirements
-          </h4>
-          <div className="bg-slate-950 border border-slate-800 rounded-xl overflow-hidden">
-            <table className="w-full text-left text-xs">
-              <thead className="bg-slate-900/50 text-slate-500 uppercase tracking-tighter decoration-slate-900">
-                <tr>
-                  <th className="px-4 py-2 border-b border-slate-800 font-bold">Artifact Key</th>
-                  <th className="px-4 py-2 border-b border-slate-800 text-right">Scope</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-800/50">
-                {rule.evidence.map(key => (
-                  <tr key={key} className="hover:bg-slate-900/30 transition-colors">
-                    <td className="px-4 py-3 text-slate-300 font-mono italic">{key}</td>
-                    <td className="px-4 py-3 text-right text-slate-500">Mandatory</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <p className="text-[10px] text-slate-600 px-2 italic text-center">
-            Evidence overrides can be configured in the project-level settings tab.
-          </p>
-        </section>
-      </div>
-
-      {/* Footer */}
-      <div className="p-6 border-t border-slate-800 bg-slate-950/80 backdrop-blur-xl flex items-center justify-between">
-        <button
-          className="flex items-center gap-2 text-sm text-red-500 hover:text-red-400 font-medium px-4 py-2 rounded-lg hover:bg-red-500/5 transition-all"
-        >
-          <Trash2 className="w-4 h-4" />
-          Archive Rule
-        </button>
-        <div className="flex items-center gap-3">
-          <button
-            onClick={onClose}
-            className="px-6 py-2 rounded-lg text-sm font-medium text-slate-400 hover:text-white hover:bg-slate-900 transition-all"
+        <SheetFooter className="p-6 border-t border-border/50 bg-secondary/10 flex items-center justify-between sm:justify-between">
+          <Button
+            variant="ghost"
+            className="text-destructive hover:text-destructive hover:bg-destructive/10 text-xs font-bold gap-2"
           >
-            Cancel
-          </button>
-          <button
-            onClick={handleSave}
-            disabled={saving}
-            className={`flex items-center gap-2 px-8 py-2 rounded-lg text-sm font-bold transition-all shadow-lg ${
-              saving ? 'bg-slate-800 text-slate-500 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-500 text-white shadow-blue-500/20 active:scale-95'
-            }`}
-          >
-            {saving ? <div className="animate-spin h-4 w-4 border-b-2 border-blue-200 rounded-full" /> : <Save className="w-4 h-4" />}
-            {saving ? 'Saving...' : 'Save Configuration'}
-          </button>
-        </div>
-      </div>
-    </div>
+            <Trash2 size={14} />
+            Archive Rule
+          </Button>
+          <div className="flex items-center gap-3">
+            <Button variant="ghost" size="sm" onClick={onClose} className="font-bold text-xs">
+              Cancel
+            </Button>
+            <Button
+              size="sm"
+              onClick={handleSave}
+              disabled={saving}
+              className="px-8 font-black text-xs uppercase shadow-xl shadow-primary/20"
+            >
+              {saving ? <div className="animate-spin h-3 w-3 border-b-2 border-current rounded-full mr-2" /> : <Save size={14} className="mr-2" />}
+              {saving ? 'Syncing...' : 'Commit Changes'}
+            </Button>
+          </div>
+        </SheetFooter>
+      </SheetContent>
+    </Sheet>
   );
 };
 

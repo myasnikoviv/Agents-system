@@ -1,4 +1,4 @@
-import { RuntimeEvent } from '../StreamRenderer';
+
 
 export interface ChatMessage {
     id: string;
@@ -185,3 +185,27 @@ export interface UploadedAttachment {
 
 export type RuntimeProvider = 'claude-cli' | 'codex-cli' | 'openhands-sdk';
 export type ChatEventRenderMode = 'humanized' | 'raw' | 'both';
+
+export interface MeetingTurnView {
+    role: string;
+    round?: number;
+    text: string;
+}
+
+export interface MeetingViewPayload {
+    title?: string;
+    turns: MeetingTurnView[];
+    decision?: string;
+}
+
+export interface MemoryInsightItem {
+    id: string;
+    text: string;
+    sourceLabel?: string;
+    sourceHref?: string;
+}
+
+export interface MemoryInsightPayload {
+    title?: string;
+    items: MemoryInsightItem[];
+}

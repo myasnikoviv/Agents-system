@@ -11,8 +11,7 @@ import {
   BrainCircuit,
   Box,
   Search,
-  Plus,
-  BarChart3
+  Plus
 } from 'lucide-react'
 
 import {
@@ -70,7 +69,7 @@ const SECONDARY_NAV = [
   },
 ]
 
-export function PageShell({ children }: { children: React.ReactNode }) {
+export function PageShell({ children, title }: { children: React.ReactNode, title: string }) {
   const location = useLocation()
 
   return (
@@ -81,7 +80,7 @@ export function PageShell({ children }: { children: React.ReactNode }) {
             <div className="size-6 rounded bg-primary flex items-center justify-center">
               <Box className="size-4 text-primary-foreground" />
             </div>
-            <span className="truncate group-data-[collapsible=icon]:hidden">Control Plane</span>
+            <span className="truncate group-data-[collapsible=icon]:hidden">{title}</span>
           </div>
         </SidebarHeader>
         <SidebarContent>
@@ -148,13 +147,13 @@ export function PageShell({ children }: { children: React.ReactNode }) {
             </h1>
           </div>
           <div className="flex items-center gap-2">
-             <Button variant="ghost" size="icon" className="size-8">
-               <Search className="size-4" />
-             </Button>
-             <Button size="sm" className="h-8 gap-1.5 px-3">
-               <Plus className="size-3.5" />
-               <span>New Task</span>
-             </Button>
+            <Button variant="ghost" size="icon" className="size-8">
+              <Search className="size-4" />
+            </Button>
+            <Button size="sm" className="h-8 gap-1.5 px-3">
+              <Plus className="size-3.5" />
+              <span>New Task</span>
+            </Button>
           </div>
         </header>
         <div className="flex-1 overflow-auto bg-sidebar/10">
