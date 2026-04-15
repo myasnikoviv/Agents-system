@@ -1,13 +1,13 @@
 import { createContext, useContext, useState, useEffect, useMemo } from 'react';
 import type { ReactNode, Dispatch, SetStateAction } from 'react';
 import type { RuntimeEvent } from '../StreamRenderer';
-import type { 
-    ChatMessage, 
-    ObservabilityState, 
-    GitContext, 
-    AgentRuntimeStatus, 
-    WorkerHealthRow, 
-    SwarmSummaryState, 
+import type {
+    ChatMessage,
+    ObservabilityState,
+    GitContext,
+    AgentRuntimeStatus,
+    WorkerHealthRow,
+    SwarmSummaryState,
     ChatEventRenderMode,
     PromptToken,
     RailProject,
@@ -246,7 +246,7 @@ export const CockpitProvider = ({ children }: { children: ReactNode }) => {
         }
     };
 
-    const handleCreateChain = (projectIdArg?: string, labelArg?: string, options?: any) => 
+    const handleCreateChain = (projectIdArg?: string, labelArg?: string, options?: any) =>
         handleCreateChainRaw(setRuntimeFooter, projectIdArg, labelArg, options);
 
     const syncProjectRuntimeContext = (projectId: string) => syncProjectRaw(projectId, setRuntimeFooter);
@@ -262,7 +262,7 @@ export const CockpitProvider = ({ children }: { children: ReactNode }) => {
         input, setInput, messages, activeEvents, promptTokens, setPromptTokens, uploadedAttachments, setUploadedAttachments,
         status, selectedProject, selectedThread, currentThreadId, currentTicketId, isProcessing, isAwaitingAgentReply,
         chatEventRenderMode, railCollapsed, railProjects, railThreadsByProject, swarmSummary, swarmWorkers: [],
-        agentStatusRows, sortedAgentStatusRows, projectScopedWorkers: [], projectRosterSummary: {}, 
+        agentStatusRows, sortedAgentStatusRows, projectScopedWorkers: [], projectRosterSummary: {},
         queueSnapshot: { waiting: [], assigned: [], completed: [], totalTracked: 0, queueLength: 0 },
         taskWorkerMapping: [], workerLifecycleTimeline: [], workerDebugRows: [], workerTraceRows: [], resourcePressure,
         dispatchLatencySummary: { avgMs: 124, warning: false }, observability, gitContext, workScope, scopeCardPinned, selectedScopeItemIds,

@@ -1,4 +1,4 @@
-import { MeetingViewPayload, MemoryInsightPayload, MemoryInsightItem, MeetingTurnView } from '../context/types';
+import type { MeetingViewPayload, MemoryInsightPayload, MemoryInsightItem, MeetingTurnView } from '../context/types';
 
 export const toRenderableMarkdown = (raw: string): string =>
     String(raw || '').replace(

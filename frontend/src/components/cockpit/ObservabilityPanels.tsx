@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type FC } from 'react';
 import type { RuntimeEvent } from './StreamRenderer';
 import { fetchJsonSafe } from '../../lib/http';
 import {
@@ -33,20 +33,19 @@ interface CostBreakdownApi {
   };
 }
 
-function eventTypeOf(event: RuntimeEvent): string {
+const eventTypeOf = (event: RuntimeEvent): string => {
   return String(event.event_type || event.type || '').trim();
-}
+};
 
-function tsOf(event: RuntimeEvent): number {
+const tsOf = (event: RuntimeEvent): number => {
   const raw = event.timestamp;
   const n = typeof raw === 'number' ? raw : Number(raw);
   return Number.isFinite(n) ? n : Date.now();
-}
+};
 
-export const ObservabilityPanels: React.FC<ObservabilityPanelsProps> = ({ events, selectedProject }) => {
+export const ObservabilityPanels: FC<ObservabilityPanelsProps> = ({ events, selectedProject }) => {
   const [debugOpen, setDebugOpen] = useState(false);
   const [planOpen, setPlanOpen] = useState(false);
-  const [promptOpen, setPromptOpen] = useState(false);
   const [costLoading, setCostLoading] = useState(false);
   const [costError, setCostError] = useState('');
   const [costApiData, setCostApiData] = useState<CostBreakdownApi['breakdown'] | null>(null);
@@ -294,112 +293,6 @@ export const ObservabilityPanels: React.FC<ObservabilityPanelsProps> = ({ events
     const topAgent = Object.entries(byAgent).sort((a, b) => b[1].count - a[1].count)[0] || null;
     return { byTool, byAgent, topTool, topAgent };
   }, [toolRows]);
-
-  const queueRows = useMemo(() => {
-    return events
-      .filter((e) => eventTypeOf(e) === 'task.queued' || eventTypeOf(e) === 'task.dispatched')
-      .map((e) => ({
-        at: tsOf(e),
-        type: eventTypeOf(e),
-        agent: String(e.payload?.agentSlug || e.actor?.id || 'unknown').trim(),
-        queueDepth: Number(e.payload?.queueDepth ?? -1),
-        queueDepthAfterPickup: Number(e.payload?.queueDepthAfterPickup ?? -1),
-        reason: String(e.payload?.reason || '').trim(),
-      }));
-  }, [events]);
-
-  const concurrencySummary = useMemo(() => {
-    const waitingAgents = new Set<string>();
-    const blockingReasons = new Set<string>();
-    let activeTool = '';
-
-    for (const row of queueRows) {
-      if (row.type === 'task.queued') {
-        waitingAgents.add(row.agent);
-        if (row.reason) blockingReasons.add(row.reason);
-      }
-    }
-
-    const latestToolCall = [...events]
-      .filter((e) => eventTypeOf(e) === 'tool.call' || eventTypeOf(e) === 'tool.called')
-      .sort((a, b) => tsOf(b) - tsOf(a))[0];
-    if (latestToolCall) {
-      activeTool = String(latestToolCall.payload?.tool || '').trim();
-    }
-
-    return {
-      waitingAgents: Array.from(waitingAgents),
-      activeTool: activeTool || 'n/a',
-      blockingReasons: Array.from(blockingReasons),
-    };
-  }, [events, queueRows]);
-
-  const llmRows = useMemo(() => {
-    const reqByKey = new Map<string, RuntimeEvent>();
-    const rows: Array<{ key: string; provider: string; model: string; latencyMs: number | null; promptSize: number; outputSize: number; status: 'paired' | 'orphan_response' }> = [];
-    for (const e of events) {
-      const type = eventTypeOf(e);
-      const key = String(e.payload?.traceId || e.id || e.event_id || `${tsOf(e)}`);
-      if (type === 'llm.request') {
-        reqByKey.set(key, e);
-      } else if (type === 'llm.response') {
-        const req = reqByKey.get(key);
-        const started = req ? tsOf(req) : null;
-        const ended = tsOf(e);
-        const payloadLatencyRaw = Number(e.payload?.latencyMs ?? e.payload?.durationMs ?? -1);
-        const payloadLatency = Number.isFinite(payloadLatencyRaw) && payloadLatencyRaw > 0 ? payloadLatencyRaw : null;
-        const latencyMs = started ? Math.max(0, ended - started) : payloadLatency;
-        rows.push({
-          key,
-          provider: String(e.payload?.provider || req?.payload?.provider || 'unknown').trim(),
-          model: String(e.payload?.model || req?.payload?.model || e.actor?.id || 'unknown').trim(),
-          latencyMs,
-          promptSize: String(req?.payload?.prompt || '').length,
-          outputSize: String(e.payload?.response || e.payload?.content || '').length,
-          status: req ? 'paired' : 'orphan_response',
-        });
-      }
-    }
-    return rows.slice(-20);
-  }, [events]);
-
-  const promptLogs = useMemo(() => {
-    const reqByKey = new Map<string, RuntimeEvent>();
-    const rows: Array<{
-      key: string;
-      step: string;
-      model: string;
-      prompt: string;
-      response: string;
-      at: number;
-    }> = [];
-    for (const e of events) {
-      const type = eventTypeOf(e);
-      const key = String(e.payload?.traceId || e.id || e.event_id || `${tsOf(e)}`);
-      if (type === 'llm.request') {
-        reqByKey.set(key, e);
-      } else if (type === 'llm.response') {
-        const req = reqByKey.get(key);
-        const step = String(
-          e.payload?.stageId ||
-          req?.payload?.stageId ||
-          e.payload?.stepId ||
-          req?.payload?.stepId ||
-          e.source_stage ||
-          'n/a',
-        ).trim();
-        rows.push({
-          key,
-          step,
-          model: String(e.payload?.model || req?.payload?.model || e.actor?.id || 'unknown').trim(),
-          prompt: String(req?.payload?.prompt || '').trim(),
-          response: String(e.payload?.response || e.payload?.content || '').trim(),
-          at: tsOf(e),
-        });
-      }
-    }
-    return rows.sort((a, b) => b.at - a.at).slice(0, 15);
-  }, [events]);
 
   const costSummary = useMemo(() => {
     const llmReq = events.filter((e) => eventTypeOf(e) === 'llm.request').length;
@@ -851,8 +744,5 @@ export const ObservabilityPanels: React.FC<ObservabilityPanelsProps> = ({ events
     </div>
   );
 };
-) : null}
-      </div>
-    </div>
-  );
-};
+
+export default ObservabilityPanels;

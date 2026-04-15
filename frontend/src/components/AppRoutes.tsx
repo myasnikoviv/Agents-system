@@ -1,5 +1,5 @@
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
-import { CockpitPage } from './cockpit/CockpitPage';
+import CockpitPage from './cockpit/CockpitPage';
 import { CockpitSettingsPage } from './cockpit/CockpitSettingsPage';
 import { GovernanceCenterPage } from './cockpit/GovernanceCenterPage';
 import { LoginPage } from './auth/LoginPage';

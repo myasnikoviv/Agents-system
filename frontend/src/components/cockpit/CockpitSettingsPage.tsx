@@ -1,8 +1,13 @@
-import { useEffect, useMemo, useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
-import { ChevronLeft, ShieldCheck, SlidersHorizontal } from 'lucide-react';
+import { useEffect, useMemo, useState, type FC } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
+import { ShieldCheck, SlidersHorizontal, Palette, Activity, Cpu, Save, History, Globe, Zap, Settings2 } from 'lucide-react';
 import { apiUrl } from '../../lib/http';
 import { Button } from '../ui/button';
+import { Input } from '../ui/input';
+import { Card, CardContent } from '../ui/card';
+import { Tabs, TabsList, TabsTrigger } from '../ui/tabs';
+import { PageShell } from '../ui/page-shell';
+import { cn } from '../../lib/utils';
 
 const SECTIONS = ['general', 'appearance', 'executor', 'usage'] as const;
 type SectionId = (typeof SECTIONS)[number];
@@ -44,43 +49,42 @@ const SETTINGS_KEYS = {
   executor: 'cockpit.settings.executor.v2',
 } as const;
 
-const ApiKeyInput = ({
-  label,
-  value,
-  onChange,
-  placeholder,
-}: {
+const ApiKeyInput: FC<{
   label: string;
   value: string;
   onChange: (val: string) => void;
   placeholder?: string;
-}) => {
+}> = ({ label, value, onChange, placeholder }) => {
   return (
-    <label className="flex flex-col gap-1">
-      {label}
-      <input
+    <div className="space-y-1.5">
+      <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">
+        {label}
+      </label>
+      <Input
         type="password"
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
-        className="w-full rounded-md border border-slate-600 bg-slate-800 px-2.5 py-1.5 text-sm text-slate-100"
+        className="bg-background/50 font-mono text-xs"
       />
-    </label>
+    </div>
   );
 };
 
-export function CockpitSettingsPage() {
+export const CockpitSettingsPage: FC = () => {
   const navigate = useNavigate();
   const { section } = useParams();
+
   const currentSection = useMemo<SectionId>(() => {
     const value = (section || 'general') as SectionId;
     return (SECTIONS as readonly string[]).includes(value) ? value : 'general';
   }, [section]);
 
-  const [generalSavedAt, setGeneralSavedAt] = useState('Unsaved');
-  const [appearanceSavedAt, setAppearanceSavedAt] = useState('Unsaved');
-  const [usageSavedAt, setUsageSavedAt] = useState('Unsaved');
-  const [executorSavedAt, setExecutorSavedAt] = useState('Unsaved');
+  const [saving, setSaving] = useState(false);
+  const [generalSavedAt, setGeneralSavedAt] = useState<string | null>(null);
+  const [appearanceSavedAt, setAppearanceSavedAt] = useState<string | null>(null);
+  const [usageSavedAt, setUsageSavedAt] = useState<string | null>(null);
+  const [executorSavedAt, setExecutorSavedAt] = useState<string | null>(null);
 
   const [generalSettings, setGeneralSettings] = useState<GeneralSettings>({
     defaultOpenBehavior: 'finder',
@@ -115,73 +119,38 @@ export function CockpitSettingsPage() {
     const rawUsage = localStorage.getItem(SETTINGS_KEYS.usage);
     const rawExecutor = localStorage.getItem(SETTINGS_KEYS.executor);
 
-    if (rawGeneral) {
-      try { setGeneralSettings((prev) => ({ ...prev, ...JSON.parse(rawGeneral) })); setGeneralSavedAt('Saved'); } catch {}
-    }
-    if (rawAppearance) {
-      try { setAppearanceSettings((prev) => ({ ...prev, ...JSON.parse(rawAppearance) })); setAppearanceSavedAt('Saved'); } catch {}
-    }
-    if (rawUsage) {
-      try { setUsageSettings((prev) => ({ ...prev, ...JSON.parse(rawUsage) })); setUsageSavedAt('Saved'); } catch {}
-    }
-    if (rawExecutor) {
-      try { setExecutorSettings((prev) => ({ ...prev, ...JSON.parse(rawExecutor) })); setExecutorSavedAt('Saved'); } catch {}
-    }
+    if (rawGeneral) try { setGeneralSettings(v => ({ ...v, ...JSON.parse(rawGeneral) })); } catch { }
+    if (rawAppearance) try { setAppearanceSettings(v => ({ ...v, ...JSON.parse(rawAppearance) })); } catch { }
+    if (rawUsage) try { setUsageSettings(v => ({ ...v, ...JSON.parse(rawUsage) })); } catch { }
+    if (rawExecutor) try { setExecutorSettings(v => ({ ...v, ...JSON.parse(rawExecutor) })); } catch { }
   }, []);
+
+  const loadAll = async () => {
+    try {
+      const endpoints = ['general', 'appearance', 'usage', 'executor'];
+      const results = await Promise.all(
+        endpoints.map(e => fetch(apiUrl(`/api/workspace/settings/${e}`)).then(r => r.json()))
+      );
+
+      results.forEach((data, i) => {
+        if (!data.success || !data.settings) return;
+        const e = endpoints[i];
+        if (e === 'general') setGeneralSettings(v => ({ ...v, ...data.settings }));
+        if (e === 'appearance') setAppearanceSettings(v => ({ ...v, ...data.settings }));
+        if (e === 'usage') setUsageSettings(v => ({ ...v, ...data.settings }));
+        if (e === 'executor') setExecutorSettings(v => ({ ...v, ...data.settings, apiKeys: { ...v.apiKeys, ...(data.settings.apiKeys || {}) } }));
+      });
+    } catch (err) {
+      console.error('Failed to load settings from API', err);
+    }
+  };
 
   useEffect(() => {
-    const loadGeneralFromApi = async () => {
-      try {
-        const res = await fetch(apiUrl('/api/workspace/settings/general'));
-        const data = await res.json();
-        if (!data.success || !data.settings) return;
-        setGeneralSettings((prev) => ({ ...prev, ...data.settings }));
-        setGeneralSavedAt('Saved');
-      } catch {}
-    };
-    void loadGeneralFromApi();
+    void loadAll();
   }, []);
 
-  useEffect(() => {
-    const loadAppearanceFromApi = async () => {
-      try {
-        const res = await fetch(apiUrl('/api/workspace/settings/appearance'));
-        const data = await res.json();
-        if (!data.success || !data.settings) return;
-        setAppearanceSettings((prev) => ({ ...prev, ...data.settings }));
-        setAppearanceSavedAt('Saved');
-      } catch {}
-    };
-    void loadAppearanceFromApi();
-  }, []);
-
-  useEffect(() => {
-    const loadUsageFromApi = async () => {
-      try {
-        const res = await fetch(apiUrl('/api/workspace/settings/usage'));
-        const data = await res.json();
-        if (!data.success || !data.settings) return;
-        setUsageSettings((prev) => ({ ...prev, ...data.settings }));
-        setUsageSavedAt('Saved');
-      } catch {}
-    };
-    void loadUsageFromApi();
-  }, []);
-
-  useEffect(() => {
-    const loadExecutorFromApi = async () => {
-      try {
-        const res = await fetch(apiUrl('/api/workspace/settings/executor'));
-        const data = await res.json();
-        if (!data.success || !data.settings) return;
-        setExecutorSettings((prev) => ({ ...prev, ...data.settings, apiKeys: { ...prev.apiKeys, ...(data.settings.apiKeys || {}) } }));
-        setExecutorSavedAt('Saved');
-      } catch {}
-    };
-    void loadExecutorFromApi();
-  }, []);
-
-  const saveSection = async (sectionId: 'general' | 'appearance' | 'usage' | 'executor', payload: unknown, onSaved: (savedAt: string) => void) => {
+  const saveSection = async (sectionId: SectionId, payload: unknown, updateSavedAt: (val: string) => void) => {
+    setSaving(true);
     try {
       const res = await fetch(apiUrl(`/api/workspace/settings/${sectionId}`), {
         method: 'POST',
@@ -189,134 +158,295 @@ export function CockpitSettingsPage() {
         body: JSON.stringify(payload),
       });
       const data = await res.json();
-      if (!data.success) {
-        onSaved(`Save failed at ${new Date().toLocaleTimeString()}`);
-        return;
-      }
+
       const next = data.settings || payload;
-      if (sectionId === 'general') {
-        setGeneralSettings((prev) => ({ ...prev, ...(next as Partial<GeneralSettings>) }));
-        localStorage.setItem(SETTINGS_KEYS.general, JSON.stringify(next));
-      } else if (sectionId === 'appearance') {
-        setAppearanceSettings((prev) => ({ ...prev, ...(next as Partial<AppearanceSettings>) }));
-        localStorage.setItem(SETTINGS_KEYS.appearance, JSON.stringify(next));
-      } else if (sectionId === 'usage') {
-        setUsageSettings((prev) => ({ ...prev, ...(next as Partial<UsageSettings>) }));
-        localStorage.setItem(SETTINGS_KEYS.usage, JSON.stringify(next));
-      } else {
-        setExecutorSettings((prev) => ({ ...prev, ...(next as Partial<ExecutorSettings>), apiKeys: { ...prev.apiKeys, ...((next as Partial<ExecutorSettings>).apiKeys || {}) } }));
-        localStorage.setItem(SETTINGS_KEYS.executor, JSON.stringify(next));
-      }
-      onSaved(`Saved at ${new Date().toLocaleTimeString()}`);
+      localStorage.setItem(SETTINGS_KEYS[sectionId], JSON.stringify(next));
+      updateSavedAt(`Synced at ${new Date().toLocaleTimeString()}`);
     } catch {
-      onSaved(`Saved locally at ${new Date().toLocaleTimeString()}`);
+      updateSavedAt(`Saved locally at ${new Date().toLocaleTimeString()}`);
+    } finally {
+      setSaving(false);
     }
   };
 
-  const sectionTitle = currentSection.replace('-', ' ').replace(/\b\w/g, (m) => m.toUpperCase());
-  const settingsCardClass = 'mb-3 rounded-xl border border-slate-700 bg-slate-900 p-3.5';
-  const settingsMetaClass = 'mt-2 text-xs text-slate-400';
-  const settingsNoteClass = 'mb-3 text-sm text-slate-400';
-  const settingsGridClass =
-    'grid grid-cols-1 overflow-hidden rounded-lg border border-slate-700 bg-slate-950 md:grid-cols-2 ' +
-    '[&_label]:flex [&_label]:flex-col [&_label]:gap-1.5 [&_label]:border-b [&_label]:border-slate-800 [&_label]:p-2.5 [&_label]:text-xs [&_label]:text-slate-300 ' +
-    'md:[&_label:nth-child(odd)]:border-r md:[&_label:nth-last-child(-n+2)]:border-b-0 ' +
-    '[&_select]:rounded-md [&_select]:border [&_select]:border-slate-600 [&_select]:bg-slate-800 [&_select]:px-2.5 [&_select]:py-1.5 [&_select]:text-sm [&_select]:text-slate-100 ' +
-    '[&_input]:rounded-md [&_input]:border [&_input]:border-slate-600 [&_input]:bg-slate-800 [&_input]:px-2.5 [&_input]:py-1.5 [&_input]:text-sm [&_input]:text-slate-100';
-
-  return (
-    <div className="grid min-h-screen grid-cols-1 bg-[#121315] text-slate-200 lg:grid-cols-[266px_1fr]">
-      <aside className="border-b border-slate-800 bg-slate-900 px-2.5 pb-3.5 pt-3 lg:border-b-0 lg:border-r lg:border-r-slate-800">
-        <Link className="mb-4 inline-flex items-center gap-1.5 text-sm text-slate-400 no-underline transition-colors hover:text-slate-100" to="/cockpit/runtime">
-          <ChevronLeft size={16} />
-          Back To Cockpit
-        </Link>
-        <nav className="flex flex-col gap-1">
-          {SECTIONS.map((id) => (
-            <Link
-              key={id}
-              to={`/cockpit/settings/${id}`}
-              className={`block rounded-md px-2.5 py-2 text-sm no-underline transition-colors ${
-                currentSection === id ? 'bg-slate-700 text-white' : 'text-slate-300 hover:bg-slate-800 hover:text-slate-100'
-              }`}
-            >
-              {id.replace('-', ' ').replace(/\b\w/g, (m) => m.toUpperCase())}
-            </Link>
-          ))}
-        </nav>
-      </aside>
-
-      <main className="w-full max-w-[1040px] px-4 py-5 lg:px-6">
-        <header className="mb-4">
-          <h1 className="m-0 text-3xl font-semibold leading-tight text-slate-100">{sectionTitle}</h1>
-          <p className="mb-0 mt-2 text-sm text-slate-400">Client settings only. Platform controls were moved out of workspace settings.</p>
-        </header>
-
-        {currentSection === 'general' && (
-          <section className={settingsCardClass}>
-            <h2 className="mb-2 inline-flex items-center gap-2 text-sm font-semibold text-slate-100"><SlidersHorizontal size={16} />Core Defaults</h2>
-            <div className={settingsGridClass}>
-              <label>Default Open Behavior<select value={generalSettings.defaultOpenBehavior} onChange={(e) => setGeneralSettings((prev) => ({ ...prev, defaultOpenBehavior: e.target.value as GeneralSettings['defaultOpenBehavior'] }))}><option value="finder">Finder</option><option value="editor">Editor</option><option value="terminal">Terminal</option></select></label>
-              <label>Language<select value={generalSettings.language} onChange={(e) => setGeneralSettings((prev) => ({ ...prev, language: e.target.value as GeneralSettings['language'] }))}><option value="auto">Auto Detect</option><option value="uk">Ukrainian</option><option value="en">English</option></select></label>
-              <label>Command Detail<select value={generalSettings.commandDetail} onChange={(e) => setGeneralSettings((prev) => ({ ...prev, commandDetail: e.target.value as GeneralSettings['commandDetail'] }))}><option value="steps">Code Steps</option><option value="verbose">Verbose Logs</option><option value="minimal">Minimal</option></select></label>
-              <label>Execution Speed<select value={generalSettings.executionSpeed} onChange={(e) => setGeneralSettings((prev) => ({ ...prev, executionSpeed: e.target.value as GeneralSettings['executionSpeed'] }))}><option value="standard">Standard</option><option value="fast">Fast</option><option value="deep">Deep Reasoning</option></select></label>
-            </div>
-            <div className="mt-3 flex flex-wrap gap-2"><Button variant="secondary" onClick={() => saveSection('general', generalSettings, setGeneralSavedAt)}>Save General Settings</Button></div>
-            <div className={settingsMetaClass}>{generalSavedAt}</div>
-          </section>
-        )}
-
-        {currentSection === 'appearance' && (
-          <section className={settingsCardClass}>
-            <h2>Appearance Configuration</h2>
-            <div className={settingsGridClass}>
-              <label>Theme<select value={appearanceSettings.theme} onChange={(e) => setAppearanceSettings((prev) => ({ ...prev, theme: e.target.value as AppearanceSettings['theme'] }))}><option value="dark">Dark</option><option value="light">Light</option><option value="system">System</option></select></label>
-              <label>Density<select value={appearanceSettings.density} onChange={(e) => setAppearanceSettings((prev) => ({ ...prev, density: e.target.value as AppearanceSettings['density'] }))}><option value="compact">Compact</option><option value="comfortable">Comfortable</option><option value="spacious">Spacious</option></select></label>
-              <label>Accent<select value={appearanceSettings.accent} onChange={(e) => setAppearanceSettings((prev) => ({ ...prev, accent: e.target.value as AppearanceSettings['accent'] }))}><option value="blue">Blue</option><option value="emerald">Emerald</option><option value="violet">Violet</option></select></label>
-              <label>Font Scale<select value={appearanceSettings.fontScale} onChange={(e) => setAppearanceSettings((prev) => ({ ...prev, fontScale: e.target.value as AppearanceSettings['fontScale'] }))}><option value="small">Small</option><option value="medium">Medium</option><option value="large">Large</option></select></label>
-            </div>
-            <div className="mt-3 flex flex-wrap gap-2"><Button variant="secondary" onClick={() => saveSection('appearance', appearanceSettings, setAppearanceSavedAt)}>Save Appearance</Button></div>
-            <div className={settingsMetaClass}>{appearanceSavedAt}</div>
-          </section>
-        )}
-
-        {currentSection === 'usage' && (
-          <section className={settingsCardClass}>
-            <h2>Usage Preferences</h2>
-            <div className={settingsGridClass}>
-              <label>Detail Level<select value={usageSettings.detailLevel} onChange={(e) => setUsageSettings((prev) => ({ ...prev, detailLevel: e.target.value as UsageSettings['detailLevel'] }))}><option value="minimal">Minimal</option><option value="steps">Steps</option><option value="verbose">Verbose</option></select></label>
-              <label>Notify On Completion<select value={String(usageSettings.notifyOnCompletion)} onChange={(e) => setUsageSettings((prev) => ({ ...prev, notifyOnCompletion: e.target.value === 'true' }))}><option value="true">On</option><option value="false">Off</option></select></label>
-              <label>Show Token Stats<select value={String(usageSettings.showTokenStats)} onChange={(e) => setUsageSettings((prev) => ({ ...prev, showTokenStats: e.target.value === 'true' }))}><option value="true">On</option><option value="false">Off</option></select></label>
-            </div>
-            <div className="mt-3 flex flex-wrap gap-2"><Button variant="secondary" onClick={() => saveSection('usage', usageSettings, setUsageSavedAt)}>Save Usage</Button></div>
-            <div className={settingsMetaClass}>{usageSavedAt}</div>
-          </section>
-        )}
-
-        {currentSection === 'executor' && (
-          <section className={settingsCardClass}>
-            <h2><ShieldCheck size={16} />Provider & Executor Configuration</h2>
-            <p className={settingsNoteClass}>Client-level provider and model preferences.</p>
-
-            <div className={settingsGridClass}>
-              <label>Provider<select value={executorSettings.provider} onChange={(e) => setExecutorSettings((prev) => ({ ...prev, provider: e.target.value as ExecutorSettings['provider'] }))}><option value="claude-cli">Claude Code CLI</option><option value="codex-cli">Codex CLI</option><option value="openhands-sdk">OpenHands SDK</option></select></label>
-              <label>Model<input value={executorSettings.model} onChange={(e) => setExecutorSettings((prev) => ({ ...prev, model: e.target.value }))} /></label>
-            </div>
-
-            <div className="mt-3 grid grid-cols-1 gap-2 md:grid-cols-3">
-              <ApiKeyInput label="Anthropic API Key" value={executorSettings.apiKeys.anthropic || ''} onChange={(val) => setExecutorSettings((prev) => ({ ...prev, apiKeys: { ...prev.apiKeys, anthropic: val } }))} />
-              <ApiKeyInput label="OpenAI API Key" value={executorSettings.apiKeys.openai || ''} onChange={(val) => setExecutorSettings((prev) => ({ ...prev, apiKeys: { ...prev.apiKeys, openai: val } }))} />
-              <ApiKeyInput label="Google API Key" value={executorSettings.apiKeys.google || ''} onChange={(val) => setExecutorSettings((prev) => ({ ...prev, apiKeys: { ...prev.apiKeys, google: val } }))} />
-            </div>
-
-            <div className="mt-3 flex flex-wrap gap-2">
-              <Button variant="secondary" onClick={() => saveSection('executor', executorSettings, setExecutorSavedAt)}>Save Configuration</Button>
-            </div>
-
-            <div className={settingsMetaClass}>{executorSavedAt}</div>
-          </section>
-        )}
-      </main>
+  const renderSectionHeader = (title: string, Icon: typeof SlidersHorizontal, subtitle: string) => (
+    <div className="mb-6">
+      <div className="flex items-center gap-3 mb-1">
+        <div className="p-2 bg-primary/10 rounded-lg">
+          <Icon className="size-5 text-primary" />
+        </div>
+        <h2 className="text-xl font-bold tracking-tight">{title}</h2>
+      </div>
+      <p className="text-xs text-muted-foreground">{subtitle}</p>
     </div>
   );
-}
+
+  const settingLabelClass = "text-[10px] font-black uppercase tracking-widest text-muted-foreground block mb-2 px-1";
+  const settingSelectClass = "w-full bg-background border border-border/50 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-primary/20 transition-all outline-none";
+
+  return (
+    <PageShell title="Settings">
+      <div className="max-w-4xl mx-auto py-8 px-4">
+        <div className="mb-8">
+          <Tabs value={currentSection} onValueChange={(val) => navigate(`/cockpit/settings/${val}`)}>
+            <TabsList className="bg-secondary/50 p-1 rounded-xl">
+              <TabsTrigger value="general" className="px-6 py-2 rounded-lg text-xs font-bold uppercase tracking-wider">General</TabsTrigger>
+              <TabsTrigger value="appearance" className="px-6 py-2 rounded-lg text-xs font-bold uppercase tracking-wider">Appearance</TabsTrigger>
+              <TabsTrigger value="executor" className="px-6 py-2 rounded-lg text-xs font-bold uppercase tracking-wider">Executor</TabsTrigger>
+              <TabsTrigger value="usage" className="px-6 py-2 rounded-lg text-xs font-bold uppercase tracking-wider">Usage</TabsTrigger>
+            </TabsList>
+          </Tabs>
+        </div>
+
+        <div className="space-y-6">
+          {currentSection === 'general' && (
+            <Card className="border-border/50 bg-secondary/10 overflow-hidden">
+              <CardContent className="p-6">
+                {renderSectionHeader("Core Defaults", SlidersHorizontal, "Base configuration for navigation and core behavior.")}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div>
+                    <label className={settingLabelClass}>Open Behavior</label>
+                    <select
+                      className={settingSelectClass}
+                      value={generalSettings.defaultOpenBehavior}
+                      onChange={(e) => setGeneralSettings(v => ({ ...v, defaultOpenBehavior: e.target.value as any }))}
+                    >
+                      <option value="finder">Finder</option>
+                      <option value="editor">Editor</option>
+                      <option value="terminal">Terminal</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className={settingLabelClass}>System Language</label>
+                    <div className="flex items-center gap-2 bg-background border border-border/50 rounded-lg p-1">
+                      {['auto', 'uk', 'en'].map(lang => (
+                        <Button
+                          key={lang}
+                          variant={generalSettings.language === lang ? 'default' : 'ghost'}
+                          size="sm"
+                          className="flex-1 text-[10px] font-bold uppercase"
+                          onClick={() => setGeneralSettings(v => ({ ...v, language: lang as any }))}
+                        >
+                          {lang === 'auto' ? <Globe size={12} className="mr-1.5" /> : null}
+                          {lang}
+                        </Button>
+                      ))}
+                    </div>
+                  </div>
+                  <div>
+                    <label className={settingLabelClass}>Command Detail</label>
+                    <select
+                      className={settingSelectClass}
+                      value={generalSettings.commandDetail}
+                      onChange={(e) => setGeneralSettings(v => ({ ...v, commandDetail: e.target.value as any }))}
+                    >
+                      <option value="steps">Steps (Default)</option>
+                      <option value="verbose">Verbose Logs</option>
+                      <option value="minimal">Minimal</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className={settingLabelClass}>Execution Speed</label>
+                    <div className="flex items-center gap-2 bg-background border border-border/50 rounded-lg p-1">
+                      <Button
+                        variant={generalSettings.executionSpeed === 'fast' ? 'default' : 'ghost'}
+                        size="sm"
+                        className="flex-1 text-[10px] font-bold uppercase"
+                        onClick={() => setGeneralSettings(v => ({ ...v, executionSpeed: 'fast' }))}
+                      >
+                        <Zap size={12} className="mr-1.5" /> Fast
+                      </Button>
+                      <Button
+                        variant={generalSettings.executionSpeed === 'standard' ? 'default' : 'ghost'}
+                        size="sm"
+                        className="flex-1 text-[10px] font-bold uppercase"
+                        onClick={() => setGeneralSettings(v => ({ ...v, executionSpeed: 'standard' }))}
+                      >
+                        Standard
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+                <div className="mt-8 pt-6 border-t border-border/30 flex items-center justify-between">
+                  {generalSavedAt && <span className="text-[10px] text-muted-foreground italic">{generalSavedAt}</span>}
+                  <Button
+                    size="sm"
+                    className="px-8 font-black text-xs uppercase shadow-xl shadow-primary/20 ml-auto"
+                    onClick={() => saveSection('general', generalSettings, setGeneralSavedAt)}
+                    disabled={saving}
+                  >
+                    <Save size={14} className="mr-2" /> Commit General Settings
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {currentSection === 'appearance' && (
+            <Card className="border-border/50 bg-secondary/10 overflow-hidden">
+              <CardContent className="p-6">
+                {renderSectionHeader("Appearance", Palette, "Visual configuration, theming and layout density.")}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div>
+                    <label className={settingLabelClass}>Interface Theme</label>
+                    <div className="flex items-center gap-2 bg-background border border-border/50 rounded-lg p-1">
+                      {['dark', 'light', 'system'].map(t => (
+                        <Button
+                          key={t}
+                          variant={appearanceSettings.theme === t ? 'default' : 'ghost'}
+                          size="sm"
+                          className="flex-1 text-[10px] font-bold uppercase"
+                          onClick={() => setAppearanceSettings(v => ({ ...v, theme: t as any }))}
+                        >
+                          {t}
+                        </Button>
+                      ))}
+                    </div>
+                  </div>
+                  <div>
+                    <label className={settingLabelClass}>Density Mode</label>
+                    <select
+                      className={settingSelectClass}
+                      value={appearanceSettings.density}
+                      onChange={(e) => setAppearanceSettings(v => ({ ...v, density: e.target.value as any }))}
+                    >
+                      <option value="compact">Compact</option>
+                      <option value="comfortable">Comfortable</option>
+                      <option value="spacious">Spacious</option>
+                    </select>
+                  </div>
+                </div>
+                <div className="mt-8 pt-6 border-t border-border/30 flex items-center justify-between">
+                  {appearanceSavedAt && <span className="text-[10px] text-muted-foreground italic">{appearanceSavedAt}</span>}
+                  <Button
+                    size="sm"
+                    className="px-8 font-black text-xs uppercase shadow-xl shadow-primary/20 ml-auto"
+                    onClick={() => saveSection('appearance', appearanceSettings, setAppearanceSavedAt)}
+                    disabled={saving}
+                  >
+                    <Save size={14} className="mr-2" /> Sync Appearance
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {currentSection === 'usage' && (
+            <Card className="border-border/50 bg-secondary/10 overflow-hidden">
+              <CardContent className="p-6">
+                {renderSectionHeader("Usage Preferences", Activity, "Analytics, notifications and detail levels.")}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div>
+                    <label className={settingLabelClass}>Token Statistics</label>
+                    <Button
+                      variant={usageSettings.showTokenStats ? 'secondary' : 'outline'}
+                      className="w-full text-[10px] font-black uppercase h-10 italic"
+                      onClick={() => setUsageSettings(v => ({ ...v, showTokenStats: !v.showTokenStats }))}
+                    >
+                      {usageSettings.showTokenStats ? "Visible (Standard)" : "Hidden"}
+                    </Button>
+                  </div>
+                  <div>
+                    <label className={settingLabelClass}>Desktop Notifications</label>
+                    <Button
+                      variant={usageSettings.notifyOnCompletion ? 'default' : 'outline'}
+                      className="w-full text-[10px] font-black uppercase h-10"
+                      onClick={() => setUsageSettings(v => ({ ...v, notifyOnCompletion: !v.notifyOnCompletion }))}
+                    >
+                      {usageSettings.notifyOnCompletion ? "Active" : "Silenced"}
+                    </Button>
+                  </div>
+                </div>
+                <div className="mt-8 pt-6 border-t border-border/30 flex items-center justify-between">
+                  {usageSavedAt && <span className="text-[10px] text-muted-foreground italic">{usageSavedAt}</span>}
+                  <Button
+                    size="sm"
+                    className="px-8 font-black text-xs uppercase shadow-xl shadow-primary/20 ml-auto"
+                    onClick={() => saveSection('usage', usageSettings, setUsageSavedAt)}
+                    disabled={saving}
+                  >
+                    <Save size={14} className="mr-2" /> Store Preferences
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {currentSection === 'executor' && (
+            <Card className="border-border/50 bg-secondary/10 overflow-hidden">
+              <CardContent className="p-6">
+                {renderSectionHeader("Provider & Logic", Cpu, "LLM providers, engine selection and authentication keys.")}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+                  <div>
+                    <label className={settingLabelClass}>Core Provider</label>
+                    <select
+                      className={settingSelectClass}
+                      value={executorSettings.provider}
+                      onChange={(e) => setExecutorSettings(v => ({ ...v, provider: e.target.value as any }))}
+                    >
+                      <option value="claude-cli">Claude Code CLI</option>
+                      <option value="codex-cli">Codex CLI</option>
+                      <option value="openhands-sdk">OpenHands SDK</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className={settingLabelClass}>Primary Model Override</label>
+                    <Input
+                      value={executorSettings.model}
+                      onChange={(e) => setExecutorSettings(v => ({ ...v, model: e.target.value }))}
+                      className="bg-background/50 border-border/50"
+                      placeholder="auto"
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-4 pt-6 border-t border-border/30">
+                  <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground flex items-center gap-2 mb-4">
+                    <ShieldCheck size={12} /> Authentication Vault
+                  </h3>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <ApiKeyInput label="Anthropic Key" value={executorSettings.apiKeys.anthropic || ''} onChange={(val) => setExecutorSettings(v => ({ ...v, apiKeys: { ...v.apiKeys, anthropic: val } }))} />
+                    <ApiKeyInput label="OpenAI Key" value={executorSettings.apiKeys.openai || ''} onChange={(val) => setExecutorSettings(v => ({ ...v, apiKeys: { ...v.apiKeys, openai: val } }))} />
+                    <ApiKeyInput label="Google Key" value={executorSettings.apiKeys.google || ''} onChange={(val) => setExecutorSettings(v => ({ ...v, apiKeys: { ...v.apiKeys, google: val } }))} />
+                  </div>
+                </div>
+
+                <div className="mt-8 pt-6 border-t border-border/30 flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <History size={12} className="text-muted-foreground" />
+                    {executorSavedAt && <span className="text-[10px] text-muted-foreground italic">{executorSavedAt}</span>}
+                  </div>
+                  <Button
+                    size="sm"
+                    className="px-8 font-black text-xs uppercase shadow-xl shadow-primary/20 ml-auto"
+                    onClick={() => saveSection('executor', executorSettings, setExecutorSavedAt)}
+                    disabled={saving}
+                  >
+                    <Save size={14} className="mr-2" /> Deploy Provider Config
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+        </div>
+
+        <div className="mt-12 p-6 border border-primary/10 bg-primary/5 rounded-2xl">
+          <div className="flex items-start gap-4">
+            <div className="p-2 bg-primary/10 rounded-lg shrink-0">
+              <Settings2 className="size-5 text-primary" />
+            </div>
+            <div>
+              <h4 className="text-sm font-bold mb-1">Advanced Manifest Controls</h4>
+              <p className="text-xs text-muted-foreground leading-relaxed">
+                Platform-level controls and cluster-specific overrides are managed in the <span className="font-bold text-foreground">Infrastructure Control Plane</span>.
+                These settings only affect your local session and agent executor profile.
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </PageShell>
+  );
+};
+
+export default CockpitSettingsPage;

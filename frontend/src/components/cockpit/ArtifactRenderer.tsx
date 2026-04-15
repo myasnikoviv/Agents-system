@@ -1,4 +1,4 @@
-import React from 'react';
+import { type FC, type ComponentPropsWithoutRef } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { FileCode, Ticket, Terminal } from 'lucide-react';
@@ -8,20 +8,13 @@ interface ArtifactRendererProps {
     className?: string;
 }
 
-export const ArtifactRenderer: React.FC<ArtifactRendererProps> = ({ content, className }) => {
-    // Transform text into custom markdown links for artifacts
-    // Be very careful not to break existing links or markdown structure.
-    // We will do some basic replacements.
-    
+export const ArtifactRenderer: FC<ArtifactRendererProps> = ({ content, className }) => {
     let processedContent = content || '';
 
     // Tickets like PM-XXX
-    // We avoid replacing inside already existing links by a rudimentary check,
-    // but a better approach is a remark plugin. For simplicity, we assume
-    // standard text logs mostly. Let's do a simple regex:
     processedContent = processedContent.replace(/\b(PM-\d{1,4}\b(?:[a-zA-Z0-9-]*))\b/g, (match) => `[${match}](ticket:${match})`);
 
-    // File paths starting with src/ or /Users/ or ./
+    // File paths
     processedContent = processedContent.replace(/(^|\s)(\/Users\/[\w.-/]+|src\/[\w.-/]+|\.\/[\w.-/]+)(\s|$)/g, (_match, prefix, path, suffix) => {
         return `${prefix}[${path}](file:${path})${suffix}`;
     });
@@ -38,14 +31,14 @@ export const ArtifactRenderer: React.FC<ArtifactRendererProps> = ({ content, cla
                             const ticketId = url.replace('ticket:', '');
                             return (
                                 <span 
-                                    className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-400 hover:bg-blue-500/20 cursor-pointer font-medium border border-blue-500/20 transition-colors"
+                                    className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-lg bg-primary/10 text-primary hover:bg-primary/20 cursor-pointer font-bold text-[10px] uppercase tracking-widest border border-primary/20 transition-all shadow-sm"
                                     onClick={(e) => {
                                         e.preventDefault();
                                         e.stopPropagation();
                                         alert(`Navigate to Ticket: ${ticketId}`);
                                     }}
                                 >
-                                    <Ticket size={12} />
+                                    <Ticket size={12} className="opacity-70" />
                                     {children}
                                 </span>
                             );
@@ -55,27 +48,27 @@ export const ArtifactRenderer: React.FC<ArtifactRendererProps> = ({ content, cla
                             const filePath = url.replace('file:', '');
                             return (
                                 <span 
-                                    className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 cursor-pointer font-mono text-[0.9em] border border-emerald-500/20 transition-colors"
+                                    className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-lg bg-secondary/30 text-foreground hover:bg-secondary/50 cursor-pointer font-mono text-[9px] font-bold uppercase tracking-tight border border-border/50 transition-all shadow-sm"
                                     onClick={(e) => {
                                         e.preventDefault();
                                         e.stopPropagation();
                                         alert(`Open File: ${filePath}`);
                                     }}
                                 >
-                                    <FileCode size={12} />
+                                    <FileCode size={12} className="opacity-50" />
                                     {children}
                                 </span>
                             );
                         }
 
-                        return <a href={href} target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:text-blue-300 underline underline-offset-2" {...props}>{children}</a>;
+                        return <a href={href} target="_blank" rel="noopener noreferrer" className="text-primary hover:text-primary/80 underline underline-offset-4 decoration-primary/30 transition-all" {...props}>{children}</a>;
                     },
-                    code: ({ inline, className, children, ...props }: React.ComponentPropsWithoutRef<'code'> & { inline?: boolean }) => {
-                        // Make inline code containing typical commands clickable
-                        if (inline && typeof children === 'string' && (children.startsWith('npm ') || children.startsWith('npx ') || children.startsWith('yarn ') || children.startsWith('git '))) {
+                    code: ({ inline, className, children, ...props }: ComponentPropsWithoutRef<'code'> & { inline?: boolean }) => {
+                        const contentStr = String(children);
+                        if (inline && (contentStr.startsWith('npm ') || contentStr.startsWith('npx ') || contentStr.startsWith('yarn ') || contentStr.startsWith('git '))) {
                             return (
                                 <span 
-                                    className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-slate-800 text-slate-200 hover:bg-slate-700 cursor-pointer font-mono text-[0.9em] border border-slate-700 transition-colors"
+                                    className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-lg bg-card border border-border/80 text-foreground hover:border-primary/50 cursor-pointer font-mono text-[10px] font-black uppercase tracking-widest transition-all shadow-lg shadow-black/10 group"
                                     onClick={(e) => {
                                         e.preventDefault();
                                         e.stopPropagation();
@@ -83,14 +76,14 @@ export const ArtifactRenderer: React.FC<ArtifactRendererProps> = ({ content, cla
                                     }}
                                     title="Click to run command"
                                 >
-                                    <Terminal size={12} className="text-slate-400" />
+                                    <Terminal size={12} className="text-primary group-hover:scale-110 transition-transform" />
                                     {children}
                                 </span>
                             );
                         }
                         
                         return (
-                            <code className={`${className || ''} bg-slate-800/50 px-1.5 py-0.5 rounded font-mono text-[0.9em] text-slate-300`} {...props}>
+                            <code className={`${className || ''} bg-muted/40 px-1.5 py-0.5 rounded-md font-mono text-[0.95em] text-foreground border border-border/30`} {...props}>
                                 {children}
                             </code>
                         );
@@ -102,3 +95,5 @@ export const ArtifactRenderer: React.FC<ArtifactRendererProps> = ({ content, cla
         </div>
     );
 };
+
+export default ArtifactRenderer;

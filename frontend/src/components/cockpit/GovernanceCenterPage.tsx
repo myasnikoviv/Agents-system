@@ -1,11 +1,10 @@
-import { useEffect, useState } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
-import { 
-  ChevronLeft, 
-  Shield, 
-  Database, 
-  Table, 
-  Activity, 
+import { useEffect, useState, type FC } from 'react';
+import { useSearchParams } from 'react-router-dom';
+import {
+  Shield,
+  Database,
+  Table,
+  Activity,
   RefreshCcw,
   CheckCircle2,
   Clock
@@ -16,8 +15,13 @@ import GovernanceRuleEditor from './GovernanceRuleEditor';
 import ProjectPolicyManager from './ProjectPolicyManager';
 import { ManualOverrideManager } from './ManualOverrideManager';
 import { GovernanceAuditTrail } from './GovernanceAuditTrail';
+import { PageShell } from '../ui/page-shell';
+import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
+import { Button } from '../ui/button';
+import { Badge } from '../ui/badge';
 
-export function GovernanceCenterPage() {
+export const GovernanceCenterPage: FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const activeTab = searchParams.get('tab') || 'catalog';
   const [loading, setLoading] = useState(true);
@@ -36,10 +40,10 @@ export function GovernanceCenterPage() {
         fetchJsonSafe<any>('/api/governance/rules'),
         fetchJsonSafe<any>('/api/governance/overrides')
       ]);
-      
+
       const rules = Array.isArray(rulesRes?.rules) ? rulesRes.rules : [];
       const overrides = Array.isArray(overridesRes?.overrides) ? overridesRes.overrides : [];
-      
+
       setStats({
         totalRules: rules.length,
         activeRules: rules.filter((r: any) => r.is_enabled !== false).length,
@@ -65,112 +69,96 @@ export function GovernanceCenterPage() {
   ];
 
   return (
-    <div className="min-h-screen bg-[#0a0b0d] text-slate-300">
-      {/* Top Navigation */}
-      <div className="border-b border-slate-800 bg-[#0f1115]/80 backdrop-blur-xl sticky top-0 z-40">
-        <div className="mx-auto max-w-[1400px] px-6 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-6">
-            <Link 
-              className="p-2 hover:bg-slate-800 rounded-lg text-slate-400 hover:text-white transition-all" 
-              to="/cockpit/runtime"
-            >
-              <ChevronLeft size={20} />
-            </Link>
-            <div className="flex items-center gap-3">
-              <div className="p-2 bg-blue-600 rounded-lg shadow-[0_0_15px_rgba(37,99,235,0.4)]">
-                <Shield className="text-white w-5 h-5" />
-              </div>
-              <h1 className="text-xl font-bold text-white tracking-tight">Governance Cockpit</h1>
-            </div>
+    <PageShell title='Governance Center'>
+      <div className="mx-auto max-w-[1400px] px-6 py-6 h-full flex flex-col">
+        {/* Header Section */}
+        <div className="flex items-center justify-between mb-8">
+          <div>
+            <h1 className="text-3xl font-bold tracking-tight text-foreground">Governance Center</h1>
+            <p className="text-muted-foreground mt-1 text-sm">Monitor and manage agentic compliance rules and safety filters</p>
           </div>
-          
-          <div className="flex items-center gap-4">
-            <button 
+
+          <div className="flex items-center gap-3">
+            <Button
+              variant="outline"
+              size="sm"
               onClick={() => void loadStats()}
-              className="p-2 hover:bg-slate-800 rounded-lg text-slate-400 hover:text-white transition-all flex items-center gap-2 text-sm"
+              disabled={loading}
+              className="gap-2"
             >
-              <RefreshCcw size={16} className={loading ? 'animate-spin' : ''} />
-              Refresh
-            </button>
-            <div className="h-6 w-px bg-slate-800" />
-            <div className="flex items-center gap-2">
-              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-              <span className="text-xs font-bold text-slate-500 uppercase tracking-widest">Engine Online</span>
-            </div>
+              <RefreshCcw size={14} className={loading ? 'animate-spin' : ''} />
+              Sync Stats
+            </Button>
+            <Badge variant="success" className="gap-1.5 py-1">
+              <span className="w-1.5 h-1.5 rounded-full bg-current animate-pulse" />
+              Engine Online
+            </Badge>
           </div>
         </div>
-      </div>
 
-      <div className="mx-auto max-w-[1400px] px-6 py-8">
-        {/* Stats Header */}
+        {/* Stats Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
           {[
-            { label: 'Total Managed Rules', value: stats.totalRules, icon: Shield, color: 'text-blue-500', bg: 'bg-blue-500/10' },
-            { label: 'Active Policies', value: stats.activeRules, icon: CheckCircle2, color: 'text-emerald-500', bg: 'bg-emerald-500/10' },
-            { label: 'Project Overrides', value: stats.projectOverrides, icon: Database, color: 'text-purple-500', bg: 'bg-purple-500/10' },
-            { label: 'Pending Approvals', value: stats.pendingManual, icon: Clock, color: 'text-amber-500', bg: 'bg-amber-500/10' }
+            { label: 'Total Rules', value: stats.totalRules, icon: Shield, color: 'text-primary' },
+            { label: 'Active Policies', value: stats.activeRules, icon: CheckCircle2, color: 'text-success' },
+            { label: 'Project Overrides', value: stats.projectOverrides, icon: Database, color: 'text-accent' },
+            { label: 'Pending Safety', value: stats.pendingManual, icon: Clock, color: 'text-warning' }
           ].map((stat, i) => (
-            <div key={i} className="bg-[#0f1115] border border-slate-800 rounded-2xl p-5 shadow-sm group hover:border-slate-700 transition-all">
-              <div className="flex items-center justify-between mb-3">
-                <div className={`p-2 rounded-xl ${stat.bg} ${stat.color}`}>
-                  <stat.icon size={20} />
-                </div>
-                <span className="text-[10px] font-bold text-slate-600 uppercase tracking-widest group-hover:text-slate-400 transition-colors">Real-time</span>
-              </div>
-              <div className="text-2xl font-bold text-white mb-1">{stat.value}</div>
-              <div className="text-xs text-slate-500 font-medium">{stat.label}</div>
-            </div>
+            <Card key={i} className="border-border/50 bg-card/30 backdrop-blur-sm">
+              <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
+                <CardTitle className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                  {stat.label}
+                </CardTitle>
+                <stat.icon size={16} className={stat.color} />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">{stat.value}</div>
+              </CardContent>
+            </Card>
           ))}
         </div>
 
-        {/* Tab Navigation */}
-        <div className="flex items-center gap-1 bg-[#0f1115] p-1.5 rounded-2xl border border-slate-800 mb-8 w-fit">
-          {tabs.map(tab => (
-            <button
-              key={tab.id}
-              onClick={() => setSearchParams({ tab: tab.id })}
-              className={`flex items-center gap-2 px-6 py-2.5 rounded-xl text-sm font-bold transition-all ${
-                activeTab === tab.id 
-                  ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20' 
-                  : 'text-slate-500 hover:text-slate-300 hover:bg-slate-800/50'
-              }`}
-            >
-              <tab.icon size={16} />
-              {tab.label}
-            </button>
-          ))}
-        </div>
+        {/* Tab System */}
+        <Tabs value={activeTab} onValueChange={(val) => setSearchParams({ tab: val })} className="flex-1 flex flex-col">
+          <TabsList className="bg-secondary/50 border border-border/50 p-1 mb-6">
+            {tabs.map(tab => (
+              <TabsTrigger
+                key={tab.id}
+                value={tab.id}
+                className="gap-2 px-6 py-2"
+              >
+                <tab.icon size={14} />
+                {tab.label}
+              </TabsTrigger>
+            ))}
+          </TabsList>
 
-        {/* Tab Content */}
-        <div className="animate-in fade-in slide-in-from-bottom-2 duration-500">
-          {activeTab === 'catalog' && (
-            <GovernanceRuleCatalog 
-              onEditRule={(id) => setEditingRuleId(id)} 
-              onRefresh={loadStats}
-            />
-          )}
-          
-          {activeTab === 'policy' && (
-            <ProjectPolicyManager projectId="default" />
-          )}
+          <div className="flex-1 overflow-visible">
+            <TabsContent value="catalog" className="m-0 focus-visible:ring-0">
+              <GovernanceRuleCatalog
+                onEditRule={(id) => setEditingRuleId(id)}
+                onRefresh={loadStats}
+              />
+            </TabsContent>
 
-          {activeTab === 'manual' && (
-            <div className="animate-in fade-in slide-in-from-bottom-2 duration-400">
+            <TabsContent value="policy" className="m-0 focus-visible:ring-0">
+              <ProjectPolicyManager projectId="default" />
+            </TabsContent>
+
+            <TabsContent value="manual" className="m-0 focus-visible:ring-0">
               <ManualOverrideManager />
-            </div>
-          )}
+            </TabsContent>
 
-          {activeTab === 'audit' && (
-            <div className="animate-in fade-in slide-in-from-bottom-2 duration-400">
+            <TabsContent value="audit" className="m-0 focus-visible:ring-0">
               <GovernanceAuditTrail />
-            </div>
-          )}
-        </div>
+            </TabsContent>
+          </div>
+        </Tabs>
       </div>
 
       {/* Rule Editor Overlay */}
       {editingRuleId && (
-        <GovernanceRuleEditor 
+        <GovernanceRuleEditor
           ruleId={editingRuleId}
           onClose={() => setEditingRuleId(null)}
           onSaved={() => {
@@ -179,6 +167,6 @@ export function GovernanceCenterPage() {
           }}
         />
       )}
-    </div>
+    </PageShell>
   );
-}
+};
