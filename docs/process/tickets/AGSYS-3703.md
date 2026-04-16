@@ -1,7 +1,7 @@
 # Ticket: AGSYS-3703
 ## Move frontend into app boundary
 
-**Status**: TODO
+**Status**: DONE
 **Priority**: MEDIUM
 **Owner**: Сокіл-Координатор (PM Orchestrator)
 **Assignee**: Маестро Дизайну (Design Lead)

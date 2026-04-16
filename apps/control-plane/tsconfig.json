@@ -1,0 +1,18 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "outDir": "./dist",
+    "rootDir": "./src",
+    "composite": true,
+    "declaration": true
+  },
+  "include": ["src/**/*"],
+  "references": [
+    { "path": "../../packages/shared" },
+    { "path": "../../packages/events" },
+    { "path": "../../packages/memory" },
+    { "path": "../../packages/governance" },
+    { "path": "../../packages/billing" },
+    { "path": "../../packages/runtime" }
+  ]
+}

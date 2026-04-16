@@ -1,4 +1,4 @@
-import { ProjectDispatchQueue } from '../src/runtime/queue/ProjectDispatchQueue';
+import { ProjectDispatchQueue } from '@system/runtime';
 
 type ScenarioResult = {
   workers: number;

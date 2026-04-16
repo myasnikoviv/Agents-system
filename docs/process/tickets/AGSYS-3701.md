@@ -1,7 +1,7 @@
 # Ticket: AGSYS-3701
 ## Define target repository topology
 
-**Status**: TODO
+**Status**: DONE (Design Schema Created)
 **Priority**: HIGH
 **Owner**: Сокіл-Координатор (PM Orchestrator)
 **Assignee**: Майстер Креслень (Solution Architect)

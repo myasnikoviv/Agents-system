@@ -1,0 +1,17 @@
+{
+  "name": "@system/billing",
+  "version": "1.0.0",
+  "private": true,
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch"
+  },
+  "dependencies": {
+    "@system/shared": "*",
+    "@system/events": "*",
+    "@system/memory": "*",
+    "axios": "^1.13.6"
+  }
+}
