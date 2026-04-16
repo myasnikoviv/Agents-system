@@ -1,4 +1,4 @@
-import { SqliteEnvironmentStateStore, type PersistedEnvironmentRecord } from './EnvironmentStateStore';
+import { type EnvironmentStateStore, type PersistedEnvironmentRecord } from './EnvironmentStateStore';
 
 export interface WarmupCheck {
   id: string;
@@ -17,14 +17,14 @@ export interface WarmupResult {
 }
 
 export class EnvironmentWarmupService {
-  constructor(private readonly store: SqliteEnvironmentStateStore) {}
+  constructor(private readonly store: EnvironmentStateStore) {}
 
   async warmup(input: {
     environment: PersistedEnvironmentRecord;
     runChecks?: () => Promise<WarmupCheck[]>;
   }): Promise<WarmupResult> {
     const startedAt = new Date().toISOString();
-    this.store.upsert({
+    await this.store.upsert({
       environmentId: input.environment.environmentId,
       tenantId: input.environment.tenantId,
       workspaceId: input.environment.workspaceId,
@@ -38,7 +38,7 @@ export class EnvironmentWarmupService {
       const failedCheck = checks.find((c) => !c.ok);
       if (failedCheck) {
         const finishedAt = new Date().toISOString();
-        const failed = this.store.upsert({
+        const failed = await this.store.upsert({
           environmentId: input.environment.environmentId,
           tenantId: input.environment.tenantId,
           workspaceId: input.environment.workspaceId,
@@ -59,7 +59,7 @@ export class EnvironmentWarmupService {
       }
 
       const finishedAt = new Date().toISOString();
-      const active = this.store.upsert({
+      const active = await this.store.upsert({
         environmentId: input.environment.environmentId,
         tenantId: input.environment.tenantId,
         workspaceId: input.environment.workspaceId,
@@ -77,7 +77,7 @@ export class EnvironmentWarmupService {
       };
     } catch (error: any) {
       const finishedAt = new Date().toISOString();
-      const failed = this.store.upsert({
+      const failed = await this.store.upsert({
         environmentId: input.environment.environmentId,
         tenantId: input.environment.tenantId,
         workspaceId: input.environment.workspaceId,

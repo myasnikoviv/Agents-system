@@ -1,5 +1,5 @@
 import { transitionEnvironment, type EnvironmentState } from '@system/shared';
-import { SqliteEnvironmentStateStore, type PersistedEnvironmentRecord } from './EnvironmentStateStore';
+import { type EnvironmentStateStore, type PersistedEnvironmentRecord } from './EnvironmentStateStore';
 
 export interface EnvironmentTransitionResult {
   ok: boolean;
@@ -12,38 +12,38 @@ export interface EnvironmentTransitionResult {
 }
 
 export class EnvironmentSuspendResumeService {
-  constructor(private readonly store: SqliteEnvironmentStateStore) {}
+  constructor(private readonly store: EnvironmentStateStore) {}
 
-  suspend(input: {
+  async suspend(input: {
     environment: PersistedEnvironmentRecord;
     actorId?: string;
     reason?: string;
-  }): EnvironmentTransitionResult {
+  }): Promise<EnvironmentTransitionResult> {
     return this.applyTransition(input.environment, 'suspended', input.actorId, input.reason || 'manual_suspend');
   }
 
-  resume(input: {
+  async resume(input: {
     environment: PersistedEnvironmentRecord;
     actorId?: string;
     reason?: string;
-  }): EnvironmentTransitionResult {
+  }): Promise<EnvironmentTransitionResult> {
     return this.applyTransition(input.environment, 'active', input.actorId, input.reason || 'manual_resume');
   }
 
-  terminate(input: {
+  async terminate(input: {
     environment: PersistedEnvironmentRecord;
     actorId?: string;
     reason?: string;
-  }): EnvironmentTransitionResult {
+  }): Promise<EnvironmentTransitionResult> {
     return this.applyTransition(input.environment, 'terminated', input.actorId, input.reason || 'manual_terminate');
   }
 
-  private applyTransition(
+  private async applyTransition(
     environment: PersistedEnvironmentRecord,
     targetState: EnvironmentState,
     actorId?: string,
     reason?: string,
-  ): EnvironmentTransitionResult {
+  ): Promise<EnvironmentTransitionResult> {
     const transitioned = transitionEnvironment(
       {
         environmentId: environment.environmentId,
@@ -69,7 +69,7 @@ export class EnvironmentSuspendResumeService {
       };
     }
 
-    const persisted = this.store.upsert({
+    const persisted = await this.store.upsert({
       environmentId: environment.environmentId,
       tenantId: environment.tenantId,
       workspaceId: environment.workspaceId,

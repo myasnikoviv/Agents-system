@@ -6,6 +6,7 @@
 // Storage Layer (Postgres/SQLite)
 export * from './storage/ObjectStorageService';
 export * from './storage/PostgresControlApiStore';
+export * from './storage/PostgresAuthStore';
 export * from './storage/SecretsStore';
 export * from './storage/EnvironmentStateStore';
 export * from './storage/EnvironmentProvisioningService';

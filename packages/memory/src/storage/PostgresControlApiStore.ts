@@ -65,6 +65,35 @@ export class PostgresControlApiStore {
           value_json JSONB NOT NULL,
           updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
         );
+        CREATE TABLE IF NOT EXISTS cockpit_projects_pg (
+          id TEXT PRIMARY KEY,
+          label TEXT NOT NULL,
+          worktree_path TEXT,
+          agent_context_path TEXT,
+          repository_url TEXT,
+          onboarding_mode TEXT,
+          onboarding_auth_mode TEXT,
+          onboarding_bootstrap_mode TEXT,
+          onboarding_read_only BOOLEAN
+        );
+        CREATE TABLE IF NOT EXISTS cockpit_threads_pg (
+          id TEXT PRIMARY KEY,
+          project_id TEXT NOT NULL,
+          label TEXT NOT NULL,
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+        CREATE INDEX IF NOT EXISTS idx_cockpit_threads_pg_project
+          ON cockpit_threads_pg(project_id);
+        CREATE TABLE IF NOT EXISTS cockpit_messages_pg (
+          id TEXT PRIMARY KEY,
+          thread_id TEXT NOT NULL,
+          role TEXT NOT NULL,
+          content TEXT NOT NULL,
+          timestamp TIMESTAMPTZ NOT NULL,
+          sort_order INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE INDEX IF NOT EXISTS idx_cockpit_messages_pg_thread_order
+          ON cockpit_messages_pg(thread_id, sort_order);
         CREATE TABLE IF NOT EXISTS cockpit_policy_meta_pg (
           id BIGSERIAL PRIMARY KEY,
           project_id TEXT,
@@ -135,6 +164,13 @@ export class PostgresControlApiStore {
     }
   }
 
+  async query(sql: string, params?: any[]): Promise<{ rows?: any[] }> {
+    if (!(await this.ensureReady())) {
+      throw new Error(this.initError || 'postgres_not_ready');
+    }
+    return this.client!.query(sql, params);
+  }
+
   async upsertSetting(section: string, value: unknown): Promise<boolean> {
     if (!(await this.ensureReady())) return false;
     await this.client!.query(
@@ -203,6 +239,132 @@ export class PostgresControlApiStore {
     return {
       value: row?.value_json ?? {},
       updatedAt: row?.updated_at ? String(row.updated_at) : undefined,
+    };
+  }
+
+  async replaceRuntimeStore(input: {
+    projects: Array<{
+      id: string;
+      label: string;
+      worktreePath?: string;
+      agentContextPath?: string;
+      repositoryUrl?: string;
+      onboardingMode?: string;
+      onboardingAuthMode?: string;
+      onboardingBootstrapMode?: string;
+      onboardingReadOnly?: boolean;
+    }>;
+    threads: Array<{ id: string; projectId: string; label: string; updatedAt: string }>;
+    messages: Array<{ id: string; threadId: string; role: 'user' | 'agent'; content: string; timestamp: string; sortOrder: number }>;
+  }): Promise<boolean> {
+    if (!(await this.ensureReady())) return false;
+    await this.client!.query('BEGIN');
+    try {
+      await this.client!.query('DELETE FROM cockpit_projects_pg');
+      await this.client!.query('DELETE FROM cockpit_threads_pg');
+      await this.client!.query('DELETE FROM cockpit_messages_pg');
+
+      for (const project of input.projects) {
+        await this.client!.query(
+          `INSERT INTO cockpit_projects_pg(
+             id, label, worktree_path, agent_context_path, repository_url, onboarding_mode, onboarding_auth_mode, onboarding_bootstrap_mode, onboarding_read_only
+           ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+          [
+            project.id,
+            project.label,
+            project.worktreePath || null,
+            project.agentContextPath || null,
+            project.repositoryUrl || null,
+            project.onboardingMode || null,
+            project.onboardingAuthMode || null,
+            project.onboardingBootstrapMode || null,
+            typeof project.onboardingReadOnly === 'boolean' ? project.onboardingReadOnly : null,
+          ],
+        );
+      }
+      for (const thread of input.threads) {
+        await this.client!.query(
+          `INSERT INTO cockpit_threads_pg(id, project_id, label, updated_at)
+           VALUES ($1,$2,$3,$4::timestamptz)`,
+          [thread.id, thread.projectId, thread.label, thread.updatedAt],
+        );
+      }
+      for (const message of input.messages) {
+        await this.client!.query(
+          `INSERT INTO cockpit_messages_pg(id, thread_id, role, content, timestamp, sort_order)
+           VALUES ($1,$2,$3,$4,$5::timestamptz,$6)`,
+          [message.id, message.threadId, message.role, message.content, message.timestamp, message.sortOrder],
+        );
+      }
+      await this.client!.query('COMMIT');
+      return true;
+    } catch (error) {
+      await this.client!.query('ROLLBACK');
+      throw error;
+    }
+  }
+
+  async listRuntimeStore(): Promise<{
+    projects: Array<{
+      id: string;
+      label: string;
+      worktreePath?: string;
+      agentContextPath?: string;
+      repositoryUrl?: string;
+      onboardingMode?: string;
+      onboardingAuthMode?: string;
+      onboardingBootstrapMode?: string;
+      onboardingReadOnly?: boolean;
+    }>;
+    threads: Array<{ id: string; projectId: string; label: string; updatedAt: string }>;
+    messages: Array<{ id: string; threadId: string; role: 'user' | 'agent'; content: string; timestamp: string }>;
+  }> {
+    if (!(await this.ensureReady())) return { projects: [], threads: [], messages: [] };
+    const [projectsResult, threadsResult, messagesResult] = await Promise.all([
+      this.client!.query(
+        `SELECT id, label, worktree_path, agent_context_path, repository_url, onboarding_mode, onboarding_auth_mode, onboarding_bootstrap_mode, onboarding_read_only
+         FROM cockpit_projects_pg
+         ORDER BY id ASC`,
+      ),
+      this.client!.query(
+        `SELECT id, project_id, label, updated_at
+         FROM cockpit_threads_pg
+         ORDER BY updated_at DESC`,
+      ),
+      this.client!.query(
+        `SELECT id, thread_id, role, content, timestamp
+         FROM cockpit_messages_pg
+         ORDER BY thread_id ASC, sort_order ASC`,
+      ),
+    ]);
+    const projectsRows = Array.isArray(projectsResult?.rows) ? projectsResult.rows : [];
+    const threadsRows = Array.isArray(threadsResult?.rows) ? threadsResult.rows : [];
+    const messagesRows = Array.isArray(messagesResult?.rows) ? messagesResult.rows : [];
+    return {
+      projects: projectsRows.map((row: any) => ({
+        id: String(row.id),
+        label: String(row.label || row.id),
+        ...(row.worktree_path ? { worktreePath: String(row.worktree_path) } : {}),
+        ...(row.agent_context_path ? { agentContextPath: String(row.agent_context_path) } : {}),
+        ...(row.repository_url ? { repositoryUrl: String(row.repository_url) } : {}),
+        ...(row.onboarding_mode ? { onboardingMode: String(row.onboarding_mode) } : {}),
+        ...(row.onboarding_auth_mode ? { onboardingAuthMode: String(row.onboarding_auth_mode) } : {}),
+        ...(row.onboarding_bootstrap_mode ? { onboardingBootstrapMode: String(row.onboarding_bootstrap_mode) } : {}),
+        ...(typeof row.onboarding_read_only === 'boolean' ? { onboardingReadOnly: row.onboarding_read_only } : {}),
+      })),
+      threads: threadsRows.map((row: any) => ({
+        id: String(row.id),
+        projectId: String(row.project_id),
+        label: String(row.label || ''),
+        updatedAt: String(row.updated_at || new Date().toISOString()),
+      })),
+      messages: messagesRows.map((row: any) => ({
+        id: String(row.id),
+        threadId: String(row.thread_id),
+        role: (row.role === 'user' ? 'user' : 'agent') as 'user' | 'agent',
+        content: String(row.content || ''),
+        timestamp: String(row.timestamp || new Date().toISOString()),
+      })),
     };
   }
 
