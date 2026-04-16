@@ -11,5 +11,6 @@ fi
 set -a
 source "$PROFILE_FILE"
 set +a
+export RUNTIME_PROFILE="${RUNTIME_PROFILE:-$PROFILE}"
 
 exec bash scripts/infra/start_all.sh --standalone

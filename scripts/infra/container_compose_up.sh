@@ -26,6 +26,7 @@ fi
 set -a
 source "${PROFILE_FILE}"
 set +a
+export RUNTIME_PROFILE="${RUNTIME_PROFILE:-$PROFILE}"
 
 ${CONTRACT_CHECK_SCRIPT} "${PROFILE}"
 
