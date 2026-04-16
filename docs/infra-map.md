@@ -9,6 +9,8 @@
 ## 2. Infrastructure Services (Managed by `agent-system`)
 | Service | Default Port | Responsibility | Runtime Check (MCP) |
 |---------|--------------|----------------|---------------------|
+| Control API | 3001 | Service Orchestration & Governance | `system-diagnostics` |
+| Runtime Engine | 3002 | Agent Workflow Execution | `system-diagnostics` |
 | Plane API | 3000 | Issue Tracking / Project Management | `plane` |
 | Redis | 6379 | State Memory (Long-term) | `redis` |
 | LangGraph | 2024 (Studio) | Graph Execution Engine | N/A |

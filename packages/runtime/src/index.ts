@@ -40,11 +40,11 @@ export * from './PlaneLifecycleOrchestrator';
 export * from './graphs/RuntimeExecutionRouter';
 export * from './infrastructure/RuntimeInfrastructureProfile';
 export * from '@system/shared';
-export * from './control-plane/ServiceRegistryLoader';
-export * from './control-plane/LocalProcessAdapter';
-export * from './control-plane/DockerAdapter';
-export * from './control-plane/ServiceLifecycleEvents';
-export * from './control-plane/ControlPlaneRuntimeManager';
+export * from './control-api/ServiceRegistryLoader';
+export * from './control-api/LocalProcessAdapter';
+export * from './control-api/DockerAdapter';
+export * from './control-api/ServiceLifecycleEvents';
+export * from './control-api/ControlApiRuntimeManager';
 export * from './policy/AbacPolicyEngine';
 export * from './policy/ProjectSwitchRuntimePolicy';
 export * from './redisClient';
@@ -53,17 +53,19 @@ export * from './context/RunContext';
 export * from './context/RunManager';
 
 // Workers & Queue
+export * from './workers/WorkerExecutionEngine';
 export * from './workers/DynamicWorkerSpawnManager';
 export * from './queue/ProjectDispatchQueue';
 
 // Control Plane helpers
-export * from './control-plane/LocalPlatformBootOrchestrator';
+export * from './control-api/LocalPlatformBootOrchestrator';
+export * from './control-api/ServiceLifecycleEvents';
 
 // Context & Registries
 export * from './context/RunContext';
 export * from './registries/AgentRegistry';
 export * from './registries/PipelineRegistry';
-export * from './control-plane/ServiceStatusDashboardDataLayer';
+export * from './control-api/ServiceStatusDashboardDataLayer';
 
 // Corrected sub-namespace exports based on actual file system
 export * as context from './context/RunManager';
@@ -90,4 +92,4 @@ export * as tenancy from './tenancy/TenantContext';
 export { RuntimeAbacRole } from './policy/AbacPolicyEngine';
 export * from './registries/AssetRegistryV2';
 export * from './ExternalExecutionAdapter';
-export * from './control-plane/adapters/ServiceExecutionAdapter';
+export * from './control-api/adapters/ServiceExecutionAdapter';

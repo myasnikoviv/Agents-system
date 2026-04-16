@@ -12,5 +12,5 @@
 ### Acceptance Criteria
 - [ ] client build працює (production artifacts)
 - [ ] control-plane build працює
-- [ ] runtime-plane build працює
+- [ ] runtime-engine build працює
 - [ ] локальний запуск (dev mode) працює для всіх units спільно

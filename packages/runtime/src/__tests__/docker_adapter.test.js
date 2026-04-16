@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-const DockerAdapter_1 = require("../control-plane/DockerAdapter");
+const DockerAdapter_1 = require("../control-api/DockerAdapter");
 describe('DockerAdapter (AGSYS-2708)', () => {
     it('starts container with configurable image and isolation name', async () => {
         const commands = [];

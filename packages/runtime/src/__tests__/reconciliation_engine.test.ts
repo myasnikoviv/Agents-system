@@ -1,9 +1,9 @@
-import { ControlPlaneCore } from '../control-plane/ControlPlaneCore';
-import { ReconciliationEngine } from '../control-plane/ReconciliationEngine';
+import { ControlApiCore } from '../control-api/ControlApiCore';
+import { ReconciliationEngine } from '../control-api/ReconciliationEngine';
 
 describe('ReconciliationEngine (AGSYS-2705)', () => {
   it('detects mismatch and triggers start action', async () => {
-    const core = new ControlPlaneCore({
+    const core = new ControlApiCore({
       schemaVersion: 'service-registry.v1',
       services: {
         backend: { type: 'api', runtime: 'node', desired: { state: 'running' } },
@@ -25,7 +25,7 @@ describe('ReconciliationEngine (AGSYS-2705)', () => {
   });
 
   it('restarts degraded service for running desired state', async () => {
-    const core = new ControlPlaneCore({
+    const core = new ControlApiCore({
       schemaVersion: 'service-registry.v1',
       services: {
         dispatcher: { type: 'worker', runtime: 'node', desired: { state: 'running' } },
@@ -46,7 +46,7 @@ describe('ReconciliationEngine (AGSYS-2705)', () => {
   });
 
   it('stops service when desired is stopped but observed is healthy', async () => {
-    const core = new ControlPlaneCore({
+    const core = new ControlApiCore({
       schemaVersion: 'service-registry.v1',
       services: {
         redis: { type: 'infra', runtime: 'docker', desired: { state: 'stopped' } },
@@ -66,7 +66,7 @@ describe('ReconciliationEngine (AGSYS-2705)', () => {
   });
 
   it('runs as periodic loop and can stop cleanly', async () => {
-    const core = new ControlPlaneCore({
+    const core = new ControlApiCore({
       schemaVersion: 'service-registry.v1',
       services: {
         backend: { type: 'api', runtime: 'node', desired: { state: 'running' } },

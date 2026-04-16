@@ -12,7 +12,7 @@
 ### Target Units
 - frontend/client
 - control-plane
-- runtime-plane (Agentic workload)
+- runtime-engine (Agentic workload)
 
 ### Acceptance Criteria
 - [ ] deploy units описані (Entrypoints, Configs)

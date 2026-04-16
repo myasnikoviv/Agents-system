@@ -1,7 +1,7 @@
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { InMemoryServiceStateStore, SqliteServiceStateStore } from '../control-plane/ServiceStateStore';
+import { InMemoryServiceStateStore, SqliteServiceStateStore } from '../control-api/ServiceStateStore';
 
 describe('ServiceStateStore (AGSYS-2704)', () => {
   it('stores and retrieves state in memory', () => {
@@ -22,7 +22,7 @@ describe('ServiceStateStore (AGSYS-2704)', () => {
   });
 
   it('persists and restores state via sqlite store', () => {
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'control-plane-state-'));
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'control-api-state-'));
     const dbPath = path.join(tmpDir, 'state.db');
 
     const storeA = new SqliteServiceStateStore(dbPath);

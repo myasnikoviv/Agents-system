@@ -35,6 +35,7 @@
     { "path": "./packages/runtime" },
     { "path": "./packages/governance" },
     { "path": "./packages/billing" },
-    { "path": "./apps/control-plane" }
+    { "path": "./apps/control-api" },
+    { "path": "./apps/runtime-engine" }
   ]
 }

@@ -1,12 +1,12 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-const ControlPlaneCore_1 = require("../control-plane/ControlPlaneCore");
-const ServiceStateStore_1 = require("../control-plane/ServiceStateStore");
-const RestartPolicyEngine_1 = require("../control-plane/RestartPolicyEngine");
+const ControlApiCore_1 = require("../control-api/ControlApiCore");
+const ServiceStateStore_1 = require("../control-api/ServiceStateStore");
+const RestartPolicyEngine_1 = require("../control-api/RestartPolicyEngine");
 describe('Crash recovery scenario (AGSYS-2717)', () => {
     it('service kill leads to controlled restart without state loss or infinite loop', () => {
         const store = new ServiceStateStore_1.InMemoryServiceStateStore();
-        const core = new ControlPlaneCore_1.ControlPlaneCore({
+        const core = new ControlApiCore_1.ControlApiCore({
             schemaVersion: 'service-registry.v1',
             services: {
                 backend: {
@@ -32,7 +32,7 @@ describe('Crash recovery scenario (AGSYS-2717)', () => {
         restart.recordRestart('backend');
         core.setStatus({ serviceId: 'backend', status: 'starting' });
         core.setStatus({ serviceId: 'backend', status: 'healthy' });
-        const restoredCore = new ControlPlaneCore_1.ControlPlaneCore({
+        const restoredCore = new ControlApiCore_1.ControlApiCore({
             schemaVersion: 'service-registry.v1',
             services: {
                 backend: {

@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-const RestartPolicyEngine_1 = require("../control-plane/RestartPolicyEngine");
+const RestartPolicyEngine_1 = require("../control-api/RestartPolicyEngine");
 describe('RestartPolicyEngine (AGSYS-2711)', () => {
     it('allows restart on failure', () => {
         const engine = new RestartPolicyEngine_1.RestartPolicyEngine();

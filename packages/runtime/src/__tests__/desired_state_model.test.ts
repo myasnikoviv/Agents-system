@@ -1,4 +1,4 @@
-import { validateServiceRegistryDefinition } from '../control-plane/ServiceRegistryContract';
+import { validateServiceRegistryDefinition } from '../control-api/ServiceRegistryContract';
 
 describe('Desired state model (AGSYS-2706)', () => {
   it('normalizes legacy desired string to desired.state', () => {

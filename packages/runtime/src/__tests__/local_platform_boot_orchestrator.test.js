@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-const LocalPlatformBootOrchestrator_1 = require("../control-plane/LocalPlatformBootOrchestrator");
+const LocalPlatformBootOrchestrator_1 = require("../control-api/LocalPlatformBootOrchestrator");
 describe('LocalPlatformBootOrchestrator (AGSYS-2719)', () => {
     it('boots services via control plane in controlled order without shell orchestration', async () => {
         const started = [];

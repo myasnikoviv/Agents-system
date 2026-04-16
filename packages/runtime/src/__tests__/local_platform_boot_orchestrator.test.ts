@@ -1,5 +1,5 @@
-import { LocalPlatformBootOrchestrator } from '../control-plane/LocalPlatformBootOrchestrator';
-import type { ControlPlaneRuntimeManager } from '../control-plane/ControlPlaneRuntimeManager';
+import { LocalPlatformBootOrchestrator } from '../control-api/LocalPlatformBootOrchestrator';
+import type { ControlApiRuntimeManager } from '../control-api/ControlApiRuntimeManager';
 
 describe('LocalPlatformBootOrchestrator (AGSYS-2719)', () => {
   it('boots services via control plane in controlled order without shell orchestration', async () => {
@@ -19,7 +19,7 @@ describe('LocalPlatformBootOrchestrator (AGSYS-2719)', () => {
         started.push(serviceId);
         return {} as any;
       },
-    } as unknown as ControlPlaneRuntimeManager;
+    } as unknown as ControlApiRuntimeManager;
 
     const orchestrator = new LocalPlatformBootOrchestrator(manager);
     const result = await orchestrator.bootAll();

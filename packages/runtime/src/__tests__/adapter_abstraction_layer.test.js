@@ -1,8 +1,8 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-const LocalProcessAdapter_1 = require("../control-plane/LocalProcessAdapter");
-const DockerAdapter_1 = require("../control-plane/DockerAdapter");
-const ServiceExecutionAdapter_1 = require("../control-plane/adapters/ServiceExecutionAdapter");
+const LocalProcessAdapter_1 = require("../control-api/LocalProcessAdapter");
+const DockerAdapter_1 = require("../control-api/DockerAdapter");
+const ServiceExecutionAdapter_1 = require("../control-api/adapters/ServiceExecutionAdapter");
 describe('Adapter abstraction layer (AGSYS-2709)', () => {
     it('registers adapters and resolves them by id', () => {
         const registry = new ServiceExecutionAdapter_1.ServiceExecutionAdapterRegistry();

@@ -6,7 +6,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 const fs_1 = __importDefault(require("fs"));
 const os_1 = __importDefault(require("os"));
 const path_1 = __importDefault(require("path"));
-const ServiceStateStore_1 = require("../control-plane/ServiceStateStore");
+const ServiceStateStore_1 = require("../control-api/ServiceStateStore");
 describe('ServiceStateStore (AGSYS-2704)', () => {
     it('stores and retrieves state in memory', () => {
         const store = new ServiceStateStore_1.InMemoryServiceStateStore();
@@ -24,7 +24,7 @@ describe('ServiceStateStore (AGSYS-2704)', () => {
         expect(store.list().length).toBe(1);
     });
     it('persists and restores state via sqlite store', () => {
-        const tmpDir = fs_1.default.mkdtempSync(path_1.default.join(os_1.default.tmpdir(), 'control-plane-state-'));
+        const tmpDir = fs_1.default.mkdtempSync(path_1.default.join(os_1.default.tmpdir(), 'control-api-state-'));
         const dbPath = path_1.default.join(tmpDir, 'state.db');
         const storeA = new ServiceStateStore_1.SqliteServiceStateStore(dbPath);
         storeA.upsert({

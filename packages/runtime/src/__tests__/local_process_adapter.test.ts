@@ -1,7 +1,7 @@
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { LocalProcessAdapter } from '../control-plane/LocalProcessAdapter';
+import { LocalProcessAdapter } from '../control-api/LocalProcessAdapter';
 
 describe('LocalProcessAdapter (AGSYS-2707)', () => {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'local-process-adapter-'));

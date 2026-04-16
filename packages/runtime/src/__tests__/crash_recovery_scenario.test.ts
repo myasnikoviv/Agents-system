@@ -1,11 +1,11 @@
-import { ControlPlaneCore } from '../control-plane/ControlPlaneCore';
-import { InMemoryServiceStateStore } from '../control-plane/ServiceStateStore';
-import { RestartPolicyEngine } from '../control-plane/RestartPolicyEngine';
+import { ControlApiCore } from '../control-api/ControlApiCore';
+import { InMemoryServiceStateStore } from '../control-api/ServiceStateStore';
+import { RestartPolicyEngine } from '../control-api/RestartPolicyEngine';
 
 describe('Crash recovery scenario (AGSYS-2717)', () => {
   it('service kill leads to controlled restart without state loss or infinite loop', () => {
     const store = new InMemoryServiceStateStore();
-    const core = new ControlPlaneCore(
+    const core = new ControlApiCore(
       {
         schemaVersion: 'service-registry.v1',
         services: {
@@ -38,7 +38,7 @@ describe('Crash recovery scenario (AGSYS-2717)', () => {
     core.setStatus({ serviceId: 'backend', status: 'starting' });
     core.setStatus({ serviceId: 'backend', status: 'healthy' });
 
-    const restoredCore = new ControlPlaneCore(
+    const restoredCore = new ControlApiCore(
       {
         schemaVersion: 'service-registry.v1',
         services: {

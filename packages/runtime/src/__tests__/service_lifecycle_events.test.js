@@ -3,7 +3,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-const ServiceLifecycleEvents_1 = require("../control-plane/ServiceLifecycleEvents");
+const ServiceLifecycleEvents_1 = require("../control-api/ServiceLifecycleEvents");
 const fs_1 = __importDefault(require("fs"));
 const os_1 = __importDefault(require("os"));
 const path_1 = __importDefault(require("path"));

@@ -8,7 +8,7 @@
 ## Added
 - `.dockerignore`
 - `Dockerfile.control-plane`
-- `Dockerfile.runtime-plane`
+- `Dockerfile.runtime-engine`
 - `docker-compose.runtime.yml`
 - `scripts/infra/container_compose_up.sh`
 - `docs/deployment/container-packaging.md`

@@ -2,13 +2,13 @@
 
 ## Images
 - Control plane image: `Dockerfile.control-plane`
-- Runtime plane image: `Dockerfile.runtime-plane`
+- Runtime plane image: `Dockerfile.runtime-engine`
 
 ## Compose stack
 - Compose file: `docker-compose.runtime.yml`
 - Services:
   - `control-plane` on `:3001`
-  - `runtime-plane` on `:3002`
+  - `runtime-engine` on `:3002`
 
 ## Run
 

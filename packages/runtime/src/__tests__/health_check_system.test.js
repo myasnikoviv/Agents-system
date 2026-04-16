@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-const HealthCheckSystem_1 = require("../control-plane/HealthCheckSystem");
+const HealthCheckSystem_1 = require("../control-api/HealthCheckSystem");
 describe('HealthCheckSystem (AGSYS-2710)', () => {
     it('supports HTTP health endpoint checks', async () => {
         const system = new HealthCheckSystem_1.HealthCheckSystem({

@@ -1,4 +1,4 @@
-import { DockerAdapter } from '../control-plane/DockerAdapter';
+import { DockerAdapter } from '../control-api/DockerAdapter';
 
 describe('DockerAdapter (AGSYS-2708)', () => {
   it('starts container with configurable image and isolation name', async () => {
