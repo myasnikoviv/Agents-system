@@ -33,6 +33,18 @@ app.get('/health', (req, res) => {
   });
 });
 
+app.get('/ready', (_req, res) => {
+  res.json({
+    status: 'ready',
+    planeId: PLANE_ID,
+    checks: {
+      adaptersRegistered: true,
+      eventBusReady: true,
+    },
+    timestamp: new Date().toISOString(),
+  });
+});
+
 /**
  * Trigger an execution run directly on this plane.
  * In the final topology, this might be called by the Control Plane

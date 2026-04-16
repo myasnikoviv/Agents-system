@@ -2057,6 +2057,41 @@ app.get('/api/health', (_req, res) => {
   });
 });
 
+app.get('/api/health/readiness/dispatch', async (_req, res) => {
+  const postgres = await postgresStore.health();
+  const backend = infrastructureProfile.dispatchQueueBackend;
+  let dispatchReady = false;
+  let dispatchError: string | undefined;
+  try {
+    const { ProjectDispatchQueue } = await import('@system/runtime');
+    await ProjectDispatchQueue.snapshotAsync(undefined);
+    dispatchReady = true;
+  } catch (error: any) {
+    dispatchReady = false;
+    dispatchError = String(error?.message || 'dispatch_readiness_check_failed');
+  }
+
+  const ready = Boolean(postgres.ok && dispatchReady);
+  const response = {
+    success: ready,
+    service: 'agent-system-backend',
+    status: ready ? 'ready' : 'not_ready',
+    timestamp: new Date().toISOString(),
+    checks: {
+      postgres: {
+        ready: postgres.ok,
+        ...(postgres.error ? { error: postgres.error } : {}),
+      },
+      dispatch: {
+        backend,
+        ready: dispatchReady,
+        ...(dispatchError ? { error: dispatchError } : {}),
+      },
+    },
+  };
+  res.status(ready ? 200 : 503).json(response);
+});
+
 app.get('/api/cockpit/runtime/infrastructure-profile', (_req, res) => {
   res.json({
     success: true,
