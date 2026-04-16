@@ -17,9 +17,17 @@ if [[ ! -f "${COMPOSE_FILE}" ]]; then
   exit 1
 fi
 
+CONTRACT_CHECK_SCRIPT="${ROOT_DIR}/scripts/infra/validate_control_runtime_contract.sh"
+if [[ ! -x "${CONTRACT_CHECK_SCRIPT}" ]]; then
+  echo "Contract validation script not executable: ${CONTRACT_CHECK_SCRIPT}" >&2
+  exit 1
+fi
+
 set -a
 source "${PROFILE_FILE}"
 set +a
+
+${CONTRACT_CHECK_SCRIPT} "${PROFILE}"
 
 if [[ "${COCKPIT_SECRETS_BACKEND:-}" == "sqlite" || "${COCKPIT_OBJECT_STORAGE_BACKEND:-}" == "sqlite" || "${RUNTIME_SHARED_DISPATCH_QUEUE_BACKEND:-}" == "sqlite" || "${RUNTIME_SHARED_WORKER_STATE_BACKEND:-}" == "sqlite" ]]; then
   echo "Invalid profile '${PROFILE}': sqlite backends are not allowed." >&2

@@ -34,7 +34,8 @@
     "infra:restart": "bash scripts/infra/start_all.sh --restart",
     "db:migrate:postgres": "bash scripts/db/migrate_postgres.sh",
     "infra:start:profile": "bash scripts/infra/start_with_profile.sh",
-    "infra:compose:up": "bash scripts/infra/container_compose_up.sh"
+    "infra:compose:up": "bash scripts/infra/container_compose_up.sh",
+    "infra:validate:control-runtime-contract": "bash scripts/infra/validate_control_runtime_contract.sh"
   },
   "repository": {
     "type": "git",
