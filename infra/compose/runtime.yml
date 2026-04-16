@@ -1,16 +1,48 @@
 services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-agent_system}
+      POSTGRES_USER: ${POSTGRES_USER:-agent_system}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-agent_system_dev}
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-agent_system} -d ${POSTGRES_DB:-agent_system}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
   control-api:
     build:
       context: ../../
       dockerfile: apps/control-api/Dockerfile
     environment:
       AUTH_MODE: ${AUTH_MODE:-optional}
-      COCKPIT_SECRETS_BACKEND: ${COCKPIT_SECRETS_BACKEND:-sqlite}
-      COCKPIT_OBJECT_STORAGE_BACKEND: ${COCKPIT_OBJECT_STORAGE_BACKEND:-sqlite}
-      RUNTIME_SHARED_DISPATCH_QUEUE_BACKEND: ${RUNTIME_SHARED_DISPATCH_QUEUE_BACKEND:-sqlite}
-      RUNTIME_SHARED_WORKER_STATE_BACKEND: ${RUNTIME_SHARED_WORKER_STATE_BACKEND:-sqlite}
+      COCKPIT_SECRETS_BACKEND: ${COCKPIT_SECRETS_BACKEND:-postgres}
+      COCKPIT_OBJECT_STORAGE_BACKEND: ${COCKPIT_OBJECT_STORAGE_BACKEND:-postgres}
+      RUNTIME_SHARED_DISPATCH_QUEUE_BACKEND: ${RUNTIME_SHARED_DISPATCH_QUEUE_BACKEND:-redis}
+      RUNTIME_SHARED_WORKER_STATE_BACKEND: ${RUNTIME_SHARED_WORKER_STATE_BACKEND:-redis}
+      DATABASE_URL: ${DATABASE_URL:-postgres://agent_system:agent_system_dev@postgres:5432/agent_system}
+      POSTGRES_URL: ${POSTGRES_URL:-postgres://agent_system:agent_system_dev@postgres:5432/agent_system}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
     ports:
       - "3001:3001"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
 
   runtime-engine:
     build:
@@ -18,10 +50,18 @@ services:
       dockerfile: apps/runtime-engine/Dockerfile
     environment:
       AUTH_MODE: ${AUTH_MODE:-optional}
-      COCKPIT_SECRETS_BACKEND: ${COCKPIT_SECRETS_BACKEND:-sqlite}
-      COCKPIT_OBJECT_STORAGE_BACKEND: ${COCKPIT_OBJECT_STORAGE_BACKEND:-sqlite}
-      RUNTIME_SHARED_DISPATCH_QUEUE_BACKEND: ${RUNTIME_SHARED_DISPATCH_QUEUE_BACKEND:-sqlite}
-      RUNTIME_SHARED_WORKER_STATE_BACKEND: ${RUNTIME_SHARED_WORKER_STATE_BACKEND:-sqlite}
+      COCKPIT_SECRETS_BACKEND: ${COCKPIT_SECRETS_BACKEND:-postgres}
+      COCKPIT_OBJECT_STORAGE_BACKEND: ${COCKPIT_OBJECT_STORAGE_BACKEND:-postgres}
+      RUNTIME_SHARED_DISPATCH_QUEUE_BACKEND: ${RUNTIME_SHARED_DISPATCH_QUEUE_BACKEND:-redis}
+      RUNTIME_SHARED_WORKER_STATE_BACKEND: ${RUNTIME_SHARED_WORKER_STATE_BACKEND:-redis}
+      DATABASE_URL: ${DATABASE_URL:-postgres://agent_system:agent_system_dev@postgres:5432/agent_system}
+      POSTGRES_URL: ${POSTGRES_URL:-postgres://agent_system:agent_system_dev@postgres:5432/agent_system}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
       AGENT_SYSTEM_BACKEND_PORT: 3002
     ports:
       - "3002:3002"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy

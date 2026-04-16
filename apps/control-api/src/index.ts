@@ -5,17 +5,9 @@ import fs from 'fs';
 import path from 'path';
 import { execSync } from 'child_process';
 import crypto from 'crypto';
-import Database from 'better-sqlite3';
 import { v4 as uuidv4 } from 'uuid';
-import { PostgresControlApiStore } from '@system/memory';
-import { PostgresObjectStorageService, SqliteObjectStorageService } from '@system/memory';
-import { PostgresSecretsStore, SqliteSecretsStore } from '@system/memory';
-import { SqliteEnvironmentStateStore, buildPersistedEnvironmentId } from '@system/memory';
-import { EnvironmentProvisioningService } from '@system/memory';
-import { EnvironmentWarmupService, type WarmupCheck } from '@system/memory';
-import { EnvironmentSuspendResumeService } from '@system/memory';
+import { buildPersistedEnvironmentId, type WarmupCheck } from '@system/memory';
 import { executeRuntimeRun, resumeRuntimeRun } from '@system/runtime';
-import { resolveRuntimeInfrastructureProfile } from '@system/runtime';
 import { fetchRecentEvents, fetchEventsByRunId } from '@system/events';
 import { updateCockpitExecutorConfig, getCockpitExecutorConfig } from '@system/runtime';
 import { DynamicDiscoveryService, AgentRegistry, PipelineRegistry, SkillRegistry } from '@system/runtime';
@@ -28,18 +20,8 @@ import { registerSecretsRoutes } from './routes/secretsRoutes';
 import { registerAttachmentStorageRoutes } from './routes/attachmentStorageRoutes';
 import { registerBillingRoutes } from './routes/billingRoutes';
 import { registerGovernanceRoutes } from './routes/governanceRoutes';
-import { loadServiceRegistry } from '@system/runtime';
-import { LocalProcessAdapter } from '@system/runtime';
-import { DockerAdapter } from '@system/runtime';
-import { ServiceExecutionAdapterRegistry } from '@system/runtime';
-import { ControlApiRuntimeManager } from '@system/runtime';
 import { registerControlApiRoutes } from './routes/controlApiRoutes';
-import { ServiceLifecycleEventBus } from '@system/runtime';
-import { BillingService } from '@system/billing';
-import { BillingPaymentService } from '@system/billing';
-import { StripeMvpProvider } from '@system/billing';
 import { usageMeteringPipeline } from '@system/billing';
-import { UsageAggregationService } from '@system/billing';
 import { 
   DEFAULT_ABAC_POLICIES, 
   evaluateAbacPolicyAccess, 
@@ -63,114 +45,38 @@ import {
   computeAuditPayloadHash,
   verifyAuditHashChain,
 } from './audit/AuditIntegrity';
+import {
+  resolveControlApiServerConfig,
+  createApiMetricsState,
+  createApiTraceSpans,
+  registerApiTelemetryMiddleware,
+  registerProcessDiagnosticsHandlers,
+  createControlApiBootstrapDependencies,
+} from './bootstrap/appSetup';
+import { registerTerminalApiMiddlewares, startControlApiServer } from './bootstrap/serverStartup';
+import { initializePersistenceLayer } from './bootstrap/persistenceSetup';
 
 dotenv.config();
 
-const PORT = Number(process.env.AGENT_SYSTEM_BACKEND_PORT || process.env.PORT || '3001');
-const HOST = process.env.AGENT_SYSTEM_BACKEND_HOST || '127.0.0.1';
+const { port: PORT, host: HOST } = resolveControlApiServerConfig();
 
 export const app = express();
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
-
-const apiMetricsState = {
-  requestsTotal: 0,
-  errorsTotal: 0,
-  byRoute: new Map<string, number>(),
-  byStatusClass: new Map<string, number>(),
-  totalLatencyMs: 0,
-};
-
-const apiTraceSpans: Array<{
-  traceId: string;
-  spanId: string;
-  parentSpanId?: string;
-  runId?: string;
-  method: string;
-  path: string;
-  statusCode: number;
-  durationMs: number;
-  startedAt: string;
-  finishedAt: string;
-}> = [];
-
-app.use((req, res, next) => {
-  const startedAt = Date.now();
-  const traceId = String(req.header('x-trace-id') || req.header('x-request-id') || crypto.randomUUID());
-  const spanId = crypto.randomUUID().slice(0, 16);
-  const parentSpanId = String(req.header('x-parent-span-id') || '').trim() || undefined;
-  const runId = String(req.header('x-run-id') || req.query?.runId || req.body?.runId || '').trim() || undefined;
-  res.setHeader('x-trace-id', traceId);
-  res.setHeader('x-span-id', spanId);
-  res.on('finish', () => {
-    const routeKey = `${req.method} ${req.path}`;
-    const statusClass = `${Math.floor((res.statusCode || 0) / 100)}xx`;
-    apiMetricsState.requestsTotal += 1;
-    if ((res.statusCode || 0) >= 400) apiMetricsState.errorsTotal += 1;
-    apiMetricsState.totalLatencyMs += Math.max(0, Date.now() - startedAt);
-    apiMetricsState.byRoute.set(routeKey, Number(apiMetricsState.byRoute.get(routeKey) || 0) + 1);
-    apiMetricsState.byStatusClass.set(statusClass, Number(apiMetricsState.byStatusClass.get(statusClass) || 0) + 1);
-    apiTraceSpans.push({
-      traceId,
-      spanId,
-      ...(parentSpanId ? { parentSpanId } : {}),
-      ...(runId ? { runId } : {}),
-      method: req.method,
-      path: req.path,
-      statusCode: Number(res.statusCode || 0),
-      durationMs: Math.max(0, Date.now() - startedAt),
-      startedAt: new Date(startedAt).toISOString(),
-      finishedAt: new Date().toISOString(),
-    });
-    if (apiTraceSpans.length > 5000) {
-      apiTraceSpans.splice(0, apiTraceSpans.length - 5000);
-    }
-    appendStructuredLog({
-      level: (res.statusCode || 0) >= 500 ? 'error' : (res.statusCode || 0) >= 400 ? 'warn' : 'info',
-      source: 'http',
-      message: `${req.method} ${req.path}`,
-      meta: {
-        statusCode: Number(res.statusCode || 0),
-        durationMs: Math.max(0, Date.now() - startedAt),
-        traceId,
-        spanId,
-        ...(runId ? { runId } : {}),
-      },
-    });
-  });
+app.use(async (req, _res, next) => {
+  (req as any).__authContext = await getAuthContextPg(req);
   next();
 });
 
-const controlApiRegistrySource = path.resolve(process.cwd(), 'config/control-api/service-registry.yaml');
-const loadedControlApiRegistry = loadServiceRegistry(controlApiRegistrySource).registry;
-const controlApiAdapterRegistry = new ServiceExecutionAdapterRegistry();
-const controlApiEventBus = new ServiceLifecycleEventBus();
-controlApiAdapterRegistry.register(new LocalProcessAdapter());
-controlApiAdapterRegistry.register(new DockerAdapter());
-const controlApiRuntimeManager = new ControlApiRuntimeManager(loadedControlApiRegistry, controlApiAdapterRegistry, controlApiEventBus);
-const billingService = new BillingService();
-const billingPaymentService = new BillingPaymentService(new StripeMvpProvider());
-const usageAggregationService = new UsageAggregationService();
+const apiMetricsState = createApiMetricsState();
+const apiTraceSpans = createApiTraceSpans();
 
-process.on('uncaughtException', (error) => {
-  console.error('[agent-system-backend] uncaughtException:', error);
-  appendStructuredLog({
-    level: 'error',
-    source: 'process',
-    message: 'uncaught_exception',
-    meta: { error: String((error as any)?.message || error) },
-  });
-});
+registerApiTelemetryMiddleware(app, apiMetricsState, apiTraceSpans, (entry) => appendStructuredLog(entry));
 
-process.on('unhandledRejection', (reason) => {
-  console.error('[agent-system-backend] unhandledRejection:', reason);
-  appendStructuredLog({
-    level: 'error',
-    source: 'process',
-    message: 'unhandled_rejection',
-    meta: { reason: String((reason as any)?.message || reason) },
-  });
-});
+const { controlApiRuntimeManager, billingService, billingPaymentService, usageAggregationService } =
+  createControlApiBootstrapDependencies();
+
+registerProcessDiagnosticsHandlers((entry) => appendStructuredLog(entry));
 
 const settingsStore = new Map<string, unknown>();
 const projectStore = new Map<string, {
@@ -209,6 +115,7 @@ type CatalogSnapshot = {
   loadedAt: string;
 };
 const projectCatalogCache = new Map<string, { signature: string; snapshot: CatalogSnapshot }>();
+const runtimeStateCache = new Map<string, unknown>();
 
 let runtimeSelection = {
   provider: 'codex-cli',
@@ -273,7 +180,7 @@ const providerModelCatalog: Record<'claude-cli' | 'codex-cli' | 'openhands-sdk',
 };
 
 type RuntimeProvider = keyof typeof providerModelCatalog;
-type ControlApiSource = 'postgres' | 'sqlite' | 'default';
+type ControlApiSource = 'postgres' | 'default';
 
 const isRuntimeProvider = (value: string): value is RuntimeProvider => value in providerModelCatalog;
 
@@ -1025,136 +932,23 @@ const appendPolicyMetadata = (input: {
 const PLANE_BASE_URL = (process.env.PLANE_BASE_URL || 'http://127.0.0.1:3000').replace(/\/$/, '');
 const PLANE_WORKSPACE = process.env.PLANE_WORKSPACE || 'agent-system';
 const PLANE_API_KEY = process.env.PLANE_API_KEY || process.env.PLANE_API_TOKEN || '';
-const SETTINGS_LEGACY_FILE_PATH = path.resolve(process.cwd(), '.agent-system', 'cockpit-settings.json');
-const RUNTIME_STORE_LEGACY_FILE_PATH = path.resolve(process.cwd(), '.agent-system', 'cockpit-runtime-store.json');
-const RUNTIME_DB_FILE_PATH = path.resolve(process.cwd(), '.agent-system', 'cockpit-runtime.db');
-
-fs.mkdirSync(path.dirname(RUNTIME_DB_FILE_PATH), { recursive: true });
-const runtimeDb = new Database(RUNTIME_DB_FILE_PATH);
-runtimeDb.pragma('journal_mode = WAL');
-runtimeDb.exec(`
-  CREATE TABLE IF NOT EXISTS cockpit_projects (
-    id TEXT PRIMARY KEY,
-    label TEXT NOT NULL,
-    worktree_path TEXT,
-    agent_context_path TEXT,
-    repository_url TEXT,
-    onboarding_mode TEXT,
-    onboarding_auth_mode TEXT,
-    onboarding_bootstrap_mode TEXT,
-    onboarding_read_only INTEGER
-  );
-  CREATE TABLE IF NOT EXISTS cockpit_threads (
-    id TEXT PRIMARY KEY,
-    project_id TEXT NOT NULL,
-    label TEXT NOT NULL,
-    updated_at TEXT NOT NULL
-  );
-  CREATE INDEX IF NOT EXISTS idx_cockpit_threads_project ON cockpit_threads(project_id);
-  CREATE TABLE IF NOT EXISTS cockpit_messages (
-    id TEXT PRIMARY KEY,
-    thread_id TEXT NOT NULL,
-    role TEXT NOT NULL,
-    content TEXT NOT NULL,
-    timestamp TEXT NOT NULL,
-    sort_order INTEGER NOT NULL
-  );
-  CREATE INDEX IF NOT EXISTS idx_cockpit_messages_thread_order ON cockpit_messages(thread_id, sort_order);
-  CREATE TABLE IF NOT EXISTS cockpit_settings (
-    section TEXT PRIMARY KEY,
-    value_json TEXT NOT NULL,
-    updated_at TEXT NOT NULL
-  );
-  CREATE TABLE IF NOT EXISTS cockpit_state (
-    key TEXT PRIMARY KEY,
-    value_json TEXT NOT NULL,
-    updated_at TEXT NOT NULL
-  );
-  CREATE TABLE IF NOT EXISTS auth_users (
-    id TEXT PRIMARY KEY,
-    email TEXT NOT NULL UNIQUE,
-    password_hash TEXT NOT NULL,
-    tenant_id TEXT NOT NULL,
-    workspace_id TEXT NOT NULL,
-    role TEXT NOT NULL DEFAULT 'owner',
-    is_active INTEGER NOT NULL DEFAULT 1,
-    created_at TEXT NOT NULL
-  );
-  CREATE TABLE IF NOT EXISTS auth_sessions (
-    token TEXT PRIMARY KEY,
-    user_id TEXT NOT NULL,
-    tenant_id TEXT NOT NULL,
-    workspace_id TEXT NOT NULL,
-    refresh_token_hash TEXT,
-    revoked_at TEXT,
-    user_agent TEXT,
-    ip_address TEXT,
-    expires_at TEXT NOT NULL,
-    created_at TEXT NOT NULL
-  );
-  CREATE INDEX IF NOT EXISTS idx_auth_sessions_user ON auth_sessions(user_id);
-  CREATE TABLE IF NOT EXISTS auth_sso_providers (
-    id TEXT PRIMARY KEY,
-    name TEXT NOT NULL,
-    protocol TEXT NOT NULL,
-    issuer TEXT,
-    entrypoint TEXT,
-    audience TEXT,
-    tenant_id TEXT NOT NULL,
-    workspace_id TEXT NOT NULL,
-    client_id TEXT,
-    client_secret_hash TEXT,
-    scim_token_hash TEXT,
-    active INTEGER NOT NULL DEFAULT 1,
-    created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL
-  );
-  CREATE INDEX IF NOT EXISTS idx_auth_sso_providers_scope ON auth_sso_providers(tenant_id, workspace_id, protocol);
-`);
-
-const objectStorage = new SqliteObjectStorageService(runtimeDb);
-const postgresObjectStorage = new PostgresObjectStorageService();
-const postgresStore = new PostgresControlApiStore();
-void postgresStore.init();
-const environmentStateStore = new SqliteEnvironmentStateStore(runtimeDb);
-const environmentProvisioningService = new EnvironmentProvisioningService(environmentStateStore);
-const environmentWarmupService = new EnvironmentWarmupService(environmentStateStore);
-const environmentSuspendResumeService = new EnvironmentSuspendResumeService(environmentStateStore);
-try {
-  runtimeDb.exec(`ALTER TABLE cockpit_projects ADD COLUMN agent_context_path TEXT`);
-} catch {
-  // Column already exists on upgraded instances.
-}
-try {
-  runtimeDb.exec(`ALTER TABLE cockpit_projects ADD COLUMN repository_url TEXT`);
-} catch {}
-try {
-  runtimeDb.exec(`ALTER TABLE cockpit_projects ADD COLUMN onboarding_mode TEXT`);
-} catch {}
-try {
-  runtimeDb.exec(`ALTER TABLE cockpit_projects ADD COLUMN onboarding_auth_mode TEXT`);
-} catch {}
-try {
-  runtimeDb.exec(`ALTER TABLE cockpit_projects ADD COLUMN onboarding_bootstrap_mode TEXT`);
-} catch {}
-try {
-  runtimeDb.exec(`ALTER TABLE cockpit_projects ADD COLUMN onboarding_read_only INTEGER`);
-} catch {}
-try {
-  runtimeDb.exec(`ALTER TABLE auth_sessions ADD COLUMN refresh_token_hash TEXT`);
-} catch {}
-try {
-  runtimeDb.exec(`ALTER TABLE auth_sessions ADD COLUMN revoked_at TEXT`);
-} catch {}
-try {
-  runtimeDb.exec(`ALTER TABLE auth_sessions ADD COLUMN user_agent TEXT`);
-} catch {}
-try {
-  runtimeDb.exec(`ALTER TABLE auth_sessions ADD COLUMN ip_address TEXT`);
-} catch {}
-try {
-  runtimeDb.exec(`ALTER TABLE auth_sso_providers ADD COLUMN scim_token_hash TEXT`);
-} catch {}
+const {
+  SETTINGS_LEGACY_FILE_PATH,
+  RUNTIME_STORE_LEGACY_FILE_PATH,
+  postgresObjectStorage,
+  postgresStore,
+  authStore,
+  environmentStateStore,
+  environmentProvisioningService,
+  environmentWarmupService,
+  environmentSuspendResumeService,
+  AUTH_SECRET,
+  AUTH_MODE,
+  OBJECT_STORAGE_BACKEND,
+  SECRETS_STORAGE_BACKEND,
+  postgresSecretsStore,
+  infrastructureProfile,
+} = initializePersistenceLayer();
 
 const toPlaneIdentifier = (value: string): string =>
   value
@@ -1173,17 +967,6 @@ const normalizeProjectKey = (value: string): string =>
   (value || '').toLowerCase().replace(/[^a-z0-9]/g, '');
 
 const AUTH_SESSION_TTL_HOURS = Math.max(1, Number(process.env.AUTH_SESSION_TTL_HOURS || 24));
-const AUTH_SECRET = String(process.env.AUTH_SECRET || 'agent-system-dev-secret');
-const AUTH_MODE = String(process.env.AUTH_MODE || 'optional').trim().toLowerCase() === 'required' ? 'required' : 'optional';
-const OBJECT_STORAGE_BACKEND = String(
-  process.env.OBJECT_STORAGE_BACKEND || process.env.COCKPIT_OBJECT_STORAGE_BACKEND || 'sqlite',
-).trim();
-const SECRETS_STORAGE_BACKEND = String(
-  process.env.SECRETS_STORAGE_BACKEND || process.env.COCKPIT_SECRETS_BACKEND || 'sqlite',
-).trim();
-const secretsStore = new SqliteSecretsStore(runtimeDb, AUTH_SECRET);
-const postgresSecretsStore = new PostgresSecretsStore(AUTH_SECRET);
-const infrastructureProfile = resolveRuntimeInfrastructureProfile();
 
 const hashPassword = (raw: string): string =>
   crypto.createHash('sha256').update(`${AUTH_SECRET}:${String(raw || '')}`).digest('hex');
@@ -1194,7 +977,7 @@ const hashRefreshToken = (raw: string): string =>
 const createSessionToken = (prefix: 'sess' | 'refresh'): string =>
   `${prefix}_${crypto.randomUUID()}_${crypto.randomBytes(12).toString('hex')}`;
 
-const createAuthSession = (input: {
+const createAuthSession = async (input: {
   userId: string;
   tenantId: string;
   workspaceId: string;
@@ -1205,32 +988,47 @@ const createAuthSession = (input: {
   const refreshToken = createSessionToken('refresh');
   const refreshTokenHash = hashRefreshToken(refreshToken);
   const expiresAt = new Date(Date.now() + AUTH_SESSION_TTL_HOURS * 60 * 60 * 1000).toISOString();
-  runtimeDb
-    .prepare(
-      `INSERT INTO auth_sessions (
-        token,
-        user_id,
-        tenant_id,
-        workspace_id,
-        refresh_token_hash,
-        expires_at,
-        created_at,
-        user_agent,
-        ip_address
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    )
-    .run(
-      token,
-      input.userId,
-      input.tenantId,
-      input.workspaceId,
-      refreshTokenHash,
-      expiresAt,
-      new Date().toISOString(),
-      String(input.userAgent || '').slice(0, 512),
-      String(input.ipAddress || '').slice(0, 128),
-    );
+  await authStore.createSession({
+    token,
+    userId: input.userId,
+    tenantId: input.tenantId,
+    workspaceId: input.workspaceId,
+    refreshTokenHash,
+    expiresAt,
+    userAgent: String(input.userAgent || '').slice(0, 512),
+    ipAddress: String(input.ipAddress || '').slice(0, 128),
+  });
   return { token, refreshToken, expiresAt };
+};
+
+const getAuthContextPg = async (req: express.Request): Promise<{
+  userId: string;
+  email: string;
+  tenantId: string;
+  workspaceId: string;
+  role: string;
+  token: string;
+} | null> => {
+  const token = parseBearerToken(req.header('authorization'));
+  if (!token) return null;
+  const row = await authStore.findSessionByTokenWithUser(token);
+  if (!row || !row.is_active) return null;
+  if (row.revoked_at) {
+    await authStore.deleteSessionByToken(token);
+    return null;
+  }
+  if (new Date(row.expires_at).getTime() <= Date.now()) {
+    await authStore.deleteSessionByToken(token);
+    return null;
+  }
+  return {
+    userId: row.user_id,
+    email: row.email,
+    tenantId: row.tenant_id,
+    workspaceId: row.workspace_id,
+    role: row.role,
+    token: row.token,
+  };
 };
 
 const parseScimBearerToken = (req: express.Request): string => {
@@ -1255,56 +1053,6 @@ const parseBearerToken = (headerValue?: string): string => {
   return header.slice(7).trim();
 };
 
-const getAuthContext = (req: express.Request): {
-  userId: string;
-  email: string;
-  tenantId: string;
-  workspaceId: string;
-  role: string;
-  token: string;
-} | null => {
-  const token = parseBearerToken(req.header('authorization'));
-  if (!token) return null;
-  const row = runtimeDb
-    .prepare(
-      `SELECT s.token, s.user_id, s.tenant_id, s.workspace_id, s.expires_at, s.revoked_at, u.email, u.role, u.is_active
-       FROM auth_sessions s
-       JOIN auth_users u ON u.id = s.user_id
-       WHERE s.token = ?`,
-    )
-    .get(token) as
-    | {
-        token: string;
-        user_id: string;
-        tenant_id: string;
-        workspace_id: string;
-        expires_at: string;
-        revoked_at: string | null;
-        email: string;
-        role: string;
-        is_active: number;
-      }
-    | undefined;
-  if (!row) return null;
-  if (!row.is_active) return null;
-  if (row.revoked_at) {
-    runtimeDb.prepare('DELETE FROM auth_sessions WHERE token = ?').run(token);
-    return null;
-  }
-  if (new Date(row.expires_at).getTime() <= Date.now()) {
-    runtimeDb.prepare('DELETE FROM auth_sessions WHERE token = ?').run(token);
-    return null;
-  }
-  return {
-    userId: row.user_id,
-    email: row.email,
-    tenantId: row.tenant_id,
-    workspaceId: row.workspace_id,
-    role: row.role,
-    token: row.token,
-  };
-};
-
 type AuthRole = 'owner' | 'admin' | 'member' | 'viewer';
 const AUTH_ROLE_ORDER: Record<AuthRole, number> = { owner: 4, admin: 3, member: 2, viewer: 1 };
 const AUTH_PERMISSION_MATRIX: Record<AuthRole, string[]> = {
@@ -1313,6 +1061,15 @@ const AUTH_PERMISSION_MATRIX: Record<AuthRole, string[]> = {
   member: ['runtime:read', 'runtime:write', 'config:read'],
   viewer: ['runtime:read', 'config:read'],
 };
+
+const getAuthContext = (req: express.Request): {
+  userId: string;
+  email: string;
+  tenantId: string;
+  workspaceId: string;
+  role: string;
+  token: string;
+} | null => ((req as any).__authContext || null);
 
 const requireRole = (
   req: express.Request,
@@ -1428,55 +1185,26 @@ const resolveWorkspaceRuntimeContext = (input: {
 const canUsePlane = (): boolean => Boolean(PLANE_API_KEY && PLANE_BASE_URL && PLANE_WORKSPACE);
 
 const saveRuntimeState = (key: string, value: unknown) => {
-  runtimeDb
-    .prepare(
-      `INSERT INTO cockpit_state (key, value_json, updated_at)
-       VALUES (?, ?, ?)
-       ON CONFLICT(key) DO UPDATE SET value_json=excluded.value_json, updated_at=excluded.updated_at`,
-    )
-    .run(key, JSON.stringify(value), new Date().toISOString());
+  runtimeStateCache.set(key, value);
   void postgresStore.upsertState(key, value);
 };
 
 const loadRuntimeState = <T>(key: string, defaultValue: T): T => {
-  const row = runtimeDb
-    .prepare('SELECT value_json FROM cockpit_state WHERE key = ?')
-    .get(key) as { value_json?: string } | undefined;
-  if (!row?.value_json) {
+  if (!runtimeStateCache.has(key)) {
     if ((CONTROL_API_STATE_KEYS as readonly string[]).includes(key)) {
       markRuntimeStateSource(key as ControlApiStateKey, 'default');
     }
     return defaultValue;
   }
-  try {
-    const value = JSON.parse(row.value_json) as T;
-    if ((CONTROL_API_STATE_KEYS as readonly string[]).includes(key)) {
-      markRuntimeStateSource(key as ControlApiStateKey, 'sqlite');
-    }
-    return value;
-  } catch {
-    if ((CONTROL_API_STATE_KEYS as readonly string[]).includes(key)) {
-      markRuntimeStateSource(key as ControlApiStateKey, 'default');
-    }
-    return defaultValue;
+  const value = runtimeStateCache.get(key) as T;
+  if ((CONTROL_API_STATE_KEYS as readonly string[]).includes(key)) {
+    markRuntimeStateSource(key as ControlApiStateKey, 'postgres');
   }
+  return value;
 };
 
 const persistSettingsStore = () => {
   try {
-    const tx = runtimeDb.transaction(() => {
-      runtimeDb.prepare('DELETE FROM cockpit_settings').run();
-      const upsert = runtimeDb.prepare(
-        `INSERT INTO cockpit_settings (section, value_json, updated_at)
-         VALUES (?, ?, ?)
-         ON CONFLICT(section) DO UPDATE SET value_json=excluded.value_json, updated_at=excluded.updated_at`,
-      );
-      const now = new Date().toISOString();
-      for (const [section, value] of settingsStore.entries()) {
-        upsert.run(section, JSON.stringify(value), now);
-      }
-    });
-    tx();
     for (const [section, value] of settingsStore.entries()) {
       void postgresStore.upsertSetting(section, value);
     }
@@ -1488,22 +1216,6 @@ const persistSettingsStore = () => {
 const restoreSettingsStore = () => {
   try {
     settingsStore.clear();
-    const rows = runtimeDb
-      .prepare('SELECT section, value_json FROM cockpit_settings')
-      .all() as Array<{ section: string; value_json: string }>;
-
-    if (rows.length > 0) {
-      for (const row of rows) {
-        try {
-          settingsStore.set(row.section, JSON.parse(row.value_json));
-        } catch {
-          settingsStore.set(row.section, {});
-        }
-      }
-      controlApiSourceState.settings = 'sqlite';
-      return;
-    }
-
     // One-time migration from legacy JSON settings file.
     if (!fs.existsSync(SETTINGS_LEGACY_FILE_PATH)) return;
     const raw = fs.readFileSync(SETTINGS_LEGACY_FILE_PATH, 'utf-8');
@@ -1540,6 +1252,7 @@ const hydrateControlApiFromPostgres = async () => {
 
     const footer = await postgresStore.getState('runtime_footer');
     if (footer && footer.value && typeof footer.value === 'object') {
+      runtimeStateCache.set('runtime_footer', footer.value);
       runtimeFooter = {
         ...runtimeFooter,
         ...(footer.value as Record<string, any>),
@@ -1550,6 +1263,7 @@ const hydrateControlApiFromPostgres = async () => {
 
     const selection = await postgresStore.getState('runtime_selection');
     if (selection && selection.value && typeof selection.value === 'object') {
+      runtimeStateCache.set('runtime_selection', selection.value);
       const candidate = selection.value as { provider?: string; model?: string };
       const provider = String(candidate.provider || '').trim();
       const model = String(candidate.model || '').trim();
@@ -1562,9 +1276,45 @@ const hydrateControlApiFromPostgres = async () => {
 
     const enforcement = await postgresStore.getState('runtime_enforcement_by_project');
     if (enforcement && enforcement.value && typeof enforcement.value === 'object') {
+      runtimeStateCache.set('runtime_enforcement_by_project', enforcement.value);
       runtimeEnforcementByProject = enforcement.value as Record<string, RuntimeEnforcementProfile>;
       markRuntimeStateSource('runtime_enforcement_by_project', 'postgres');
       saveRuntimeState('runtime_enforcement_by_project', runtimeEnforcementByProject);
+    }
+
+    const runtimeStore = await postgresStore.listRuntimeStore();
+    if (runtimeStore.projects.length > 0 || runtimeStore.threads.length > 0 || runtimeStore.messages.length > 0) {
+      projectStore.clear();
+      threadStore.clear();
+      threadMessageStore.clear();
+      for (const project of runtimeStore.projects) {
+        projectStore.set(project.id, {
+          id: project.id,
+          label: project.label || project.id,
+          ...(project.worktreePath ? { worktreePath: project.worktreePath } : {}),
+          ...(project.agentContextPath ? { agentContextPath: project.agentContextPath } : {}),
+          ...(project.repositoryUrl ? { repositoryUrl: project.repositoryUrl } : {}),
+          ...(project.onboardingMode ? { onboardingMode: project.onboardingMode as 'local' | 'repository' } : {}),
+          ...(project.onboardingAuthMode ? { onboardingAuthMode: project.onboardingAuthMode as 'none' | 'oauth' | 'pat' } : {}),
+          ...(project.onboardingBootstrapMode ? { onboardingBootstrapMode: project.onboardingBootstrapMode as 'none' | 'auto-template' | 'read-only' } : {}),
+          ...(typeof project.onboardingReadOnly === 'boolean' ? { onboardingReadOnly: project.onboardingReadOnly } : {}),
+        });
+      }
+      for (const thread of runtimeStore.threads) {
+        const existing = threadStore.get(thread.projectId) || [];
+        existing.push({ id: thread.id, label: thread.label, updatedAt: thread.updatedAt });
+        threadStore.set(thread.projectId, existing);
+      }
+      for (const message of runtimeStore.messages) {
+        const existing = threadMessageStore.get(message.threadId) || [];
+        existing.push({
+          id: message.id,
+          role: message.role,
+          content: message.content,
+          timestamp: message.timestamp,
+        });
+        threadMessageStore.set(message.threadId, existing);
+      }
     }
 
     controlApiSourceState.lastHydratedAt = new Date().toISOString();
@@ -1579,63 +1329,36 @@ const hydrateControlApiFromPostgres = async () => {
 
 const persistRuntimeStore = () => {
   try {
-    const tx = runtimeDb.transaction(() => {
-      runtimeDb.prepare('DELETE FROM cockpit_projects').run();
-      runtimeDb.prepare('DELETE FROM cockpit_threads').run();
-      runtimeDb.prepare('DELETE FROM cockpit_messages').run();
-
-      const insertProject = runtimeDb.prepare(
-        `INSERT INTO cockpit_projects (
-          id,
-          label,
-          worktree_path,
-          agent_context_path,
-          repository_url,
-          onboarding_mode,
-          onboarding_auth_mode,
-          onboarding_bootstrap_mode,
-          onboarding_read_only
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      );
-      const insertThread = runtimeDb.prepare(
-        'INSERT INTO cockpit_threads (id, project_id, label, updated_at) VALUES (?, ?, ?, ?)',
-      );
-      const insertMessage = runtimeDb.prepare(
-        'INSERT INTO cockpit_messages (id, thread_id, role, content, timestamp, sort_order) VALUES (?, ?, ?, ?, ?, ?)',
-      );
-
-      for (const project of projectStore.values()) {
-        insertProject.run(
-          project.id,
-          project.label,
-          project.worktreePath || null,
-          project.agentContextPath || null,
-          project.repositoryUrl || null,
-          project.onboardingMode || null,
-          project.onboardingAuthMode || null,
-          project.onboardingBootstrapMode || null,
-          project.onboardingReadOnly ? 1 : 0,
-        );
-      }
-      for (const [projectId, threads] of threadStore.entries()) {
-        for (const thread of threads) {
-          insertThread.run(thread.id, projectId, thread.label, thread.updatedAt);
-        }
-      }
-      for (const [threadId, messages] of threadMessageStore.entries()) {
-        messages.forEach((message, index) => {
-          insertMessage.run(
-            message.id,
-            threadId,
-            message.role,
-            message.content,
-            message.timestamp,
-            index,
-          );
-        });
-      }
-    });
-    tx();
+    const projects = Array.from(projectStore.values()).map((project) => ({
+      id: project.id,
+      label: project.label,
+      ...(project.worktreePath ? { worktreePath: project.worktreePath } : {}),
+      ...(project.agentContextPath ? { agentContextPath: project.agentContextPath } : {}),
+      ...(project.repositoryUrl ? { repositoryUrl: project.repositoryUrl } : {}),
+      ...(project.onboardingMode ? { onboardingMode: project.onboardingMode } : {}),
+      ...(project.onboardingAuthMode ? { onboardingAuthMode: project.onboardingAuthMode } : {}),
+      ...(project.onboardingBootstrapMode ? { onboardingBootstrapMode: project.onboardingBootstrapMode } : {}),
+      ...(typeof project.onboardingReadOnly === 'boolean' ? { onboardingReadOnly: project.onboardingReadOnly } : {}),
+    }));
+    const threads = Array.from(threadStore.entries()).flatMap(([projectId, projectThreads]) =>
+      projectThreads.map((thread) => ({
+        id: thread.id,
+        projectId,
+        label: thread.label,
+        updatedAt: thread.updatedAt,
+      })),
+    );
+    const messages = Array.from(threadMessageStore.entries()).flatMap(([threadId, threadMessages]) =>
+      threadMessages.map((message, index) => ({
+        id: message.id,
+        threadId,
+        role: message.role,
+        content: message.content,
+        timestamp: message.timestamp,
+        sortOrder: index,
+      })),
+    );
+    void postgresStore.replaceRuntimeStore({ projects, threads, messages });
   } catch (error) {
     console.error('[agent-system-backend] failed to persist runtime store:', error);
   }
@@ -1646,69 +1369,6 @@ const restoreRuntimeStore = () => {
     projectStore.clear();
     threadStore.clear();
     threadMessageStore.clear();
-
-    const projects = runtimeDb.prepare(
-      `SELECT
-        id,
-        label,
-        worktree_path,
-        agent_context_path,
-        repository_url,
-        onboarding_mode,
-        onboarding_auth_mode,
-        onboarding_bootstrap_mode,
-        onboarding_read_only
-      FROM cockpit_projects ORDER BY id`,
-    ).all() as Array<{
-      id: string;
-      label: string;
-      worktree_path: string | null;
-      agent_context_path: string | null;
-      repository_url: string | null;
-      onboarding_mode: string | null;
-      onboarding_auth_mode: string | null;
-      onboarding_bootstrap_mode: string | null;
-      onboarding_read_only: number | null;
-    }>;
-    const threads = runtimeDb.prepare(
-      'SELECT id, project_id, label, updated_at FROM cockpit_threads ORDER BY updated_at DESC',
-    ).all() as Array<{ id: string; project_id: string; label: string; updated_at: string }>;
-    const messages = runtimeDb.prepare(
-      'SELECT id, thread_id, role, content, timestamp FROM cockpit_messages ORDER BY thread_id, sort_order ASC',
-    ).all() as Array<{ id: string; thread_id: string; role: 'user' | 'agent'; content: string; timestamp: string }>;
-
-    for (const project of projects) {
-      projectStore.set(project.id, {
-        id: project.id,
-        label: project.label || project.id,
-        ...(project.worktree_path ? { worktreePath: project.worktree_path } : {}),
-        ...(project.agent_context_path ? { agentContextPath: project.agent_context_path } : {}),
-        ...(project.repository_url ? { repositoryUrl: project.repository_url } : {}),
-        ...(project.onboarding_mode ? { onboardingMode: project.onboarding_mode as 'local' | 'repository' } : {}),
-        ...(project.onboarding_auth_mode ? { onboardingAuthMode: project.onboarding_auth_mode as 'none' | 'oauth' | 'pat' } : {}),
-        ...(project.onboarding_bootstrap_mode ? { onboardingBootstrapMode: project.onboarding_bootstrap_mode as 'none' | 'auto-template' | 'read-only' } : {}),
-        ...(project.onboarding_read_only !== null ? { onboardingReadOnly: Boolean(project.onboarding_read_only) } : {}),
-      });
-    }
-    for (const thread of threads) {
-      const existing = threadStore.get(thread.project_id) || [];
-      existing.push({
-        id: thread.id,
-        label: thread.label,
-        updatedAt: thread.updated_at,
-      });
-      threadStore.set(thread.project_id, existing);
-    }
-    for (const message of messages) {
-      const existing = threadMessageStore.get(message.thread_id) || [];
-      existing.push({
-        id: message.id,
-        role: message.role,
-        content: message.content,
-        timestamp: message.timestamp,
-      });
-      threadMessageStore.set(message.thread_id, existing);
-    }
 
     // One-time migration from legacy JSON store if DB is still empty.
     if (
@@ -1769,7 +1429,7 @@ const restoreRuntimeStore = () => {
   }
 };
 
-const syncExecutorSettingsToRuntimeConfig = (
+const syncExecutorSettingsToRuntimeConfig = async (
   executorSettings: Record<string, any>,
   auth?: { tenantId: string; workspaceId: string; userId?: string },
 ) => {
@@ -1778,11 +1438,11 @@ const syncExecutorSettingsToRuntimeConfig = (
     const backend = String(executorSettings.backend || current.backend) as 'claude-cli' | 'codex-cli' | 'openhands-sdk';
     const scopedOpenhandsApiKeys: Record<string, string> = {};
     if (auth?.tenantId && auth?.workspaceId) {
-      for (const row of secretsStore.listMeta({ tenantId: auth.tenantId, workspaceId: auth.workspaceId, userId: auth.userId })) {
+      for (const row of await postgresSecretsStore.listMeta({ tenantId: auth.tenantId, workspaceId: auth.workspaceId, userId: auth.userId })) {
         if (!row.key.startsWith('openhands.apiKeys.')) continue;
         const provider = row.key.replace('openhands.apiKeys.', '').trim();
         if (!provider) continue;
-        const value = secretsStore.getValue({
+        const value = await postgresSecretsStore.getValue({
           tenantId: auth.tenantId,
           workspaceId: auth.workspaceId,
           userId: auth.userId,
@@ -2387,15 +2047,15 @@ app.get('/api/health', (_req, res) => {
       runtimeStateSources: controlApiSourceState.runtimeState,
       default: {
         enabled: true,
-        store: 'sqlite',
+        store: 'postgres',
       },
       postgres: controlApiSourceState.postgres,
       ...(controlApiSourceState.lastHydratedAt ? { lastHydratedAt: controlApiSourceState.lastHydratedAt } : {}),
     },
     storage: {
-      objectStorageBackend: OBJECT_STORAGE_BACKEND || 'sqlite',
-      secretsBackend: SECRETS_STORAGE_BACKEND || 'sqlite',
-      defaultStore: 'sqlite',
+      objectStorageBackend: OBJECT_STORAGE_BACKEND || 'postgres',
+      secretsBackend: SECRETS_STORAGE_BACKEND || 'postgres',
+      defaultStore: 'postgres',
     },
     auth: {
       mode: AUTH_MODE,
@@ -2407,7 +2067,7 @@ app.get('/api/health', (_req, res) => {
 app.get('/api/cockpit/runtime/infrastructure-profile', (_req, res) => {
   res.json({
     success: true,
-    profile: resolveRuntimeInfrastructureProfile(),
+    profile: infrastructureProfile,
     serverNow: new Date().toISOString(),
   });
 });
@@ -2479,7 +2139,7 @@ app.get('/api/governance/overrides', async (req, res) => {
 });
 
 app.post('/api/governance/overrides', async (req, res) => {
-  if (!requireRole(req, res, 'admin')) return;
+  if (!(await requireRole(req, res, 'admin'))) return;
   try {
     const projectId = String(req.body?.projectId || '').trim();
     const scope = String(req.body?.scope || '').trim() as 'global' | 'phase' | 'rule';
@@ -2526,7 +2186,7 @@ app.post('/api/governance/overrides', async (req, res) => {
 });
 
 app.post('/api/governance/loops/force', async (req, res) => {
-  if (!requireRole(req, res, 'admin')) return;
+  if (!(await requireRole(req, res, 'admin'))) return;
   try {
     const loopType = String(req.body?.loopType || '').trim() as 'improvement' | 'validation';
     const loopId = String(req.body?.loopId || '').trim();
@@ -2554,7 +2214,7 @@ app.post('/api/governance/loops/force', async (req, res) => {
     const workspacePath = process.cwd();
 
     if (effectiveLoopType === 'improvement') {
-      const workspaceContext = getAuthContext(req);
+      const workspaceContext = await getAuthContextPg(req);
       if (!workspaceContext) {
         res.status(401).json({ success: false, error: 'unauthorized', message: 'Valid auth context required for governance loops' });
         return;
@@ -2691,7 +2351,7 @@ app.get('/api/governance/loops/:loopId', async (req, res) => {
 });
 
 app.post('/api/governance/loops', async (req, res) => {
-  if (!requireRole(req, res, 'admin')) return;
+  if (!(await requireRole(req, res, 'admin'))) return;
   try {
     const payload = req.body || {};
     const id = String(payload.id || '').trim();
@@ -2730,7 +2390,7 @@ app.post('/api/governance/loops', async (req, res) => {
 });
 
 app.post('/api/governance/loops/:loopId', async (req, res) => {
-  if (!requireRole(req, res, 'admin')) return;
+  if (!(await requireRole(req, res, 'admin'))) return;
   try {
     const loopId = String(req.params?.loopId || '').trim();
     const patch = req.body || {};
@@ -2754,7 +2414,7 @@ app.post('/api/governance/loops/:loopId', async (req, res) => {
 });
 
 app.patch('/api/governance/loops/:loopId', async (req, res) => {
-  if (!requireRole(req, res, 'admin')) return;
+  if (!(await requireRole(req, res, 'admin'))) return;
   try {
     const loopId = String(req.params?.loopId || '').trim();
     const patch = req.body || {};
@@ -2778,7 +2438,7 @@ app.patch('/api/governance/loops/:loopId', async (req, res) => {
 });
 
 app.post('/api/governance/loops/:loopId/disable', async (req, res) => {
-  if (!requireRole(req, res, 'admin')) return;
+  if (!(await requireRole(req, res, 'admin'))) return;
   try {
     const loopId = String(req.params?.loopId || '').trim();
     const disabled = req.body?.disabled !== false;
@@ -2854,7 +2514,7 @@ app.get('/api/governance/rules/:ruleId', async (req, res) => {
 });
 
 app.post('/api/governance/rules', async (req, res) => {
-  if (!requireRole(req, res, 'admin')) return;
+  if (!(await requireRole(req, res, 'admin'))) return;
   try {
     const payload = req.body || {};
     const id = String(payload.id || '').trim();
@@ -2896,7 +2556,7 @@ app.post('/api/governance/rules', async (req, res) => {
 });
 
 app.post('/api/governance/rules/:ruleId', async (req, res) => {
-  if (!requireRole(req, res, 'admin')) return;
+  if (!(await requireRole(req, res, 'admin'))) return;
   try {
     const ruleId = String(req.params?.ruleId || '').trim();
     const patch = req.body || {};
@@ -2920,7 +2580,7 @@ app.post('/api/governance/rules/:ruleId', async (req, res) => {
 });
 
 app.patch('/api/governance/rules/:ruleId', async (req, res) => {
-  if (!requireRole(req, res, 'admin')) return;
+  if (!(await requireRole(req, res, 'admin'))) return;
   try {
     const ruleId = String(req.params?.ruleId || '').trim();
     const patch = req.body || {};
@@ -2944,7 +2604,7 @@ app.patch('/api/governance/rules/:ruleId', async (req, res) => {
 });
 
 app.post('/api/governance/rules/:ruleId/disable', async (req, res) => {
-  if (!requireRole(req, res, 'admin')) return;
+  if (!(await requireRole(req, res, 'admin'))) return;
   try {
     const ruleId = String(req.params?.ruleId || '').trim();
     const projectId = String(req.body?.projectId || '').trim();
@@ -2996,7 +2656,7 @@ app.post('/api/governance/rules/:ruleId/disable', async (req, res) => {
 });
 
 app.delete('/api/governance/rules/:ruleId', async (req, res) => {
-  if (!requireAccess(req, res, { minRole: 'owner', action: 'governance:write' })) return;
+  if (!(await requireAccess(req, res, { minRole: 'owner', action: 'governance:write' }))) return;
   try {
     const ruleId = String(req.params?.ruleId || '').trim();
     const force = String(req.query?.force || '').trim() === 'true';
@@ -3030,7 +2690,7 @@ app.get('/api/governance/evaluators', async (_req, res) => {
 });
 
 app.post('/api/governance/evaluators/register', async (req, res) => {
-  if (!requireAccess(req, res, { minRole: 'owner', action: 'governance:write' })) return;
+  if (!(await requireAccess(req, res, { minRole: 'owner', action: 'governance:write' }))) return;
   try {
     const evaluatorType = String(req.body?.evaluatorType || '').trim();
     const aliasTo = String(req.body?.aliasTo || '').trim();
@@ -3089,7 +2749,7 @@ app.get('/api/governance/rules/:ruleId/history', async (req, res) => {
 });
 
 app.post('/api/governance/projects/:projectId/policy', async (req, res) => {
-  if (!requireRole(req, res, 'admin')) return;
+  if (!(await requireRole(req, res, 'admin'))) return;
   try {
     const projectId = String(req.params?.projectId || '').trim();
     const { updateProjectPolicy } = await import('@system/governance');
@@ -3166,7 +2826,9 @@ registerProviderSettingsRoutes(app, {
   settingsStoreSet: (section, value) => settingsStore.set(section, value),
   persistSettingsStore,
   syncExecutorSettingsToRuntimeConfig,
-  secretsStoreUpsert: (input) => secretsStore.upsert(input),
+  secretsStoreUpsert: async (input) => {
+    await postgresSecretsStore.upsert(input);
+  },
   getRuntimeEnforcementByProject: () => runtimeEnforcementByProject,
   setRuntimeEnforcementByProject: (next) => {
     runtimeEnforcementByProject = next;
@@ -3206,7 +2868,7 @@ app.get('/api/cockpit/storage/postgres/health', async (_req, res) => {
     backend: 'postgres',
     enabled: health.enabled,
     sourceOfTruth: 'postgres',
-    defaultStore: 'sqlite',
+    defaultStore: 'postgres',
     settingsSource: controlApiSourceState.settings,
     runtimeStateSources: controlApiSourceState.runtimeState,
     ...(controlApiSourceState.lastHydratedAt ? { lastHydratedAt: controlApiSourceState.lastHydratedAt } : {}),
@@ -3266,57 +2928,26 @@ app.get('/api/cockpit/analytics/skills', (_req, res) => {
 registerSecretsRoutes(app, {
   requireRole,
   secretsListMeta: async (input) => {
-    if (await shouldUsePostgresSecrets()) {
-      const pgRows = await postgresSecretsStore.listMeta(input);
-      if (pgRows.length > 0) return pgRows;
-    }
-    return secretsStore.listMeta(input);
+    return await postgresSecretsStore.listMeta(input);
   },
   secretsUpsert: async (input) => {
-    const sqliteSaved = secretsStore.upsert(input);
-    if (await shouldUsePostgresSecrets()) {
-      try {
-        await postgresSecretsStore.upsert(input);
-      } catch {
-        // sqlite mirror already persisted; keep response deterministic
-      }
-    }
-    return sqliteSaved;
+    await postgresSecretsStore.upsert(input);
+    return true;
   },
   secretsDelete: async (input) => {
-    const sqliteDeleted = secretsStore.delete(input);
-    if (await shouldUsePostgresSecrets()) {
-      try {
-        await postgresSecretsStore.delete(input);
-      } catch {
-        // keep sqlite deletion result
-      }
-    }
-    return sqliteDeleted;
+    await postgresSecretsStore.delete(input);
+    return true;
   },
   secretsRotate: async (input) => {
-    const sqliteRotated = secretsStore.rotate(input);
-    if (!sqliteRotated) return null;
-    if (await shouldUsePostgresSecrets()) {
-      try {
-        await postgresSecretsStore.rotate(input);
-      } catch {
-        // keep sqlite rotation result
-      }
-    }
-    return sqliteRotated;
+    return await postgresSecretsStore.rotate(input);
   },
   secretsListVersions: async (input) => {
-    if (await shouldUsePostgresSecrets()) {
-      const pgRows = await postgresSecretsStore.listVersions(input);
-      if (pgRows.length > 0) return pgRows;
-    }
-    return secretsStore.listVersions(input);
+    return await postgresSecretsStore.listVersions(input);
   },
   appendControlActionAudit,
 });
 
-app.post('/api/auth/register', (req, res) => {
+app.post('/api/auth/register', async (req, res) => {
   const email = String(req.body?.email || req.body?.username || '').trim().toLowerCase();
   const password = String(req.body?.password || '');
   const tenantId = String(req.body?.tenantId || '').trim();
@@ -3332,15 +2963,13 @@ app.post('/api/auth/register', (req, res) => {
     return;
   }
 
-  const existingByEmail = runtimeDb
-    .prepare(`SELECT id FROM auth_users WHERE email = ?`)
-    .get(email) as { id: string } | undefined;
+  const existingByEmail = await authStore.getUserByEmail(email);
   if (existingByEmail?.id) {
     res.status(409).json({ success: false, error: 'user_already_exists' });
     return;
   }
 
-  const existingCount = Number((runtimeDb.prepare('SELECT COUNT(*) as c FROM auth_users').get() as any)?.c || 0);
+  const existingCount = await authStore.countUsers();
   const role = requestedRole === 'admin' || requestedRole === 'owner' || requestedRole === 'member' || requestedRole === 'viewer'
     ? requestedRole
     : existingCount === 0
@@ -3348,12 +2977,15 @@ app.post('/api/auth/register', (req, res) => {
       : 'member';
 
   const userId = `user-${crypto.randomUUID()}`;
-  runtimeDb
-    .prepare(
-      `INSERT INTO auth_users (id, email, password_hash, tenant_id, workspace_id, role, is_active, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, 1, ?)`,
-    )
-    .run(userId, email, hashPassword(password), tenantId, workspaceId, role, new Date().toISOString());
+  await authStore.createUser({
+    id: userId,
+    email,
+    passwordHash: hashPassword(password),
+    tenantId,
+    workspaceId,
+    role,
+    isActive: true,
+  });
 
   res.status(201).json({
     success: true,
@@ -3367,8 +2999,8 @@ app.post('/api/auth/register', (req, res) => {
   });
 });
 
-app.get('/api/auth/rbac/matrix', (req, res) => {
-  const auth = requireRole(req, res, 'member');
+app.get('/api/auth/rbac/matrix', async (req, res) => {
+  const auth = await requireRole(req, res, 'member');
   if (!auth) return;
   res.json({
     success: true,
@@ -3377,14 +3009,14 @@ app.get('/api/auth/rbac/matrix', (req, res) => {
   });
 });
 
-app.get('/api/auth/abac/policies', (req, res) => {
-  const auth = requireRole(req, res, 'member');
+app.get('/api/auth/abac/policies', async (req, res) => {
+  const auth = await requireRole(req, res, 'member');
   if (!auth) return;
   res.json({ success: true, policies: DEFAULT_ABAC_POLICIES });
 });
 
-app.post('/api/auth/abac/evaluate', (req, res) => {
-  const auth = requireRole(req, res, 'member');
+app.post('/api/auth/abac/evaluate', async (req, res) => {
+  const auth = await requireRole(req, res, 'member');
   if (!auth) return;
   const action = String(req.body?.action || '').trim();
   if (!action) {
@@ -3404,7 +3036,7 @@ app.post('/api/auth/abac/evaluate', (req, res) => {
   res.json({ success: true, decision });
 });
 
-app.post('/api/auth/login', (req, res) => {
+app.post('/api/auth/login', async (req, res) => {
   console.log('[Backend] Login request body keys:', Object.keys(req.body || {}));
   const email = String(req.body?.email || req.body?.username || '').trim().toLowerCase();
   const password = String(req.body?.password || '');
@@ -3414,21 +3046,14 @@ app.post('/api/auth/login', (req, res) => {
     return;
   }
 
-  const user = runtimeDb
-    .prepare(
-      `SELECT id, email, password_hash, tenant_id, workspace_id, role, is_active
-       FROM auth_users WHERE email = ?`,
-    )
-    .get(email) as
-    | { id: string; email: string; password_hash: string; tenant_id: string; workspace_id: string; role: string; is_active: number }
-    | undefined;
+  const user = await authStore.getUserByEmail(email);
 
   if (!user || !user.is_active || user.password_hash !== hashPassword(password)) {
     res.status(401).json({ success: false, error: 'invalid_credentials' });
     return;
   }
 
-  const { token, refreshToken, expiresAt } = createAuthSession({
+  const { token, refreshToken, expiresAt } = await createAuthSession({
     userId: user.id,
     tenantId: user.tenant_id,
     workspaceId: user.workspace_id,
@@ -3453,23 +3078,22 @@ app.post('/api/auth/login', (req, res) => {
   });
 });
 
-app.get('/api/auth/sso/providers', (req, res) => {
-  const auth = requireRole(req, res, 'member');
+app.get('/api/auth/sso/providers', async (req, res) => {
+  const auth = await getAuthContextPg(req);
   if (!auth) return;
-  const items = runtimeDb
-    .prepare(
-      `SELECT id, name, protocol, issuer, entrypoint, audience, tenant_id, workspace_id, client_id, active, created_at, updated_at
-       FROM auth_sso_providers
-       WHERE tenant_id = ? AND workspace_id = ?
-       ORDER BY protocol ASC, name ASC`,
-    )
-    .all(auth.tenantId, auth.workspaceId);
+  const items = await authStore.listSsoProviders(auth.tenantId, auth.workspaceId);
   res.json({ success: true, items });
 });
 
-app.post('/api/auth/sso/providers', (req, res) => {
-  const auth = requireAccess(req, res, { minRole: 'admin', action: 'config:write' });
+app.post('/api/auth/sso/providers', async (req, res) => {
+  const auth = await getAuthContextPg(req);
   if (!auth) return;
+  const authRole = (String(auth.role || '').trim().toLowerCase() || 'member') as AuthRole;
+  const roleForCheck = authRole === 'owner' || authRole === 'admin' || authRole === 'member' || authRole === 'viewer' ? authRole : 'member';
+  if (AUTH_ROLE_ORDER[roleForCheck] < AUTH_ROLE_ORDER.admin) {
+    res.status(403).json({ success: false, error: 'forbidden', message: 'Requires role: admin' });
+    return;
+  }
   const name = String(req.body?.name || '').trim();
   const protocolRaw = String(req.body?.protocol || '').trim().toLowerCase();
   const protocol = protocolRaw === 'oidc' || protocolRaw === 'saml' ? protocolRaw : '';
@@ -3485,28 +3109,20 @@ app.post('/api/auth/sso/providers', (req, res) => {
   }
 
   const id = `sso_${crypto.randomUUID()}`;
-  const now = new Date().toISOString();
-  runtimeDb
-    .prepare(
-      `INSERT INTO auth_sso_providers (
-        id, name, protocol, issuer, entrypoint, audience, tenant_id, workspace_id, client_id, client_secret_hash, scim_token_hash, active, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`,
-    )
-    .run(
-      id,
-      name,
-      protocol,
-      issuer || null,
-      entrypoint || null,
-      audience || null,
-      auth.tenantId,
-      auth.workspaceId,
-      clientId || null,
-      clientSecret ? hashPassword(clientSecret) : null,
-      scimToken ? hashPassword(`scim:${scimToken}`) : null,
-      now,
-      now,
-    );
+  await authStore.createSsoProvider({
+    id,
+    name,
+    protocol,
+    issuer: issuer || undefined,
+    entrypoint: entrypoint || undefined,
+    audience: audience || undefined,
+    tenantId: auth.tenantId,
+    workspaceId: auth.workspaceId,
+    clientId: clientId || undefined,
+    clientSecretHash: clientSecret ? hashPassword(clientSecret) : undefined,
+    scimTokenHash: scimToken ? hashPassword(`scim:${scimToken}`) : undefined,
+    active: true,
+  });
   res.status(201).json({
     success: true,
     provider: {
@@ -3524,26 +3140,19 @@ app.post('/api/auth/sso/providers', (req, res) => {
   });
 });
 
-const requireScimProvider = (req: express.Request, res: express.Response): {
+const requireScimProvider = async (req: express.Request, res: express.Response): Promise<{
   providerId: string;
   tenantId: string;
   workspaceId: string;
   protocol: string;
-} | null => {
+} | null> => {
   const providerId = String(req.header('x-scim-provider-id') || req.query?.providerId || req.body?.providerId || '').trim();
   const token = parseScimBearerToken(req);
   if (!providerId || !token) {
     res.status(401).json({ success: false, error: 'scim_provider_and_token_required' });
     return null;
   }
-  const row = runtimeDb
-    .prepare(
-      `SELECT id, tenant_id, workspace_id, protocol, active, scim_token_hash
-       FROM auth_sso_providers WHERE id = ?`,
-    )
-    .get(providerId) as
-    | { id: string; tenant_id: string; workspace_id: string; protocol: string; active: number; scim_token_hash: string | null }
-    | undefined;
+  const row = await authStore.getSsoProviderById(providerId);
   if (!row || !row.active || !row.scim_token_hash) {
     res.status(401).json({ success: false, error: 'invalid_scim_provider' });
     return null;
@@ -3560,30 +3169,24 @@ const requireScimProvider = (req: express.Request, res: express.Response): {
   };
 };
 
-app.post('/api/auth/scim/v2/Users', (req, res) => {
-  const scope = requireScimProvider(req, res);
+app.post('/api/auth/scim/v2/Users', async (req, res) => {
+  const scope = await requireScimProvider(req, res);
   if (!scope) return;
 
   const email = String(req.body?.email || req.body?.userName || '').trim().toLowerCase();
   const roleRaw = String(req.body?.role || 'member').trim().toLowerCase();
   const role = roleRaw === 'owner' || roleRaw === 'admin' || roleRaw === 'member' ? roleRaw : 'member';
-  const active = req.body?.active === false ? 0 : 1;
+  const active = req.body?.active === false ? false : true;
 
   if (!email) {
     res.status(400).json({ success: false, error: 'email_required' });
     return;
   }
 
-  const existing = runtimeDb
-    .prepare(`SELECT id, email, role, tenant_id, workspace_id, is_active FROM auth_users WHERE email = ? AND tenant_id = ? AND workspace_id = ?`)
-    .get(email, scope.tenantId, scope.workspaceId) as
-    | { id: string; email: string; role: string; tenant_id: string; workspace_id: string; is_active: number }
-    | undefined;
+  const existing = await authStore.getUserByEmailScoped(email, scope.tenantId, scope.workspaceId);
 
   if (existing) {
-    runtimeDb
-      .prepare(`UPDATE auth_users SET role = ?, is_active = ? WHERE id = ?`)
-      .run(role, active, existing.id);
+    await authStore.updateUserRoleActive(existing.id, role, active);
     res.status(200).json({
       success: true,
       operation: 'upsert',
@@ -3600,21 +3203,15 @@ app.post('/api/auth/scim/v2/Users', (req, res) => {
   }
 
   const userId = `user-${crypto.randomUUID()}`;
-  runtimeDb
-    .prepare(
-      `INSERT INTO auth_users (id, email, password_hash, tenant_id, workspace_id, role, is_active, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-    )
-    .run(
-      userId,
-      email,
-      hashPassword(`scim:${scope.providerId}:${crypto.randomUUID()}`),
-      scope.tenantId,
-      scope.workspaceId,
-      role,
-      active,
-      new Date().toISOString(),
-    );
+  await authStore.createUser({
+    id: userId,
+    email,
+    passwordHash: hashPassword(`scim:${scope.providerId}:${crypto.randomUUID()}`),
+    tenantId: scope.tenantId,
+    workspaceId: scope.workspaceId,
+    role,
+    isActive: active,
+  });
 
   res.status(201).json({
     success: true,
@@ -3630,63 +3227,55 @@ app.post('/api/auth/scim/v2/Users', (req, res) => {
   });
 });
 
-app.patch('/api/auth/scim/v2/Users/:id', (req, res) => {
-  const scope = requireScimProvider(req, res);
+app.patch('/api/auth/scim/v2/Users/:id', async (req, res) => {
+  const scope = await requireScimProvider(req, res);
   if (!scope) return;
   const userId = String(req.params?.id || '').trim();
   if (!userId) {
     res.status(400).json({ success: false, error: 'user_id_required' });
     return;
   }
-  const row = runtimeDb
-    .prepare(`SELECT id, email, role, is_active FROM auth_users WHERE id = ? AND tenant_id = ? AND workspace_id = ?`)
-    .get(userId, scope.tenantId, scope.workspaceId) as
-    | { id: string; email: string; role: string; is_active: number }
-    | undefined;
+  const row = await authStore.getUserByIdScoped(userId, scope.tenantId, scope.workspaceId);
   if (!row) {
     res.status(404).json({ success: false, error: 'user_not_found' });
     return;
   }
   const nextRoleRaw = String(req.body?.role || row.role).trim().toLowerCase();
   const nextRole = nextRoleRaw === 'owner' || nextRoleRaw === 'admin' || nextRoleRaw === 'member' ? nextRoleRaw : row.role;
-  const nextActive = typeof req.body?.active === 'boolean' ? (req.body.active ? 1 : 0) : row.is_active;
-  runtimeDb
-    .prepare(`UPDATE auth_users SET role = ?, is_active = ? WHERE id = ?`)
-    .run(nextRole, nextActive, userId);
+  const nextActive = typeof req.body?.active === 'boolean' ? req.body.active : Boolean(row.is_active);
+  await authStore.updateUserRoleActive(userId, nextRole, nextActive);
   res.json({
     success: true,
     user: {
       id: userId,
       email: row.email,
       role: nextRole,
-      active: Boolean(nextActive),
+      active: nextActive,
       tenantId: scope.tenantId,
       workspaceId: scope.workspaceId,
     },
   });
 });
 
-app.delete('/api/auth/scim/v2/Users/:id', (req, res) => {
-  const scope = requireScimProvider(req, res);
+app.delete('/api/auth/scim/v2/Users/:id', async (req, res) => {
+  const scope = await requireScimProvider(req, res);
   if (!scope) return;
   const userId = String(req.params?.id || '').trim();
   if (!userId) {
     res.status(400).json({ success: false, error: 'user_id_required' });
     return;
   }
-  const row = runtimeDb
-    .prepare(`SELECT id FROM auth_users WHERE id = ? AND tenant_id = ? AND workspace_id = ?`)
-    .get(userId, scope.tenantId, scope.workspaceId) as { id: string } | undefined;
+  const row = await authStore.getUserByIdScoped(userId, scope.tenantId, scope.workspaceId);
   if (!row) {
     res.status(404).json({ success: false, error: 'user_not_found' });
     return;
   }
-  runtimeDb.prepare(`UPDATE auth_users SET is_active = 0 WHERE id = ?`).run(userId);
-  runtimeDb.prepare(`DELETE FROM auth_sessions WHERE user_id = ?`).run(userId);
+  await authStore.deactivateUser(userId);
+  await authStore.deleteSessionsByUser(userId);
   res.json({ success: true, deactivated: true, userId });
 });
 
-app.post('/api/auth/sso/login', (req, res) => {
+app.post('/api/auth/sso/login', async (req, res) => {
   const providerId = String(req.body?.providerId || '').trim();
   const protocolRaw = String(req.body?.protocol || '').trim().toLowerCase();
   const protocol = protocolRaw === 'oidc' || protocolRaw === 'saml' ? protocolRaw : '';
@@ -3696,52 +3285,32 @@ app.post('/api/auth/sso/login', (req, res) => {
     return;
   }
 
-  const provider = runtimeDb
-    .prepare(
-      `SELECT id, name, protocol, tenant_id, workspace_id, active
-       FROM auth_sso_providers
-       WHERE id = ?`,
-    )
-    .get(providerId) as
-    | { id: string; name: string; protocol: string; tenant_id: string; workspace_id: string; active: number }
-    | undefined;
+  const provider = await authStore.getSsoProviderById(providerId);
   if (!provider || !provider.active || provider.protocol !== protocol) {
     res.status(401).json({ success: false, error: 'invalid_sso_provider' });
     return;
   }
 
-  let user = runtimeDb
-    .prepare(
-      `SELECT id, email, role, tenant_id, workspace_id, is_active
-       FROM auth_users
-       WHERE email = ? AND tenant_id = ? AND workspace_id = ?`,
-    )
-    .get(email, provider.tenant_id, provider.workspace_id) as
-    | { id: string; email: string; role: string; tenant_id: string; workspace_id: string; is_active: number }
-    | undefined;
+  let user = await authStore.getUserByEmailScoped(email, provider.tenant_id, provider.workspace_id);
 
   if (!user) {
     const userId = `user-${crypto.randomUUID()}`;
-    runtimeDb
-      .prepare(
-        `INSERT INTO auth_users (id, email, password_hash, tenant_id, workspace_id, role, is_active, created_at)
-         VALUES (?, ?, ?, ?, ?, 'member', 1, ?)`,
-      )
-      .run(
-        userId,
-        email,
-        hashPassword(`sso:${provider.id}:${crypto.randomUUID()}`),
-        provider.tenant_id,
-        provider.workspace_id,
-        new Date().toISOString(),
-      );
+    await authStore.createUser({
+      id: userId,
+      email,
+      passwordHash: hashPassword(`sso:${provider.id}:${crypto.randomUUID()}`),
+      tenantId: provider.tenant_id,
+      workspaceId: provider.workspace_id,
+      role: 'member',
+      isActive: true,
+    });
     user = {
       id: userId,
       email,
       role: 'member',
       tenant_id: provider.tenant_id,
       workspace_id: provider.workspace_id,
-      is_active: 1,
+      is_active: true,
     };
   }
 
@@ -3750,7 +3319,7 @@ app.post('/api/auth/sso/login', (req, res) => {
     return;
   }
 
-  const session = createAuthSession({
+  const session = await createAuthSession({
     userId: user.id,
     tenantId: user.tenant_id,
     workspaceId: user.workspace_id,
@@ -3779,7 +3348,7 @@ app.post('/api/auth/sso/login', (req, res) => {
   });
 });
 
-app.post('/api/auth/refresh', (req, res) => {
+app.post('/api/auth/refresh', async (req, res) => {
   const refreshToken = String(req.body?.refreshToken || '').trim();
   if (!refreshToken) {
     res.status(400).json({ success: false, error: 'refresh_token_required' });
@@ -3787,33 +3356,14 @@ app.post('/api/auth/refresh', (req, res) => {
   }
 
   const refreshTokenHash = hashRefreshToken(refreshToken);
-  const session = runtimeDb
-    .prepare(
-      `SELECT s.token, s.user_id, s.tenant_id, s.workspace_id, s.expires_at, s.revoked_at, u.email, u.role, u.is_active
-       FROM auth_sessions s
-       JOIN auth_users u ON u.id = s.user_id
-       WHERE s.refresh_token_hash = ?`,
-    )
-    .get(refreshTokenHash) as
-    | {
-        token: string;
-        user_id: string;
-        tenant_id: string;
-        workspace_id: string;
-        expires_at: string;
-        revoked_at: string | null;
-        email: string;
-        role: string;
-        is_active: number;
-      }
-    | undefined;
+  const session = await authStore.findSessionByRefreshHashWithUser(refreshTokenHash);
 
   if (!session || !session.is_active || session.revoked_at) {
     res.status(401).json({ success: false, error: 'invalid_refresh_token' });
     return;
   }
   if (new Date(session.expires_at).getTime() <= Date.now()) {
-    runtimeDb.prepare('DELETE FROM auth_sessions WHERE token = ?').run(session.token);
+    await authStore.deleteSessionByToken(session.token);
     res.status(401).json({ success: false, error: 'refresh_token_expired' });
     return;
   }
@@ -3823,20 +3373,14 @@ app.post('/api/auth/refresh', (req, res) => {
   const newRefreshTokenHash = hashRefreshToken(newRefreshToken);
   const newExpiresAt = new Date(Date.now() + AUTH_SESSION_TTL_HOURS * 60 * 60 * 1000).toISOString();
 
-  runtimeDb
-    .prepare(
-      `UPDATE auth_sessions
-       SET token = ?, refresh_token_hash = ?, expires_at = ?, user_agent = ?, ip_address = ?, revoked_at = NULL
-       WHERE token = ?`,
-    )
-    .run(
-      newToken,
-      newRefreshTokenHash,
-      newExpiresAt,
-      String(req.header('user-agent') || '').slice(0, 512),
-      String(req.ip || '').slice(0, 128),
-      session.token,
-    );
+  await authStore.rotateSessionToken({
+    oldToken: session.token,
+    newToken,
+    newRefreshTokenHash,
+    expiresAt: newExpiresAt,
+    userAgent: String(req.header('user-agent') || '').slice(0, 512),
+    ipAddress: String(req.ip || '').slice(0, 128),
+  });
 
   res.json({
     success: true,
@@ -3854,18 +3398,18 @@ app.post('/api/auth/refresh', (req, res) => {
   });
 });
 
-app.post('/api/auth/logout', (req, res) => {
-  const auth = getAuthContext(req);
+app.post('/api/auth/logout', async (req, res) => {
+  const auth = await getAuthContextPg(req);
   if (!auth) {
     res.status(401).json({ success: false, error: 'unauthorized' });
     return;
   }
-  runtimeDb.prepare('DELETE FROM auth_sessions WHERE token = ?').run(auth.token);
+  await authStore.deleteSessionByToken(auth.token);
   res.json({ success: true });
 });
 
-app.get('/api/auth/me', (req, res) => {
-  const auth = getAuthContext(req);
+app.get('/api/auth/me', async (req, res) => {
+  const auth = await getAuthContextPg(req);
   if (!auth) {
     res.status(401).json({ success: false, error: 'unauthorized' });
     return;
@@ -3884,12 +3428,12 @@ app.get('/api/auth/me', (req, res) => {
 });
 
 
-app.get('/api/cockpit/environments', (req, res) => {
-  const auth = requireRole(req, res, 'member');
+app.get('/api/cockpit/environments', async (req, res) => {
+  const auth = await requireRole(req, res, 'member');
   if (!auth) return;
   const projectId = String(req.query?.projectId || '').trim() || undefined;
   const limit = Math.max(1, Math.min(Number(req.query?.limit || 200), 1000));
-  const items = environmentStateStore.listByScope({
+  const items = await environmentStateStore.listByScope({
     tenantId: auth.tenantId,
     workspaceId: auth.workspaceId,
     ...(projectId ? { projectId } : {}),
@@ -3898,7 +3442,7 @@ app.get('/api/cockpit/environments', (req, res) => {
   res.json({ success: true, items, count: items.length });
 });
 
-function resolveEnvironmentByAuthScope(input: {
+async function resolveEnvironmentByAuthScope(input: {
   tenantId: string;
   workspaceId: string;
   projectId?: string;
@@ -3908,7 +3452,7 @@ function resolveEnvironmentByAuthScope(input: {
     workspaceId: input.workspaceId,
     projectId: input.projectId,
   });
-  return environmentStateStore.get(environmentId);
+  return await environmentStateStore.get(environmentId);
 }
 
 function enforceRequestedScopeMatchesAuth(
@@ -4013,8 +3557,8 @@ function readEnvironmentLifecycleTelemetry(input: { environmentId: string; limit
 }
 
 
-app.post('/api/cockpit/environments/provision', (req, res) => {
-  const auth = requireRole(req, res, 'member');
+app.post('/api/cockpit/environments/provision', async (req, res) => {
+  const auth = await requireRole(req, res, 'member');
   if (!auth) return;
   const scopeCheck = enforceRequestedScopeMatchesAuth(req, auth);
   if (scopeCheck.ok === false) {
@@ -4023,7 +3567,7 @@ app.post('/api/cockpit/environments/provision', (req, res) => {
   }
   const projectId = String(req.body?.projectId || '').trim() || undefined;
   const force = Boolean(req.body?.force);
-  const result = environmentProvisioningService.provisionOnDemand({
+  const result = await environmentProvisioningService.provisionOnDemand({
     tenantId: auth.tenantId,
     workspaceId: auth.workspaceId,
     ...(projectId ? { projectId } : {}),
@@ -4044,7 +3588,7 @@ app.post('/api/cockpit/environments/provision', (req, res) => {
 });
 
 app.post('/api/cockpit/environments/warmup', async (req, res) => {
-  const auth = requireRole(req, res, 'member');
+  const auth = await requireRole(req, res, 'member');
   if (!auth) return;
   const scopeCheck = enforceRequestedScopeMatchesAuth(req, auth);
   if (scopeCheck.ok === false) {
@@ -4052,7 +3596,7 @@ app.post('/api/cockpit/environments/warmup', async (req, res) => {
     return;
   }
   const projectId = String(req.body?.projectId || '').trim() || undefined;
-  const provision = environmentProvisioningService.provisionOnDemand({
+  const provision = await environmentProvisioningService.provisionOnDemand({
     tenantId: auth.tenantId,
     workspaceId: auth.workspaceId,
     ...(projectId ? { projectId } : {}),
@@ -4104,7 +3648,7 @@ app.post('/api/cockpit/environments/warmup', async (req, res) => {
         checks.push({
           id: 'storage_backends',
           ok: true,
-          detail: `secrets=${pgSecrets ? 'postgres' : 'sqlite'};objects=${pgObjects ? 'postgres' : 'sqlite'}`,
+          detail: `secrets=${pgSecrets ? 'postgres' : 'unavailable'};objects=${pgObjects ? 'postgres' : 'unavailable'}`,
         });
       } catch (error: any) {
         checks.push({
@@ -4137,8 +3681,8 @@ app.post('/api/cockpit/environments/warmup', async (req, res) => {
   res.json({ success: true, ...warmup });
 });
 
-app.post('/api/cockpit/environments/suspend', (req, res) => {
-  const auth = requireRole(req, res, 'member');
+app.post('/api/cockpit/environments/suspend', async (req, res) => {
+  const auth = await requireRole(req, res, 'member');
   if (!auth) return;
   const scopeCheck = enforceRequestedScopeMatchesAuth(req, auth);
   if (scopeCheck.ok === false) {
@@ -4146,7 +3690,7 @@ app.post('/api/cockpit/environments/suspend', (req, res) => {
     return;
   }
   const projectId = String(req.body?.projectId || '').trim() || undefined;
-  const existing = resolveEnvironmentByAuthScope({
+  const existing = await resolveEnvironmentByAuthScope({
     tenantId: auth.tenantId,
     workspaceId: auth.workspaceId,
     ...(projectId ? { projectId } : {}),
@@ -4155,7 +3699,7 @@ app.post('/api/cockpit/environments/suspend', (req, res) => {
     res.status(404).json({ success: false, error: 'environment_not_found' });
     return;
   }
-  const transition = environmentSuspendResumeService.suspend({
+  const transition = await environmentSuspendResumeService.suspend({
     environment: existing,
     actorId: auth.userId,
   });
@@ -4186,8 +3730,8 @@ app.post('/api/cockpit/environments/suspend', (req, res) => {
   });
 });
 
-app.post('/api/cockpit/environments/resume', (req, res) => {
-  const auth = requireRole(req, res, 'member');
+app.post('/api/cockpit/environments/resume', async (req, res) => {
+  const auth = await requireRole(req, res, 'member');
   if (!auth) return;
   const scopeCheck = enforceRequestedScopeMatchesAuth(req, auth);
   if (scopeCheck.ok === false) {
@@ -4195,7 +3739,7 @@ app.post('/api/cockpit/environments/resume', (req, res) => {
     return;
   }
   const projectId = String(req.body?.projectId || '').trim() || undefined;
-  const existing = resolveEnvironmentByAuthScope({
+  const existing = await resolveEnvironmentByAuthScope({
     tenantId: auth.tenantId,
     workspaceId: auth.workspaceId,
     ...(projectId ? { projectId } : {}),
@@ -4204,7 +3748,7 @@ app.post('/api/cockpit/environments/resume', (req, res) => {
     res.status(404).json({ success: false, error: 'environment_not_found' });
     return;
   }
-  const transition = environmentSuspendResumeService.resume({
+  const transition = await environmentSuspendResumeService.resume({
     environment: existing,
     actorId: auth.userId,
   });
@@ -4235,8 +3779,8 @@ app.post('/api/cockpit/environments/resume', (req, res) => {
   });
 });
 
-app.post('/api/cockpit/environments/terminate', (req, res) => {
-  const auth = requireRole(req, res, 'member');
+app.post('/api/cockpit/environments/terminate', async (req, res) => {
+  const auth = await requireRole(req, res, 'member');
   if (!auth) return;
   const scopeCheck = enforceRequestedScopeMatchesAuth(req, auth);
   if (scopeCheck.ok === false) {
@@ -4244,7 +3788,7 @@ app.post('/api/cockpit/environments/terminate', (req, res) => {
     return;
   }
   const projectId = String(req.body?.projectId || '').trim() || undefined;
-  const existing = resolveEnvironmentByAuthScope({
+  const existing = await resolveEnvironmentByAuthScope({
     tenantId: auth.tenantId,
     workspaceId: auth.workspaceId,
     ...(projectId ? { projectId } : {}),
@@ -4253,7 +3797,7 @@ app.post('/api/cockpit/environments/terminate', (req, res) => {
     res.status(404).json({ success: false, error: 'environment_not_found' });
     return;
   }
-  const transition = environmentSuspendResumeService.terminate({
+  const transition = await environmentSuspendResumeService.terminate({
     environment: existing,
     actorId: auth.userId,
   });
@@ -4277,7 +3821,7 @@ app.post('/api/cockpit/environments/terminate', (req, res) => {
 });
 
 app.get('/api/cockpit/environments/status', async (req, res) => {
-  const auth = requireRole(req, res, 'member');
+  const auth = await requireRole(req, res, 'member');
   if (!auth) return;
   const scopeCheck = enforceRequestedScopeMatchesAuth(req, auth);
   if (scopeCheck.ok === false) {
@@ -4286,7 +3830,7 @@ app.get('/api/cockpit/environments/status', async (req, res) => {
   }
   try {
     const projectId = String(req.query?.projectId || '').trim() || undefined;
-    const environment = resolveEnvironmentByAuthScope({
+    const environment = await resolveEnvironmentByAuthScope({
       tenantId: auth.tenantId,
       workspaceId: auth.workspaceId,
       ...(projectId ? { projectId } : {}),
@@ -4339,7 +3883,7 @@ app.get('/api/cockpit/environments/status', async (req, res) => {
 });
 
 app.get('/api/cockpit/runtime/dlq', async (req, res) => {
-  const auth = requireRole(req, res, 'member');
+  const auth = await requireRole(req, res, 'member');
   if (!auth) return;
   const scopeCheck = enforceRequestedScopeMatchesAuth(req, auth);
   if (scopeCheck.ok === false) {
@@ -4368,7 +3912,7 @@ app.get('/api/cockpit/runtime/dlq', async (req, res) => {
 });
 
 app.post('/api/cockpit/runtime/dlq/requeue', async (req, res) => {
-  const auth = requireRole(req, res, 'member');
+  const auth = await requireRole(req, res, 'member');
   if (!auth) return;
   const scopeCheck = enforceRequestedScopeMatchesAuth(req, auth);
   if (scopeCheck.ok === false) {
@@ -4403,7 +3947,7 @@ app.post('/api/cockpit/runtime/dlq/requeue', async (req, res) => {
 });
 
 app.get('/api/cockpit/environments/telemetry', async (req, res) => {
-  const auth = requireRole(req, res, 'member');
+  const auth = await requireRole(req, res, 'member');
   if (!auth) return;
   const scopeCheck = enforceRequestedScopeMatchesAuth(req, auth);
   if (scopeCheck.ok === false) {
@@ -4413,7 +3957,7 @@ app.get('/api/cockpit/environments/telemetry', async (req, res) => {
   try {
     const projectId = String(req.query?.projectId || '').trim() || undefined;
     const limit = Math.max(1, Math.min(Number(req.query?.limit || 100), 500));
-    const environment = resolveEnvironmentByAuthScope({
+    const environment = await resolveEnvironmentByAuthScope({
       tenantId: auth.tenantId,
       workspaceId: auth.workspaceId,
       ...(projectId ? { projectId } : {}),
@@ -4473,7 +4017,7 @@ app.post('/api/chat', async (req, res) => {
   const runId = uuidv4();
   const parsed = parseRuntimeDirectives(rawMessage);
   const message = parsed.cleanedMessage || rawMessage;
-  const auth = requireAuthForRuntimeIfEnabled(req, res);
+  const auth = await requireAuthForRuntimeIfEnabled(req, res);
   if (AUTH_MODE === 'required' && !auth) return;
   const workspaceContext = resolveWorkspaceRuntimeContext({
     projectId,
@@ -4707,7 +4251,7 @@ app.post('/api/chat', async (req, res) => {
 });
 
 app.post('/api/chat/approve', async (req, res) => {
-  if (AUTH_MODE === 'required' && !requireAuthForRuntimeIfEnabled(req, res)) return;
+  if (AUTH_MODE === 'required' && !(await requireAuthForRuntimeIfEnabled(req, res))) return;
   const { threadId, decision } = req.body;
 
   if (!threadId) {
@@ -4752,7 +4296,7 @@ app.post('/api/chat/approve', async (req, res) => {
 });
 
 app.post('/api/chat/cancel', async (req, res) => {
-  if (AUTH_MODE === 'required' && !requireAuthForRuntimeIfEnabled(req, res)) return;
+  if (AUTH_MODE === 'required' && !(await requireAuthForRuntimeIfEnabled(req, res))) return;
   const threadId = String(req.body?.threadId || '').trim();
   const runId = String(req.body?.runId || '').trim();
   const reason = String(req.body?.reason || 'Cancelled by user').trim();
@@ -4847,57 +4391,23 @@ app.get('/api/events/system-stream', (req, res) => {
 registerAttachmentStorageRoutes(app, {
   getAuthContext,
   objectStorageList: async (input) => {
-    if (await shouldUsePostgresObjects()) {
-      const pgItems = await postgresObjectStorage.listObjects(input);
-      if (pgItems.length > 0) return pgItems;
-    }
-    return objectStorage.listObjects(input);
+    return await postgresObjectStorage.listObjects(input);
   },
   objectStorageGet: async (id, scope) => {
-    if (await shouldUsePostgresObjects()) {
-      const pgObject = await postgresObjectStorage.getObject(id, scope);
-      if (pgObject) return pgObject;
-    }
-    return objectStorage.getObject(id, scope);
+    return await postgresObjectStorage.getObject(id, scope);
   },
   objectStoragePut: async (input) => {
-    const sqliteStored = objectStorage.putObject(input);
-    if (await shouldUsePostgresObjects()) {
-      try {
-        await postgresObjectStorage.putObject(input);
-      } catch {
-        // sqlite mirror already persisted
-      }
-    }
-    return sqliteStored;
+    return await postgresObjectStorage.putObject(input);
   },
   appendControlActionAudit,
 });
 
-app.use((error: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
-  console.error('[agent-system-backend] request error:', error);
-  res.status(500).json({
-    success: false,
-    error: 'internal_server_error',
-    message: error?.message || 'Unexpected backend error',
-  });
+registerTerminalApiMiddlewares(app);
+
+void startControlApiServer({
+  app,
+  host: HOST,
+  port: PORT,
+  hydrateControlApiFromPostgres,
+  initializeAssetRegistry: () => assetRegistryV2.initialize(),
 });
-
-app.use('/api', (_req, res) => {
-  res.status(404).json({ success: false, error: 'endpoint_not_found' });
-});
-
-const startServer = async () => {
-  await hydrateControlApiFromPostgres();
-  // AGSYS-3508: Rehydrate asset registry from Redis
-  try {
-    await assetRegistryV2.initialize();
-  } catch (error) {
-    console.error('[agent-system-backend] asset registry initialization error:', error);
-  }
-  app.listen(PORT, HOST, () => {
-    console.log(`[agent-system-backend] listening on http://${HOST}:${PORT}`);
-  });
-};
-
-void startServer();

@@ -1,4 +1,4 @@
-import { SqliteEnvironmentStateStore, buildPersistedEnvironmentId, type PersistedEnvironmentRecord } from './EnvironmentStateStore';
+import { type EnvironmentStateStore, buildPersistedEnvironmentId, type PersistedEnvironmentRecord } from './EnvironmentStateStore';
 
 export interface ProvisionStep {
   state: 'provisioning' | 'warming' | 'active' | 'failed';
@@ -16,21 +16,21 @@ export interface ProvisionResult {
 }
 
 export class EnvironmentProvisioningService {
-  constructor(private readonly store: SqliteEnvironmentStateStore) {}
+  constructor(private readonly store: EnvironmentStateStore) {}
 
-  provisionOnDemand(input: {
+  async provisionOnDemand(input: {
     tenantId: string;
     workspaceId: string;
     projectId?: string;
     actorId?: string;
     force?: boolean;
-  }): ProvisionResult {
+  }): Promise<ProvisionResult> {
     const environmentId = buildPersistedEnvironmentId({
       tenantId: input.tenantId,
       workspaceId: input.workspaceId,
       projectId: input.projectId,
     });
-    const existing = this.store.get(environmentId);
+    const existing = await this.store.get(environmentId);
     const readyStates = new Set(['active', 'warming', 'idle', 'suspended']);
     if (existing && !input.force && readyStates.has(existing.state)) {
       return {
@@ -50,7 +50,7 @@ export class EnvironmentProvisioningService {
 
     const steps: ProvisionStep[] = [];
     const now1 = new Date().toISOString();
-    this.store.upsert({
+    await this.store.upsert({
       environmentId,
       tenantId: input.tenantId,
       workspaceId: input.workspaceId,
@@ -62,7 +62,7 @@ export class EnvironmentProvisioningService {
 
     try {
       const now2 = new Date().toISOString();
-      this.store.upsert({
+      await this.store.upsert({
         environmentId,
         tenantId: input.tenantId,
         workspaceId: input.workspaceId,
@@ -73,7 +73,7 @@ export class EnvironmentProvisioningService {
       steps.push({ state: 'warming', timestamp: now2, message: 'Environment warmup phase started' });
 
       const now3 = new Date().toISOString();
-      const environment = this.store.upsert({
+      const environment = await this.store.upsert({
         environmentId,
         tenantId: input.tenantId,
         workspaceId: input.workspaceId,
@@ -92,7 +92,7 @@ export class EnvironmentProvisioningService {
       };
     } catch (error: any) {
       const failAt = new Date().toISOString();
-      const failed = this.store.upsert({
+      const failed = await this.store.upsert({
         environmentId,
         tenantId: input.tenantId,
         workspaceId: input.workspaceId,

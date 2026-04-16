@@ -15,7 +15,7 @@ interface ProviderSettingsRouteDeps {
   syncExecutorSettingsToRuntimeConfig: (
     executor: Record<string, any>,
     auth: { userId: string; role: string; tenantId: string; workspaceId: string },
-  ) => void;
+  ) => Promise<void>;
   secretsStoreUpsert: (input: {
     tenantId: string;
     workspaceId: string;
@@ -23,7 +23,7 @@ interface ProviderSettingsRouteDeps {
     key: string;
     value: string;
     createdBy: string;
-  }) => void;
+  }) => Promise<void>;
   getRuntimeEnforcementByProject: () => Record<string, { pipeline?: string; skills?: string[] }>;
   setRuntimeEnforcementByProject: (next: Record<string, { pipeline?: string; skills?: string[] }>) => void;
   getRuntimeFooter: () => Record<string, any>;
@@ -262,7 +262,7 @@ export function registerProviderSettingsRoutes(app: express.Express, deps: Provi
     }
   });
 
-  app.post('/api/cockpit/providers/select', (req, res) => {
+  app.post('/api/cockpit/providers/select', async (req, res) => {
     const auth = deps.requireRole(req, res, 'admin');
     if (!auth) return;
     const current = deps.getRuntimeSelection();
@@ -277,7 +277,7 @@ export function registerProviderSettingsRoutes(app: express.Express, deps: Provi
     const nextConfig: WorkspaceConfiguration = { ...currentConfig, provider, model };
     deps.settingsStoreSet('executor', nextConfig);
     deps.persistSettingsStore();
-    deps.syncExecutorSettingsToRuntimeConfig({
+    await deps.syncExecutorSettingsToRuntimeConfig({
       backend: provider,
       [provider === 'claude-cli' ? 'claude' : provider === 'codex-cli' ? 'codex' : 'openhands']: { model },
     }, auth);
@@ -318,7 +318,7 @@ export function registerProviderSettingsRoutes(app: express.Express, deps: Provi
     });
   });
 
-  app.post('/api/workspace/settings/:section', (req, res) => {
+  app.post('/api/workspace/settings/:section', async (req, res) => {
     const auth = deps.requireRole(req, res, 'admin');
     if (!auth) return;
 
@@ -339,7 +339,7 @@ export function registerProviderSettingsRoutes(app: express.Express, deps: Provi
       for (const [provider, rawKey] of Object.entries(providedApiKeys)) {
         const value = String(rawKey || '').trim();
         if (!value) continue;
-        deps.secretsStoreUpsert({
+        await deps.secretsStoreUpsert({
           tenantId: auth.tenantId,
           workspaceId: auth.workspaceId,
           userId: auth.userId,
@@ -359,7 +359,7 @@ export function registerProviderSettingsRoutes(app: express.Express, deps: Provi
 
       deps.setRuntimeSelection({ provider: normalized.provider, model: normalized.model });
       deps.saveRuntimeState('runtime_selection', { provider: normalized.provider, model: normalized.model });
-      deps.syncExecutorSettingsToRuntimeConfig({
+      await deps.syncExecutorSettingsToRuntimeConfig({
         backend: normalized.provider,
         [normalized.provider === 'claude-cli' ? 'claude' : normalized.provider === 'codex-cli' ? 'codex' : 'openhands']: {
           model: normalized.model,
