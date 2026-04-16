@@ -55,6 +55,7 @@ import {
 } from './bootstrap/appSetup';
 import { registerTerminalApiMiddlewares, startControlApiServer } from './bootstrap/serverStartup';
 import { initializePersistenceLayer } from './bootstrap/persistenceSetup';
+import { createAuthSessionBoundary } from './auth/AuthSessionBoundary';
 
 dotenv.config();
 
@@ -968,74 +969,20 @@ const normalizeProjectKey = (value: string): string =>
 
 const AUTH_SESSION_TTL_HOURS = Math.max(1, Number(process.env.AUTH_SESSION_TTL_HOURS || 24));
 
-const hashPassword = (raw: string): string =>
-  crypto.createHash('sha256').update(`${AUTH_SECRET}:${String(raw || '')}`).digest('hex');
-
-const hashRefreshToken = (raw: string): string =>
-  crypto.createHash('sha256').update(`${AUTH_SECRET}:refresh:${String(raw || '')}`).digest('hex');
-
-const createSessionToken = (prefix: 'sess' | 'refresh'): string =>
-  `${prefix}_${crypto.randomUUID()}_${crypto.randomBytes(12).toString('hex')}`;
-
-const createAuthSession = async (input: {
-  userId: string;
-  tenantId: string;
-  workspaceId: string;
-  userAgent?: string;
-  ipAddress?: string;
-}) => {
-  const token = createSessionToken('sess');
-  const refreshToken = createSessionToken('refresh');
-  const refreshTokenHash = hashRefreshToken(refreshToken);
-  const expiresAt = new Date(Date.now() + AUTH_SESSION_TTL_HOURS * 60 * 60 * 1000).toISOString();
-  await authStore.createSession({
-    token,
-    userId: input.userId,
-    tenantId: input.tenantId,
-    workspaceId: input.workspaceId,
-    refreshTokenHash,
-    expiresAt,
-    userAgent: String(input.userAgent || '').slice(0, 512),
-    ipAddress: String(input.ipAddress || '').slice(0, 128),
-  });
-  return { token, refreshToken, expiresAt };
-};
-
-const getAuthContextPg = async (req: express.Request): Promise<{
-  userId: string;
-  email: string;
-  tenantId: string;
-  workspaceId: string;
-  role: string;
-  token: string;
-} | null> => {
-  const token = parseBearerToken(req.header('authorization'));
-  if (!token) return null;
-  const row = await authStore.findSessionByTokenWithUser(token);
-  if (!row || !row.is_active) return null;
-  if (row.revoked_at) {
-    await authStore.deleteSessionByToken(token);
-    return null;
-  }
-  if (new Date(row.expires_at).getTime() <= Date.now()) {
-    await authStore.deleteSessionByToken(token);
-    return null;
-  }
-  return {
-    userId: row.user_id,
-    email: row.email,
-    tenantId: row.tenant_id,
-    workspaceId: row.workspace_id,
-    role: row.role,
-    token: row.token,
-  };
-};
-
-const parseScimBearerToken = (req: express.Request): string => {
-  const header = String(req.header('authorization') || '').trim();
-  if (!header.toLowerCase().startsWith('bearer ')) return '';
-  return header.slice(7).trim();
-};
+const authBoundary = createAuthSessionBoundary({
+  authSecret: AUTH_SECRET,
+  authSessionTtlHours: AUTH_SESSION_TTL_HOURS,
+  authStore,
+});
+const {
+  hashPassword,
+  hashRefreshToken,
+  createSessionToken,
+  parseBearerToken,
+  parseScimBearerToken,
+  createAuthSession,
+  getAuthContextPg,
+} = authBoundary;
 
 const shouldUsePostgresSecrets = async (): Promise<boolean> => {
   if (infrastructureProfile.secretsBackend !== 'postgres') return false;
@@ -1045,12 +992,6 @@ const shouldUsePostgresSecrets = async (): Promise<boolean> => {
 const shouldUsePostgresObjects = async (): Promise<boolean> => {
   if (infrastructureProfile.objectStorageBackend !== 'postgres') return false;
   return postgresObjectStorage.ready();
-};
-
-const parseBearerToken = (headerValue?: string): string => {
-  const header = String(headerValue || '').trim();
-  if (!header.toLowerCase().startsWith('bearer ')) return '';
-  return header.slice(7).trim();
 };
 
 type AuthRole = 'owner' | 'admin' | 'member' | 'viewer';
