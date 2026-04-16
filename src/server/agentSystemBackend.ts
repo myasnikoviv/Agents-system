@@ -3310,14 +3310,14 @@ registerSecretsRoutes(app, {
 });
 
 app.post('/api/auth/register', (req, res) => {
-  const email = String(req.body?.email || '').trim().toLowerCase();
+  const email = String(req.body?.email || req.body?.username || '').trim().toLowerCase();
   const password = String(req.body?.password || '');
   const tenantId = String(req.body?.tenantId || '').trim();
   const workspaceId = String(req.body?.workspaceId || '').trim();
   const requestedRole = String(req.body?.role || '').trim().toLowerCase();
 
   if (!email || !password) {
-    res.status(400).json({ success: false, error: 'email_and_password_required' });
+    res.status(400).json({ success: false, error: 'identity_and_password_required' });
     return;
   }
   if (!tenantId || !workspaceId) {
@@ -3398,10 +3398,12 @@ app.post('/api/auth/abac/evaluate', (req, res) => {
 });
 
 app.post('/api/auth/login', (req, res) => {
-  const email = String(req.body?.email || '').trim().toLowerCase();
+  console.log('[Backend] Login request body keys:', Object.keys(req.body || {}));
+  const email = String(req.body?.email || req.body?.username || '').trim().toLowerCase();
   const password = String(req.body?.password || '');
+
   if (!email || !password) {
-    res.status(400).json({ success: false, error: 'email_and_password_required' });
+    res.status(400).json({ success: false, error: 'identity_and_password_required' });
     return;
   }
 
@@ -3436,6 +3438,7 @@ app.post('/api/auth/login', (req, res) => {
     user: {
       id: user.id,
       email: user.email,
+      username: (user.email || '').split('@')[0],
       role: user.role,
       tenantId: user.tenant_id,
       workspaceId: user.workspace_id,
@@ -3865,6 +3868,7 @@ app.get('/api/auth/me', (req, res) => {
     user: {
       id: auth.userId,
       email: auth.email,
+      username: (auth.email || '').split('@')[0],
       role: auth.role,
       tenantId: auth.tenantId,
       workspaceId: auth.workspaceId,
@@ -4766,7 +4770,7 @@ app.post('/api/chat/cancel', async (req, res) => {
   }
 });
 
-app.get('/api/events/stream', (req, res) => {
+app.get('/api/events/system-stream', (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');

@@ -1,5 +1,5 @@
 import { type FC } from 'react';
-import { PanelLeftClose, PanelLeftOpen, PencilLine, FolderPlus, Folder, Trash2 } from 'lucide-react';
+import { PanelLeftClose, PanelLeftOpen, PencilLine, FolderPlus, Folder, Trash2, Plus } from 'lucide-react';
 import { Button } from '../../ui/button';
 import { ScrollArea } from '../../ui/scroll-area';
 import { Separator } from '../../ui/separator';

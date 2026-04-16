@@ -6,6 +6,8 @@ export interface User {
     username: string;
     email: string;
     role: 'owner' | 'admin' | 'member' | 'viewer';
+    tenantId: string;
+    workspaceId: string;
 }
 
 interface AuthContextType {
@@ -59,27 +61,37 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         checkAuth();
     }, [checkAuth]);
 
-    const login = async (credentials: { username?: string; email?: string; password?: string }) => {
+    const login = useCallback(async (credentials: { username?: string; email?: string; password?: string }) => {
         setIsLoading(true);
         try {
+            console.log('[AuthContext] Attempting login for:', credentials.email || credentials.username);
             const data = await fetchJsonStrict<{ user: User; token: string }>('/api/auth/login', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(credentials)
             });
             
+            if (!data.user || !data.token) {
+                console.error('[AuthContext] Invalid login response - missing user or token:', data);
+                throw new Error('Server returned an invalid session packet.');
+            }
+
+            console.log('[AuthContext] Valid login packet received for:', data.user.email);
             localStorage.setItem('agsys_token', data.token);
             setUser(data.user);
             setToken(data.token);
+            console.log('[AuthContext] State synchronized with backend session');
         } catch (err) {
-            console.error('Login failed:', err);
+            console.error('[AuthContext] Login API call failed:', err);
             throw err;
         } finally {
             setIsLoading(false);
+            console.log('[AuthContext] Login process finished, isLoading=false');
         }
-    };
+    }, []);
 
-    const logout = async () => {
+    const logout = useCallback(async () => {
+        console.log('[AuthContext] Logging out...');
         try {
             await fetchJsonSafe('/api/auth/logout', { 
                 method: 'POST',
@@ -89,8 +101,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             localStorage.removeItem('agsys_token');
             setUser(null);
             setToken(null);
+            console.log('[AuthContext] Logout complete, state cleared');
         }
-    };
+    }, [token]);
+
+    const isAuthenticated = !!user;
 
     return (
         <AuthContext.Provider value={{ 
@@ -99,7 +114,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             isLoading, 
             login, 
             logout, 
-            isAuthenticated: !!user 
+            isAuthenticated 
         }}>
             {children}
         </AuthContext.Provider>

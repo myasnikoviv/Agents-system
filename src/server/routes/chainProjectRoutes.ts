@@ -69,6 +69,29 @@ export function registerChainProjectRoutes(app: express.Express, deps: ChainProj
     res.json(buildChainsPayload());
   });
 
+  app.get('/api/rail/catalog', (req, res) => {
+    const projects = Array.from(deps.projectStore.values());
+    // AGSYS-3509: Registry must include both built-in and discovered agents
+    const { AgentRegistry } = require('../../runtime/DynamicDiscoveryService');
+    res.json({
+      success: true,
+      projects,
+      registry: AgentRegistry.getAllAgents(),
+    });
+  });
+
+  app.get('/api/rail/threads', (req, res) => {
+    const projectId = String(req.query.projectId || '').trim();
+    if (!projectId) {
+      res.status(400).json({ success: false, error: 'projectId_required' });
+      return;
+    }
+    res.json({
+      success: true,
+      threads: deps.threadStore.get(projectId) || [],
+    });
+  });
+
   app.post('/api/cockpit/chains', (req, res) => {
     if (!deps.requireRole(req, res, 'member')) return;
     const projectId = String(req.body?.projectId || '').trim();
@@ -264,6 +287,30 @@ export function registerChainProjectRoutes(app: express.Express, deps: ChainProj
   });
 
   app.delete('/api/cockpit/projects/:projectId', (req, res) => {
+    if (!deps.requireRole(req, res, 'admin')) return;
+    const projectId = String(req.params.projectId || '').trim();
+    if (!projectId) {
+      res.status(400).json({ success: false, error: 'project_id_required' });
+      return;
+    }
+    if (!deps.projectStore.has(projectId)) {
+      res.status(404).json({ success: false, error: 'project_not_found' });
+      return;
+    }
+    const threads = deps.threadStore.get(projectId) || [];
+    for (const thread of threads) {
+      deps.threadMessageStore.delete(thread.id);
+    }
+    deps.threadStore.delete(projectId);
+    deps.projectStore.delete(projectId);
+    deps.planeBindingStore.delete(projectId);
+
+    deps.persistRuntimeStore();
+    res.json({ ...buildChainsPayload(), removedProjectId: projectId, removed: true });
+  });
+
+  // Alias for /api/rail compatibility
+  app.delete('/api/rail/projects/:projectId', (req, res) => {
     if (!deps.requireRole(req, res, 'admin')) return;
     const projectId = String(req.params.projectId || '').trim();
     if (!projectId) {

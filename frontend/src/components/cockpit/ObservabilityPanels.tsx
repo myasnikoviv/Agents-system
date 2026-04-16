@@ -77,8 +77,8 @@ export const ObservabilityPanels: FC<ObservabilityPanelsProps> = ({ events, sele
   const governanceRows = useMemo(() => {
     return events
       .filter((e) => eventTypeOf(e) === 'governance.rule_check')
-      .map((e) => ({
-        id: e.id || e.event_id || `${tsOf(e)}:${Math.random()}`,
+      .map((e, idx) => ({
+        id: e.id ? `${e.id}_gov_${idx}` : `gov_${tsOf(e)}_${idx}_${Math.random().toString(36).slice(2)}`,
         rule: String(e.payload?.rule || 'unknown').trim(),
         status: String(e.payload?.status || 'unknown').trim().toUpperCase(),
         action: String(e.payload?.action || 'none').trim(),
@@ -172,8 +172,8 @@ export const ObservabilityPanels: FC<ObservabilityPanelsProps> = ({ events, sele
         const t = eventTypeOf(e);
         return t === 'guard.block' || t === 'guard.retry' || t === 'guard.escalate' || t === 'guard.triggered';
       })
-      .map((e) => ({
-        id: String(e.id || e.event_id || `${tsOf(e)}-${Math.random()}`),
+      .map((e, idx) => ({
+        id: e.id ? `${e.id}_enf_${idx}` : `enf_${tsOf(e)}_${idx}_${Math.random().toString(36).slice(2)}`,
         at: tsOf(e),
         type: eventTypeOf(e),
         rule: String(e.payload?.rule || e.payload?.ruleId || 'n/a').trim(),
@@ -267,7 +267,8 @@ export const ObservabilityPanels: FC<ObservabilityPanelsProps> = ({ events, sele
 
   const toolRows = useMemo(() => {
     const calls = events.filter((e) => eventTypeOf(e) === 'tool.call' || eventTypeOf(e) === 'tool.called');
-    return calls.map((e) => ({
+    return calls.map((e, idx) => ({
+      id: e.id ? `${e.id}_tool_${idx}` : `tool_${tsOf(e)}_${idx}_${Math.random().toString(36).slice(2)}`,
       at: tsOf(e),
       agent: String(e.actor?.id || e.actor?.role || 'unknown').trim(),
       tool: String(e.payload?.tool || 'unknown').trim(),
@@ -703,8 +704,8 @@ export const ObservabilityPanels: FC<ObservabilityPanelsProps> = ({ events, sele
               <div className="py-4 text-center text-xs text-muted-foreground italic">No tool events logged.</div>
             ) : (
               <div className="flex flex-col gap-1.5 font-mono text-[10px]">
-                {toolRows.slice(-20).map((row, i) => (
-                  <div key={`${row.at}:${row.agent}:${row.tool}:${i}`} className="flex items-start gap-2 rounded bg-secondary/10 p-2 hover:bg-secondary/20 transition-colors">
+                {toolRows.slice(-20).map((row) => (
+                  <div key={row.id} className="flex items-start gap-2 rounded bg-secondary/10 p-2 hover:bg-secondary/20 transition-colors">
                     <span className="text-muted-foreground/50 shrink-0">{new Date(row.at).toLocaleTimeString()}</span>
                     <div className="flex-1">
                       <div className="flex items-center justify-between gap-2">
