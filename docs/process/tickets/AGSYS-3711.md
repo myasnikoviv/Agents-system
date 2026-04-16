@@ -1,7 +1,7 @@
 # Ticket: AGSYS-3711
 ## Create shared package
 
-**Status**: TODO
+**Status**: DONE
 **Priority**: HIGH
 **Owner**: Сокіл-Координатор (PM Orchestrator)
 **Assignee**: Майстер Креслень (Solution Architect)

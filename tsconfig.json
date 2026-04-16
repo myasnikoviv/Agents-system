@@ -10,8 +10,31 @@
     "downlevelIteration": true,
     "resolveJsonModule": true,
     "skipLibCheck": true,
-    "strict": false
+    "strict": false,
+    "baseUrl": ".",
+    "paths": {
+      "@system/*": ["packages/*/src/index.ts"]
+    }
   },
-  "include": ["src/**/*.ts", "scripts/**/*.ts"],
-  "exclude": ["frontend/**", "node_modules/**", "dist/**"]
+  "include": [
+    "packages/*/src/**/*.ts",
+    "apps/*/src/**/*.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "**/__tests__/**",
+    "scripts",
+    "dist",
+    "packages/*/dist",
+    "apps/client-app"
+  ],
+  "references": [
+    { "path": "./packages/shared" },
+    { "path": "./packages/events" },
+    { "path": "./packages/memory" },
+    { "path": "./packages/runtime" },
+    { "path": "./packages/governance" },
+    { "path": "./packages/billing" },
+    { "path": "./apps/control-plane" }
+  ]
 }

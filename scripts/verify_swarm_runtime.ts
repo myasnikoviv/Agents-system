@@ -1,9 +1,9 @@
-import { RunContextAssembler } from '../src/runtime/context/RunContext';
-import { AgentExecutor } from '../src/runtime/AgentExecutor';
-import { AgentRegistry } from '../src/runtime/registries/AgentRegistry';
-import { PipelineRegistry } from '../src/runtime/registries/PipelineRegistry';
-import { BlackboardService } from '../src/runtime/BlackboardService';
-import { DynamicDiscoveryService } from '../src/runtime/DynamicDiscoveryService';
+import { RunContextAssembler } from '@system/runtime';
+import { AgentExecutor } from '@system/runtime';
+import { AgentRegistry } from '@system/runtime';
+import { PipelineRegistry } from '@system/runtime';
+import { BlackboardService } from '@system/runtime';
+import { DynamicDiscoveryService } from '@system/runtime';
 
 async function verify() {
   console.log('--- STARTING RUNTIME VERIFICATION ---');

@@ -1,7 +1,7 @@
 # Ticket: AGSYS-3702
 ## Introduce monorepo workspace structure
 
-**Status**: TODO
+**Status**: DONE
 **Priority**: HIGH
 **Owner**: Сокіл-Координатор (PM Orchestrator)
 **Assignee**: Техно-Рятівник (DevOps Engineer)
