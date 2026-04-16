@@ -28,6 +28,7 @@ services:
       context: ../../
       dockerfile: apps/control-api/Dockerfile
     environment:
+      RUNTIME_PROFILE: ${RUNTIME_PROFILE:-local-self-hosted}
       AUTH_MODE: ${AUTH_MODE:-optional}
       COCKPIT_SECRETS_BACKEND: ${COCKPIT_SECRETS_BACKEND:-postgres}
       COCKPIT_OBJECT_STORAGE_BACKEND: ${COCKPIT_OBJECT_STORAGE_BACKEND:-postgres}
@@ -49,6 +50,7 @@ services:
       context: ../../
       dockerfile: apps/runtime-engine/Dockerfile
     environment:
+      RUNTIME_PROFILE: ${RUNTIME_PROFILE:-local-self-hosted}
       AUTH_MODE: ${AUTH_MODE:-optional}
       COCKPIT_SECRETS_BACKEND: ${COCKPIT_SECRETS_BACKEND:-postgres}
       COCKPIT_OBJECT_STORAGE_BACKEND: ${COCKPIT_OBJECT_STORAGE_BACKEND:-postgres}

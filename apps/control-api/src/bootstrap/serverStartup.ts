@@ -21,7 +21,11 @@ export const startControlApiServer = async (input: {
   port: number;
   hydrateControlApiFromPostgres: () => Promise<void>;
   initializeAssetRegistry: () => Promise<void>;
+  validateStartupDependencies?: () => Promise<void>;
 }) => {
+  if (input.validateStartupDependencies) {
+    await input.validateStartupDependencies();
+  }
   await input.hydrateControlApiFromPostgres();
   try {
     await input.initializeAssetRegistry();

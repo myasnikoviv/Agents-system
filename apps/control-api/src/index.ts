@@ -3,6 +3,7 @@ import dotenv from 'dotenv';
 import express from 'express';
 import fs from 'fs';
 import path from 'path';
+import net from 'net';
 import { execSync } from 'child_process';
 import crypto from 'crypto';
 import { v4 as uuidv4 } from 'uuid';
@@ -992,6 +993,57 @@ const shouldUsePostgresSecrets = async (): Promise<boolean> => {
 const shouldUsePostgresObjects = async (): Promise<boolean> => {
   if (infrastructureProfile.objectStorageBackend !== 'postgres') return false;
   return postgresObjectStorage.ready();
+};
+
+const isCloudReadyRuntimeProfile = (): boolean => {
+  const profile = String(process.env.RUNTIME_PROFILE || '').trim().toLowerCase();
+  return profile === 'cloud-ready';
+};
+
+const assertRedisAvailable = async (redisUrlRaw: string): Promise<void> => {
+  const redisUrl = String(redisUrlRaw || '').trim();
+  if (!redisUrl) throw new Error('redis_unavailable: REDIS_URL is empty');
+  const parsed = new URL(redisUrl);
+  const host = parsed.hostname;
+  const port = Number(parsed.port || 6379);
+  if (!host || !Number.isFinite(port) || port <= 0) {
+    throw new Error(`redis_unavailable: invalid REDIS_URL '${redisUrl}'`);
+  }
+  await new Promise<void>((resolve, reject) => {
+    const socket = net.createConnection({ host, port });
+    const timer = setTimeout(() => {
+      socket.destroy();
+      reject(new Error(`redis_unavailable: timeout connecting to ${host}:${port}`));
+    }, 3000);
+    socket.once('connect', () => {
+      clearTimeout(timer);
+      socket.end();
+      resolve();
+    });
+    socket.once('error', (error) => {
+      clearTimeout(timer);
+      reject(new Error(`redis_unavailable: ${(error as any)?.message || 'connection_failed'}`));
+    });
+  });
+};
+
+const validateStartupDependencies = async (): Promise<void> => {
+  if (!isCloudReadyRuntimeProfile()) return;
+  const pgHealth = await postgresStore.health();
+  if (!pgHealth.ok) {
+    throw new Error(
+      `cloud_ready_dependency_check_failed: postgres_unavailable (${pgHealth.error || 'healthcheck_failed'}). ` +
+      `Set DATABASE_URL/POSTGRES_URL to reachable Postgres before startup.`,
+    );
+  }
+  try {
+    await assertRedisAvailable(String(process.env.REDIS_URL || ''));
+  } catch (error: any) {
+    throw new Error(
+      `cloud_ready_dependency_check_failed: ${String(error?.message || 'redis_unavailable')}. ` +
+      `Set REDIS_URL to reachable Redis before startup.`,
+    );
+  }
 };
 
 type AuthRole = 'owner' | 'admin' | 'member' | 'viewer';
@@ -4349,6 +4401,7 @@ void startControlApiServer({
   app,
   host: HOST,
   port: PORT,
+  validateStartupDependencies,
   hydrateControlApiFromPostgres,
   initializeAssetRegistry: () => assetRegistryV2.initialize(),
 });
