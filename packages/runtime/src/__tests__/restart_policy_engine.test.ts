@@ -1,4 +1,4 @@
-import { RestartPolicyEngine } from '../control-plane/RestartPolicyEngine';
+import { RestartPolicyEngine } from '../control-api/RestartPolicyEngine';
 
 describe('RestartPolicyEngine (AGSYS-2711)', () => {
   it('allows restart on failure', () => {

@@ -12,7 +12,7 @@
 
 ⸻
 
-🎫 AGSYS-3701 — Define target repository topology
+🎫 [x] AGSYS-3701 — Define target repository topology
 
 Description
 Зафіксувати цільову структуру repo.
@@ -37,7 +37,7 @@ Acceptance Criteria
 
 ⸻
 
-🎫 AGSYS-3702 — Introduce monorepo workspace structure
+🎫 [x] AGSYS-3702 — Introduce monorepo workspace structure
 
 Description
 Ініціалізувати workspace-based структуру repo.
@@ -50,7 +50,7 @@ Acceptance Criteria
 
 ⸻
 
-🎫 AGSYS-3703 — Move frontend into app boundary
+🎫 [x] AGSYS-3703 — Move frontend into app boundary
 
 Description
 Перенести поточний frontend у apps/client-app.
@@ -72,7 +72,7 @@ Acceptance Criteria
 
 ⸻
 
-🎫 AGSYS-3704 — Decompose agentSystemBackend entrypoint
+🎫 [x] AGSYS-3704 — Decompose agentSystemBackend entrypoint
 
 Description
 Розбити agentSystemBackend.ts на менші доменні entry modules.
@@ -91,7 +91,7 @@ Acceptance Criteria
 
 ⸻
 
-🎫 AGSYS-3705 — Extract route modules by domain
+🎫 [x] AGSYS-3705 — Extract route modules by domain
 
 Description
 Рознести маршрути по доменах.
@@ -105,7 +105,7 @@ Acceptance Criteria
 
 ⸻
 
-🎫 AGSYS-3706 — Extract service adapters from API handlers
+🎫 [x] AGSYS-3706 — Extract service adapters from API handlers
 
 Description
 Прибрати пряме змішування handler → runtime internals.
@@ -127,7 +127,7 @@ Acceptance Criteria
 
 ⸻
 
-🎫 AGSYS-3707 — Extract runtime package
+🎫 [x] AGSYS-3707 — Extract runtime package
 
 Description
 Винести execution/runtime logic у packages/runtime.
@@ -139,7 +139,7 @@ Acceptance Criteria
 
 ⸻
 
-🎫 AGSYS-3708 — Extract governance package
+🎫 [x] AGSYS-3708 — Extract governance package
 
 Description
 Винести governance/loops/rules logic у packages/governance.
@@ -151,7 +151,7 @@ Acceptance Criteria
 
 ⸻
 
-🎫 AGSYS-3709 — Extract billing package
+🎫 [x] AGSYS-3709 — Extract billing package
 
 Description
 Винести usage/quota/cost domain у packages/billing.
@@ -163,7 +163,7 @@ Acceptance Criteria
 
 ⸻
 
-🎫 AGSYS-3710 — Extract memory package
+🎫 [x] AGSYS-3710 — Extract memory package
 
 Description
 Винести memory/storage abstraction у packages/memory.
@@ -175,7 +175,7 @@ Acceptance Criteria
 
 ⸻
 
-🎫 AGSYS-3711 — Create shared package
+🎫 [x] AGSYS-3711 — Create shared package
 
 Description
 Створити packages/shared для загальних контрактів.
@@ -198,7 +198,7 @@ Acceptance Criteria
 
 ⸻
 
-🎫 AGSYS-3712 — Define package import rules
+🎫 [x] AGSYS-3712 — Define package import rules
 
 Description
 Визначити дозволені імпортні напрямки між пакетами.
@@ -210,7 +210,7 @@ Acceptance Criteria
 
 ⸻
 
-🎫 AGSYS-3713 — Replace deep relative imports with package contracts
+🎫 [x] AGSYS-3713 — Replace deep relative imports with package contracts
 
 Description
 Замінити нестабільні deep imports на package-level imports.
@@ -222,7 +222,7 @@ Acceptance Criteria
 
 ⸻
 
-🎫 AGSYS-3714 — Detect and remove circular dependencies
+🎫 [x] AGSYS-3714 — Detect and remove circular dependencies
 
 Description
 Знайти та прибрати циклічні залежності між доменами.
@@ -262,7 +262,7 @@ Description
 Підготувати окремі Docker build flows для:
 	•	client-app
 	•	control-plane
-	•	runtime-plane
+	•	runtime-engine
 
 Acceptance Criteria
 	•	Dockerfile для кожного deploy unit

@@ -1,4 +1,4 @@
-import { validateServiceRegistryDefinition } from '../control-plane/ServiceRegistryContract';
+import { validateServiceRegistryDefinition } from '../control-api/ServiceRegistryContract';
 
 describe('ServiceRegistry schema v1 (AGSYS-2701)', () => {
   it('accepts valid registry definition', () => {

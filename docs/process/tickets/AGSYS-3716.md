@@ -12,7 +12,7 @@
 ### Deployment Units
 - client-app (Static/Nginx or Node)
 - control-plane (Full Backend Admin)
-- runtime-plane (Lighter-weight Execution node)
+- runtime-engine (Lighter-weight Execution node)
 
 ### Acceptance Criteria
 - [ ] Dockerfile для кожного deploy unit в apps/

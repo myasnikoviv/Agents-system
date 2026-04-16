@@ -245,7 +245,7 @@ Pre-37 ставив питання, які частини мають незал�
 Очікування
 	•	client app = окремий deploy unit
 	•	control-plane = окремий deploy unit
-	•	runtime-plane = окремий deploy unit
+	•	runtime-engine = окремий deploy unit
 
 ⸻
 
@@ -254,7 +254,7 @@ Pre-37 ставив питання, які частини мають незал�
 Перевірити
 	•	client можна запускати окремо
 	•	control-plane можна запускати окремо
-	•	runtime-plane можна запускати окремо
+	•	runtime-engine можна запускати окремо
 
 ⸻
 
@@ -359,12 +359,12 @@ FAIL
 
 11. Runtime / Control Plane Separation Verification
 
-По дереву вже є Dockerfile.control-plane, Dockerfile.runtime-plane та service-registry config, тобто напрям уже був закладений.  ￼
+По дереву вже є Dockerfile.control-plane, Dockerfile.runtime-engine та service-registry config, тобто напрям уже був закладений.  ￼
 
 11.1 Logical boundary
 
 Перевірити
-	•	runtime-plane не залежить на control-plane internals напряму
+	•	runtime-engine не залежить на control-plane internals напряму
 	•	control-plane не містить runtime execution logic у собі
 
 ⸻
@@ -372,7 +372,7 @@ FAIL
 11.2 Physical boundary
 
 Перевірити
-	•	runtime-plane та control-plane мають окремі startup contracts
+	•	runtime-engine та control-plane мають окремі startup contracts
 	•	окремі Docker build flows
 	•	окремі runtime assumptions
 

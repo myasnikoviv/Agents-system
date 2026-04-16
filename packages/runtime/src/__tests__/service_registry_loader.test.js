@@ -6,7 +6,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 const fs_1 = __importDefault(require("fs"));
 const os_1 = __importDefault(require("os"));
 const path_1 = __importDefault(require("path"));
-const ServiceRegistryLoader_1 = require("../control-plane/ServiceRegistryLoader");
+const ServiceRegistryLoader_1 = require("../control-api/ServiceRegistryLoader");
 describe('ServiceRegistryLoader (AGSYS-2702)', () => {
     const tmpDir = fs_1.default.mkdtempSync(path_1.default.join(os_1.default.tmpdir(), 'service-registry-loader-'));
     afterAll(() => {

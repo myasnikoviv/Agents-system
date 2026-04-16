@@ -4,7 +4,7 @@ import path from 'path';
 import {
   loadServiceRegistry,
   watchServiceRegistry,
-} from '../control-plane/ServiceRegistryLoader';
+} from '../control-api/ServiceRegistryLoader';
 
 describe('ServiceRegistryLoader (AGSYS-2702)', () => {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'service-registry-loader-'));

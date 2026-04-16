@@ -1,4 +1,4 @@
-import { HealthCheckSystem } from '../control-plane/HealthCheckSystem';
+import { HealthCheckSystem } from '../control-api/HealthCheckSystem';
 
 describe('HealthCheckSystem (AGSYS-2710)', () => {
   it('supports HTTP health endpoint checks', async () => {

@@ -5,9 +5,9 @@
 
 | Assumption | Evidence | Status |
 |---|---|---|
-| The system currently operates as a "Modular Monolith" or "Pseudo-Microservices". | Separate Dockerfiles (`Dockerfile.control-plane`, `Dockerfile.runtime-plane`) exist but share the same build context (`.`). | PENDING_CONFIRMATION |
+| The system currently operates as a "Modular Monolith" or "Pseudo-Microservices". | Separate Dockerfiles (`Dockerfile.control-plane`, `Dockerfile.runtime-engine`) exist but share the same build context (`.`). | PENDING_CONFIRMATION |
 | Shared code is mixed between domains without strict package boundaries. | All code lives in `src/` or root, no `packages/` or `services/` top-level folders. | PENDING_CONFIRMATION |
-| Data ownership is loosely defined. | Multiple services (control-plane, runtime-plane) share environment variables pointing to the same SQLite backends. | PENDING_CONFIRMATION |
+| Data ownership is loosely defined. | Multiple services (control-plane, runtime-engine) share environment variables pointing to the same SQLite backends. | PENDING_CONFIRMATION |
 | The deployment unit is "All-or-nothing" or "Monorepo-all". | `package.json` is at the root, managing all dependencies for all components. | PENDING_CONFIRMATION |
 
 ### Open Questions

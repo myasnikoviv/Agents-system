@@ -1,6 +1,6 @@
-import { LocalProcessAdapter } from '../control-plane/LocalProcessAdapter';
-import { DockerAdapter } from '../control-plane/DockerAdapter';
-import { ServiceExecutionAdapterRegistry } from '../control-plane/adapters/ServiceExecutionAdapter';
+import { LocalProcessAdapter } from '../control-api/LocalProcessAdapter';
+import { DockerAdapter } from '../control-api/DockerAdapter';
+import { ServiceExecutionAdapterRegistry } from '../control-api/adapters/ServiceExecutionAdapter';
 
 describe('Adapter abstraction layer (AGSYS-2709)', () => {
   it('registers adapters and resolves them by id', () => {

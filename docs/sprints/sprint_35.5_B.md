@@ -1,365 +1,310 @@
-🧠 Sprint 35.5B — Interface Separation (Client vs Control Plane)
+🟪 Sprint 35.5B — Client/Admin Interface Separation & Deployment Activation
 
-🎯 Мета спринта
+1. Контекст
 
-Розділити систему на два незалежні UI-контури:
-	1.	Client Interface (Cockpit)
-	2.	Control Plane (Admin / System layer)
+Після Sprint 37 система вже має нову фізичну основу:
+	•	apps/client-app
+	•	окремий platform/control app
+	•	окремий runtime app
+	•	shared packages
+	•	розділені deploy units на рівні архітектури.
 
-👉 з окремими:
-	•	entry points
-	•	routing
-	•	доступами
-	•	UI-контекстами
+Тобто основна задача вже не в тому, щоб “створити окремі apps”, а в тому, щоб:
+	•	правильно активувати client/admin split
+	•	винести system-level UI з cockpit
+	•	завершити routing/access separation
+	•	підготувати окремі entry points для користувацького і platform UI
 
 ⸻
 
-🔥 Головний результат
+2. Мета спринта
+
+👉 Розділити користувацький продуктовий інтерфейс і platform/admin інтерфейс на рівні:
+	•	routing
+	•	navigation
+	•	access
+	•	page ownership
+	•	deployment entry points
+
+без повторного backend decomposition.
+
+⸻
+
+3. Головний результат
+
+Після спринта система має мати два окремі UI-контури:
+
+Client Interface
+
+Для кінцевої роботи користувача:
+	•	проєкти
+	•	chain/chat navigation
+	•	command interface
+	•	execution
+	•	outputs
+
+Admin / Platform Interface
+
+Для platform/system-level управління:
+	•	governance
+	•	policies
+	•	overrides
+	•	audit trail
+	•	observability / monitoring
+	•	owner/admin tools
+
+⸻
+
+4. Що змінюється від старої версії 35.5B
+
+Було
+	•	створити client-app
+	•	створити admin-app
+	•	рознести фронтенд
+
+Стало
+	•	client-app уже існує — його не створюємо заново.
+	•	замість “створити app split”:
+	•	закріплюємо UI ownership
+	•	виносимо admin/system screens із cockpit
+	•	активуємо окремий admin/platform entry point
+	•	формуємо правильні URL / dev entry / deploy contracts
+
+⸻
+
+5. Scope
+
+5.1 Входить
+
+Client surface
+
+Залишаємо в cockpit/client:
+	•	CockpitPage
+	•	sidebar with projects/chains
+	•	command interface
+	•	execution stream/logs
+	•	artifact/output rendering
+	•	user-facing settings only
+
+Admin / Platform surface
+
+Виносимо в окремий admin/platform UI:
+	•	GovernanceCenterPage
+	•	GovernanceRuleCatalog
+	•	GovernanceRuleEditor
+	•	ProjectPolicyManager
+	•	ManualOverrideManager
+	•	EvidenceOverrideManager
+	•	GovernanceAuditTrail
+	•	ObservabilityPanels
+
+Ці компоненти вже сьогодні сидять у client-app і змішують system-level UX із cockpit UX.  ￼
+
+⸻
+
+5.2 Не входить
+	•	новий backend split
+	•	нові microservices
+	•	новий repo refactor
+	•	product layer (teams / roles / missions)
+	•	billing/tenant expansion
+	•	нова дизайн-система з нуля
+
+⸻
+
+6. Основна ідея спринта
+
+Після 37-го спринта структура вже дозволяє зробити це правильно.
+
+Тому 35.5B тепер — це не архітектурний re-foundation, а:
+
+UI/domain activation sprint
+
+Ми беремо вже розділену platform topology і доводимо до продуктового стану:
+	•	client = робочий cockpit
+	•	admin/platform = system console
+
+⸻
+
+7. Нове архітектурне рішення
+
+7.1 Client App
+
+apps/client-app стає чистим cockpit surface:
+
+Включає
+	•	login
+	•	project navigation
+	•	command execution
+	•	outputs
+	•	chat/chains
+	•	minimal user settings
+
+Не включає
+	•	governance editing
+	•	policy authoring
+	•	audit
+	•	observability
+	•	owner/system monitoring
+
+⸻
+
+7.2 Admin / Platform App
+
+Поточний platform/control application стає admin console.
+
+Тут важливий коментар:
+назва control-plane після 37.5, ймовірно, має бути замінена на щось на кшталт:
+	•	platform-api
+	•	platform-console
+	•	admin-console
+
+щоб не конфліктувати з Plane ticket system. Це вже підсвічено як remediation item після 37.5.  ￼
+
+⸻
+
+7.3 Shared UI
+
+UI kit із 35.5A лишається shared:
+	•	primitives
+	•	shells
+	•	cards
+	•	forms
+	•	status blocks
+
+Тобто 35.5B не дублює UI, а розводить ownership screens.
+
+⸻
+
+8. Routing Model
+
+Client routing
+
+Очікувані маршрути:
+	•	/
+	•	/login
+	•	/cockpit
+	•	/cockpit/settings — тільки user-facing settings
+
+Admin routing
+
+Очікувані маршрути:
+	•	/admin
+	•	/admin/governance
+	•	/admin/policies
+	•	/admin/overrides
+	•	/admin/audit
+	•	/admin/monitoring
+
+Критично
+
+Потрібно прибрати змішаний шлях типу:
+	•	/cockpit/governance
+
+Бо це і є джерело змішання UX-моделей. Старий 35.5B це правильно ловив, просто тепер це вже не про app creation, а про cleanup and activation.  ￼
+
+⸻
+
+9. Access Model
+
+User
+	•	має доступ тільки до client surface
+
+Admin
+	•	має доступ до client + admin
+
+Owner
+	•	має повний доступ
+
+Важливо
+
+Role-based UI hidden state більше не достатньо.
+Тепер потрібне:
+	•	route-level separation
+	•	app-level separation
+	•	clear navigation boundaries
+
+⸻
+
+10. UX Goal
 
 Після спринта:
 
-app.domain.com          → Client Interface (Cockpit)
-admin.domain.com        → Control Plane (Admin)
+Cockpit
 
-Або локально:
+має стати простішим і чистішим:
+	•	жодного governance overload
+	•	жодного monitoring overload
+	•	жодної системної адмінки всередині продуктового робочого простору
 
-localhost:3000          → Client
-localhost:3001          → Admin
+Admin Console
 
-
-⸻
-
-❗ Проблема зараз
-
-Зараз у тебе:
-	•	cockpit + governance + monitoring = в одному UI
-	•	доступ через roles (admin/owner)
-	•	але UX:
-	•	перевантажений
-	•	не масштабований
-	•	не SaaS-ready
-
-⸻
-
-🧩 Що саме ми будуємо
-
-2 незалежні системи
-
-⸻
-
-🔵 1. Client Interface (Cockpit)
-
-Призначення:
-
-Робота з задачами, агентами, проєктами
-
-Включає:
-	•	CockpitPage
-	•	Sidebar (projects/chats)
-	•	Command Interface
-	•	Execution / logs / output
-
-НЕ включає:
-	•	governance editing
-	•	audit
-	•	system config
-	•	monitoring
-
-⸻
-
-🔴 2. Control Plane (Admin)
-
-Призначення:
-
-Управління системою, політиками, моніторинг
-
-Включає:
-	•	Governance Center
-	•	Rule Catalog
-	•	Policy Manager
-	•	Overrides
-	•	Audit Trail
-	•	Observability
-
-⸻
-
-🧱 Архітектурне рішення
-
-⸻
-
-1. Розділення фронтенду
-
-Варіант (рекомендований):
-
-apps/
-  client-app/
-  admin-app/
-
-
-⸻
-
-2. Спільна бібліотека
-
-packages/
-  ui-kit/
-  shared/
-
-👉 UI kit з 35.5A → сюди
-
-⸻
-
-3. Routing separation
-
-Client:
-
-/
- /login
- /cockpit
-
-Admin:
-
-/admin
-/admin/governance
-/admin/monitoring
-
-
-⸻
-
-4. Auth / Roles
-
-Ролі:
-	•	user → тільки client
-	•	admin → client + admin
-	•	owner → full access
-
-⸻
-
-📦 EPIC breakdown
-
-⸻
-
-🔹 EPIC 1 — App Split
-
-⸻
-
-TASK 1.1 — Створити client-app
-	•	винести cockpit
-	•	окремий entry point
-
-⸻
-
-TASK 1.2 — Створити admin-app
-	•	винести:
-	•	Governance
-	•	Observability
-	•	Policy
-
-⸻
-
-TASK 1.3 — Shared packages
-	•	ui-kit → shared
-	•	types → shared
-	•	utils → shared
-
-⸻
-
-⸻
-
-🔹 EPIC 2 — Routing Separation
-
-⸻
-
-TASK 2.1 — Client routing
-
-/login
-/cockpit
-
-
-⸻
-
-TASK 2.2 — Admin routing
-
-/admin
-/admin/governance
-/admin/monitoring
-
-
-⸻
-
-TASK 2.3 — Remove mixed routes
-
-❌ було:
-
-/cockpit/governance
-
-✅ стало:
-
-/admin/governance
-
-
-⸻
-
-⸻
-
-🔹 EPIC 3 — UI Separation
-
-⸻
-
-TASK 3.1 — Видалити governance з cockpit
-
-З Cockpit прибрати:
-	•	governance tabs
+має стати окремим контуром:
+	•	governance
+	•	policies
 	•	audit
 	•	overrides
-	•	policy UI
+	•	observability
+	•	system-level control
 
 ⸻
 
-TASK 3.2 — Видалити observability з cockpit
-	•	metrics
-	•	cost
-	•	logs
+11. Чому цей спринт важливий саме зараз
+
+Бо після Sprint 37/37.5 у вас уже є фізична основа, але продуктово/UI:
+	•	користувацький cockpit
+	•	admin/system tools
+
+все ще змішані в одному контурі.
+
+Тобто саме цей спринт робить platform shape видимим для користувача.
 
 ⸻
 
-⸻
+12. Acceptance Criteria
 
-🔹 EPIC 4 — Admin UI Structure
-
-⸻
-
-TASK 4.1 — Admin layout
-
-Новий layout:
-	•	sidebar:
-	•	Governance
-	•	Monitoring
-	•	Policies
-	•	main panel
+Спринт вважається завершеним, якщо:
+	•	cockpit/client більше не містить governance center
+	•	cockpit/client більше не містить observability/monitoring panels
+	•	admin/platform surface містить усі system-level screens
+	•	routing client/admin розділений
+	•	user не бачить admin routes
+	•	admin/owner мають доступ до обох поверхонь
+	•	UI kit shared, але page ownership не змішується
+	•	deploy/start contracts для client та admin UI окремі
 
 ⸻
 
-TASK 4.2 — Admin navigation
+13. Що буде fail
 
-Tabs/pages:
-	•	Rule Catalog
-	•	Project Policy
-	•	Overrides
-	•	Audit Trail
-	•	Monitoring
-
-⸻
+Спринт не можна вважати успішним, якщо:
+	•	governance все ще живе всередині cockpit navigation
+	•	observability лишається в користувацькому UI
+	•	route guards лишилися єдиним способом “розділення”
+	•	admin surface фактично не окремий, а просто приховані вкладки
+	•	app boundaries після 37 не були використані, а тільки імітовані
 
 ⸻
 
-🔹 EPIC 5 — Access Control
+14. Підсумок
+
+До 35.5B
+	•	architecture уже розділена
+	•	UX ще змішаний
+
+Після 35.5B
+	•	architecture і UX нарешті співпадають
+
+І тільки після цього вже дуже логічно заходити в:
+	•	Sprint 36 — Product Layer
+бо тоді cockpit буде чистим user-facing продуктом, а не сумішшю user+platform поверхонь.
 
 ⸻
 
-TASK 5.1 — Route guards
-	•	client → всі юзери
-	•	admin → тільки admin/owner
+15. Практичний коментар
 
-⸻
+Тобто відповідь на твоє питання:
 
-TASK 5.2 — Redirect logic
-	•	user → не бачить admin
-	•	admin → може заходити в обидва
-
-⸻
-
-⸻
-
-🔹 EPIC 6 — Environment / Deployment
-
-⸻
-
-TASK 6.1 — Separate builds
-	•	client build
-	•	admin build
-
-⸻
-
-TASK 6.2 — Env config
-
-CLIENT_URL
-ADMIN_URL
-
-
-⸻
-
-⸻
-
-🔹 EPIC 7 — UX Cleanup
-
-⸻
-
-TASK 7.1 — Прибрати перевантаження cockpit
-
-Залишити тільки:
-	•	task execution
-	•	project navigation
-
-⸻
-
-TASK 7.2 — Admin = системний UI
-	•	більш “control plane”
-	•	більше таблиць, логів, політик
-
-⸻
-
-⸻
-
-🧪 Acceptance Criteria
-
-✔ Cockpit не містить governance
-✔ Cockpit не містить monitoring
-✔ Admin має всі system-level функції
-✔ UI не змішується
-✔ routing розділений
-✔ ролі працюють
-
-⸻
-
-🚨 Ризики
-
-⸻
-
-❌ 1. Часткове розділення
-
-→ найгірший сценарій
-→ система стане ще складнішою
-
-⸻
-
-❌ 2. Дублювання компонентів
-
-→ вирішується через ui-kit
-
-⸻
-
-❌ 3. Змішання логіки
-
-→ UI split ≠ backend split (поки що)
-
-⸻
-
-🧠 Важливий принцип
-
-Це UI separation, не backend split
-
-Backend:
-	•	поки може залишатися спільним
-
-⸻
-
-🔥 Результат після 35.5B
-
-У тебе з’являється:
-
-✅ SaaS-ready структура
-	•	зрозумілий UX
-	•	масштабованість
-	•	clean separation
-
-⸻
+так, файл 35.5B можна тепер віддавати, але тільки в цій переписаній версії, post-37
+— де він вже не “розносить сервіси”, а
+активує client/admin separation на базі вже готової topology.

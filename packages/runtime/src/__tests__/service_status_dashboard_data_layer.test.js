@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-const ServiceStatusDashboardDataLayer_1 = require("../control-plane/ServiceStatusDashboardDataLayer");
+const ServiceStatusDashboardDataLayer_1 = require("../control-api/ServiceStatusDashboardDataLayer");
 describe('ServiceStatusDashboardDataLayer (AGSYS-2716)', () => {
     it('builds aggregated status, restart counts, health summary, and environment-aware snapshot', () => {
         const manager = {

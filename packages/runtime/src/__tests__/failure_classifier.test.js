@@ -1,7 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-const FailureClassifier_1 = require("../control-plane/FailureClassifier");
-const RestartPolicyEngine_1 = require("../control-plane/RestartPolicyEngine");
+const FailureClassifier_1 = require("../control-api/FailureClassifier");
+const RestartPolicyEngine_1 = require("../control-api/RestartPolicyEngine");
 describe('Failure classification (AGSYS-2712)', () => {
     it('classifies crash vs degraded vs timeout', () => {
         const crash = (0, FailureClassifier_1.classifyFailure)({

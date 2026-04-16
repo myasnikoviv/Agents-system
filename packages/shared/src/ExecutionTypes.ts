@@ -36,7 +36,8 @@ export type RuntimeEventType =
   | 'usage.tool_execution'
   | 'usage.runtime_time'
   | 'usage.storage_usage'
-  | 'usage.mcp_usage';
+  | 'usage.mcp_usage'
+  | 'runtime.plane.dispatch';
 
 export interface RuntimeEvent {
   id: string;

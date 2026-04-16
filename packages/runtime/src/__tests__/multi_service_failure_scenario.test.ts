@@ -1,5 +1,5 @@
-import { classifyFailure, FailureTelemetryBuffer } from '../control-plane/FailureClassifier';
-import { RestartPolicyEngine } from '../control-plane/RestartPolicyEngine';
+import { classifyFailure, FailureTelemetryBuffer } from '../control-api/FailureClassifier';
+import { RestartPolicyEngine } from '../control-api/RestartPolicyEngine';
 
 describe('Multi-service failure scenario (AGSYS-2718)', () => {
   it('detects multiple failures and recovers independently without cascade', () => {

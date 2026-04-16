@@ -1,10 +1,10 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-const ControlPlaneCore_1 = require("../control-plane/ControlPlaneCore");
-const ReconciliationEngine_1 = require("../control-plane/ReconciliationEngine");
+const ControlApiCore_1 = require("../control-api/ControlApiCore");
+const ReconciliationEngine_1 = require("../control-api/ReconciliationEngine");
 describe('ReconciliationEngine (AGSYS-2705)', () => {
     it('detects mismatch and triggers start action', async () => {
-        const core = new ControlPlaneCore_1.ControlPlaneCore({
+        const core = new ControlApiCore_1.ControlApiCore({
             schemaVersion: 'service-registry.v1',
             services: {
                 backend: { type: 'api', runtime: 'node', desired: { state: 'running' } },
@@ -23,7 +23,7 @@ describe('ReconciliationEngine (AGSYS-2705)', () => {
         expect(actions).toContain('backend:start');
     });
     it('restarts degraded service for running desired state', async () => {
-        const core = new ControlPlaneCore_1.ControlPlaneCore({
+        const core = new ControlApiCore_1.ControlApiCore({
             schemaVersion: 'service-registry.v1',
             services: {
                 dispatcher: { type: 'worker', runtime: 'node', desired: { state: 'running' } },
@@ -41,7 +41,7 @@ describe('ReconciliationEngine (AGSYS-2705)', () => {
         expect(core.getState('dispatcher').restartCount).toBe(1);
     });
     it('stops service when desired is stopped but observed is healthy', async () => {
-        const core = new ControlPlaneCore_1.ControlPlaneCore({
+        const core = new ControlApiCore_1.ControlApiCore({
             schemaVersion: 'service-registry.v1',
             services: {
                 redis: { type: 'infra', runtime: 'docker', desired: { state: 'stopped' } },
@@ -58,7 +58,7 @@ describe('ReconciliationEngine (AGSYS-2705)', () => {
         expect(actions).toContain('stop');
     });
     it('runs as periodic loop and can stop cleanly', async () => {
-        const core = new ControlPlaneCore_1.ControlPlaneCore({
+        const core = new ControlApiCore_1.ControlApiCore({
             schemaVersion: 'service-registry.v1',
             services: {
                 backend: { type: 'api', runtime: 'node', desired: { state: 'running' } },

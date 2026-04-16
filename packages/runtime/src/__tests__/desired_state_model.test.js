@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-const ServiceRegistryContract_1 = require("../control-plane/ServiceRegistryContract");
+const ServiceRegistryContract_1 = require("../control-api/ServiceRegistryContract");
 describe('Desired state model (AGSYS-2706)', () => {
     it('normalizes legacy desired string to desired.state', () => {
         const parsed = (0, ServiceRegistryContract_1.validateServiceRegistryDefinition)({

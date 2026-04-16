@@ -1,5 +1,5 @@
-import { buildServiceStatusDashboardSnapshot } from '../control-plane/ServiceStatusDashboardDataLayer';
-import type { ControlPlaneRuntimeManager } from '../control-plane/ControlPlaneRuntimeManager';
+import { buildServiceStatusDashboardSnapshot } from '../control-api/ServiceStatusDashboardDataLayer';
+import type { ControlApiRuntimeManager } from '../control-api/ControlApiRuntimeManager';
 
 describe('ServiceStatusDashboardDataLayer (AGSYS-2716)', () => {
   it('builds aggregated status, restart counts, health summary, and environment-aware snapshot', () => {
@@ -10,7 +10,7 @@ describe('ServiceStatusDashboardDataLayer (AGSYS-2716)', () => {
         if (serviceId === 'redis') return { serviceId, runtime: 'docker', desired: 'running', state: { status: 'degraded', restartCount: 2 } };
         return { serviceId, runtime: 'node', desired: 'stopped', state: { status: 'stopped', restartCount: 0 } };
       },
-    } as unknown as ControlPlaneRuntimeManager;
+    } as unknown as ControlApiRuntimeManager;
 
     const snapshot = buildServiceStatusDashboardSnapshot(manager);
     expect(snapshot.totals.total).toBe(3);

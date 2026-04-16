@@ -6,7 +6,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 const fs_1 = __importDefault(require("fs"));
 const os_1 = __importDefault(require("os"));
 const path_1 = __importDefault(require("path"));
-const LocalProcessAdapter_1 = require("../control-plane/LocalProcessAdapter");
+const LocalProcessAdapter_1 = require("../control-api/LocalProcessAdapter");
 describe('LocalProcessAdapter (AGSYS-2707)', () => {
     const tmpDir = fs_1.default.mkdtempSync(path_1.default.join(os_1.default.tmpdir(), 'local-process-adapter-'));
     afterAll(() => {

@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-const ServiceRegistryContract_1 = require("../control-plane/ServiceRegistryContract");
+const ServiceRegistryContract_1 = require("../control-api/ServiceRegistryContract");
 describe('ServiceRegistry schema v1 (AGSYS-2701)', () => {
     it('accepts valid registry definition', () => {
         const valid = {

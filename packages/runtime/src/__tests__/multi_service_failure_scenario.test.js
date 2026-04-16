@@ -1,7 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-const FailureClassifier_1 = require("../control-plane/FailureClassifier");
-const RestartPolicyEngine_1 = require("../control-plane/RestartPolicyEngine");
+const FailureClassifier_1 = require("../control-api/FailureClassifier");
+const RestartPolicyEngine_1 = require("../control-api/RestartPolicyEngine");
 describe('Multi-service failure scenario (AGSYS-2718)', () => {
     it('detects multiple failures and recovers independently without cascade', () => {
         const telemetry = new FailureClassifier_1.FailureTelemetryBuffer();
