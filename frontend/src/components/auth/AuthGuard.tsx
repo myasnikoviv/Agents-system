@@ -16,13 +16,16 @@ export const AuthGuard: FC<AuthGuardProps> = ({ children, minRole }) => {
     const location = useLocation();
 
     if (isLoading) {
+        console.log('[AuthGuard] Loading auth state... (blocking render)');
         return <AppLoadingScreen />;
     }
 
     if (!isAuthenticated) {
-        // Redirect to /login but save the current location they were trying to go to
+        console.log('[AuthGuard] REDIRECTING to /login. Reason: isAuthenticated=false, Path:', location.pathname);
         return <Navigate to="/login" state={{ from: location }} replace />;
     }
+
+    console.log('[AuthGuard] ACCESS GRANTED for:', user?.email, 'Role:', user?.role, 'Path:', location.pathname);
 
     // Role-based access check
     if (minRole && user) {
@@ -33,7 +36,13 @@ export const AuthGuard: FC<AuthGuardProps> = ({ children, minRole }) => {
             owner: 3
         };
 
+        if (!user.role || roles[user.role] === undefined) {
+             console.error('[AuthGuard] CRITICAL: User has invalid or missing role:', user.role);
+             // Default to fail safe? Or maybe it's a data mismatch.
+        }
+
         if (roles[user.role] < roles[minRole]) {
+             console.warn('[AuthGuard] ACCESS DENIED: Insufficient role. Required:', minRole, 'Actual:', user.role);
             return (
                 <div className="min-h-screen bg-background flex items-center justify-center p-6 text-center overflow-hidden font-sans relative">
                     <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_50%,rgba(var(--destructive-rgb),0.05),transparent_70%)] pointer-events-none" />

@@ -1,4 +1,4 @@
-import { useState, type FC, type FormEvent } from 'react';
+import { useState, useEffect, type FC, type FormEvent } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { Lock, Mail, User, ShieldCheck, ArrowRight, Loader2 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
@@ -20,24 +20,58 @@ export const LoginPage: FC = () => {
   const [password, setPassword] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const { login } = useAuth();
+  const { login, isAuthenticated, isLoading, user } = useAuth();
   const { notify } = useNotification();
   const navigate = useNavigate();
   const location = useLocation();
 
   const from = (location.state as any)?.from?.pathname || '/cockpit';
 
+  // Robust redirection: Watch for authentication state changes
+  useEffect(() => {
+    console.log('[LoginPage] State check:', { 
+      isAuthenticated, 
+      isLoading, 
+      userEmail: user?.email,
+      pathname: location.pathname 
+    });
+    
+    if (isAuthenticated && !isLoading) {
+      console.log('[LoginPage] Auth verified. Standard navigate to:', from);
+      navigate(from, { replace: true });
+
+      // Fallback: If after 800ms we are still on the login page, force a hard reload redirect
+      const timeout = setTimeout(() => {
+        if (window.location.pathname === '/login') {
+          console.warn('[LoginPage] Navigation seems stuck, forcing window.location.href to:', from);
+          window.location.href = from;
+        }
+      }, 800);
+      
+      return () => clearTimeout(timeout);
+    }
+  }, [isAuthenticated, isLoading, navigate, from, location.pathname, user]);
+
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setIsSubmitting(true);
     try {
+      console.log('[LoginPage] Initiating secure connection...');
       await login({
-        [isEmailLogin ? 'email' : 'username']: identifier,
+        email: identifier,
+        username: identifier, // Send as both to be robust against any backend version
         password,
       });
+      console.log('[LoginPage] Login core function returned successfully');
+      
       notify('Welcome back, Commander.', 'success');
+      
+      // Immediate navigation attempt
+      console.log('[LoginPage] Triggering immediate navigation to:', from);
       navigate(from, { replace: true });
+
     } catch (err: any) {
+      console.error('[LoginPage] Authentication error:', err);
       notify(err.message || 'Access Denied. Terminal is locked.', 'error');
     } finally {
       setIsSubmitting(false);

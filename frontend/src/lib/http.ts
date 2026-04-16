@@ -60,23 +60,35 @@ export async function fetchJsonStrict<T>(path: string, init?: RequestInit): Prom
     const isHtml = looksLikeHtml(raw);
     let parsed: T | null = null;
     try {
-      parsed = raw ? JSON.parse(raw) : null;
+      if (res.ok && raw) {
+        parsed = JSON.parse(raw) as T;
+      }
     } catch {
       parsed = null;
     }
-    return { parsed, isHtml };
+    return { parsed, isHtml, ok: res.ok, status: res.status, raw };
   };
 
   const primary = await tryRequest(apiUrl(path));
-  if (primary.parsed && !primary.isHtml) return primary.parsed;
+  if (primary.ok && primary.parsed) return primary.parsed;
 
   if (API_BASE === '/api') {
-    const defaultValue = await tryRequest(`${API_FALLBACK_BASE}${path}`);
-    if (defaultValue.parsed && !defaultValue.isHtml) return defaultValue.parsed;
+    const fallback = await tryRequest(`${API_FALLBACK_BASE}${path}`);
+    if (fallback.ok && fallback.parsed) return fallback.parsed;
   }
 
   if (primary.isHtml) {
-    throw new Error('API returned HTML instead of JSON. Перевір, що backend запущений на :3001.');
+    throw new Error('API returned HTML instead of JSON. Ensure backend is running.');
   }
-  throw new Error(`Invalid API response for ${path}`);
+
+  // Extract error message from API if possible
+  let apiError = '';
+  try {
+    const errorData = JSON.parse(primary.raw);
+    apiError = errorData.error || errorData.message || '';
+  } catch {
+    // Ignore parse error
+  }
+
+  throw new Error(apiError || `Invalid API response (${primary.status}) for ${path}`);
 }
