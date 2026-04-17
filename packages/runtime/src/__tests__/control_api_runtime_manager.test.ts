@@ -1,4 +1,6 @@
 import { ControlApiRuntimeManager } from '../control-api/ControlApiRuntimeManager';
+import { RestartPolicyEngine } from '../control-api/RestartPolicyEngine';
+import { CrashForensicsStore } from '../control-api/CrashForensicsStore';
 import type { ServiceExecutionAdapter } from '../control-api/adapters/ServiceExecutionAdapter';
 import { ServiceExecutionAdapterRegistry } from '../control-api/adapters/ServiceExecutionAdapter';
 import { ServiceLifecycleEventBus } from '../control-api/ServiceLifecycleEvents';
@@ -120,5 +122,53 @@ describe('ControlApiRuntimeManager (AGSYS-2713)', () => {
     expect(lifecycle.some((e) => e.kind === 'service.restarted' && e.serviceId === 'backend')).toBe(true);
     expect(lifecycle.some((e) => e.kind === 'service.stopped' && e.serviceId === 'backend')).toBe(true);
     expect(lifecycle.some((e) => e.actorId === 'admin-1')).toBe(true);
+  });
+
+  it('records incident timeline and auto-restarts failed service (AGSYS-3862)', async () => {
+    const adapters = new ServiceExecutionAdapterRegistry();
+    const events = new ServiceLifecycleEventBus(path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'manager-events-')), 'events.jsonl'));
+    const adapter = createStubAdapter('local-process');
+    adapters.register(adapter);
+    const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'manager-forensics-'));
+    const manager = new ControlApiRuntimeManager(
+      {
+        schemaVersion: 'service-registry.v1',
+        services: {
+          backend: {
+            type: 'api',
+            runtime: 'node',
+            desired: { state: 'running', restartPolicy: { mode: 'on-failure', maxRetries: 3, backoffMs: 5 } },
+            entrypoint: process.execPath,
+          },
+        },
+      },
+      adapters,
+      events,
+      {
+        restartPolicyEngine: new RestartPolicyEngine({ loopWindowMs: 60_000, loopThreshold: 10 }),
+        forensics: new CrashForensicsStore({
+          timelinePath: path.join(tmpRoot, 'incidents.jsonl'),
+          artifactsDir: path.join(tmpRoot, 'artifacts'),
+        }),
+      },
+    );
+
+    await manager.start('backend', { source: 'test', actorId: 'qa' });
+    await adapter.stop('backend');
+    (adapter as any).getRuntime = (_serviceId: string) => ({
+      serviceId: 'backend',
+      status: 'failed',
+      crashReason: 'simulated_crash',
+    });
+
+    manager.getStatus('backend');
+    await new Promise((resolve) => setTimeout(resolve, 30));
+
+    const incidents = manager.listIncidents({ serviceId: 'backend', limit: 10 });
+    expect(incidents.length).toBeGreaterThan(0);
+    expect(incidents[0].reason).toBe('simulated_crash');
+    expect(fs.existsSync(incidents[0].artifactPath)).toBe(true);
+    const restored = manager.getIncident(incidents[0].incidentId);
+    expect(restored?.remediationStatus === 'restarted' || restored?.remediationStatus === 'scheduled').toBe(true);
   });
 });

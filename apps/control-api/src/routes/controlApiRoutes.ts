@@ -132,6 +132,27 @@ export function registerControlApiRoutes(app: express.Express, deps: ControlApiR
     if (!withAdmin(req, res)) return;
     res.json({ success: true, items: deps.manager.listLifecycleEvents() });
   });
+  app.get('/api/system/control-api/incidents', (req, res) => {
+    if (!withAdmin(req, res)) return;
+    const serviceId = String(req.query?.serviceId || '').trim() || undefined;
+    const limit = Number(req.query?.limit || 100);
+    const items = deps.manager.listIncidents({ serviceId, limit });
+    res.json({ success: true, items });
+  });
+  app.get('/api/system/control-api/incidents/:incidentId', (req, res) => {
+    if (!withAdmin(req, res)) return;
+    const incidentId = String(req.params?.incidentId || '').trim();
+    if (!incidentId) {
+      res.status(400).json({ success: false, error: 'incident_id_required' });
+      return;
+    }
+    const item = deps.manager.getIncident(incidentId);
+    if (!item) {
+      res.status(404).json({ success: false, error: 'incident_not_found' });
+      return;
+    }
+    res.json({ success: true, item });
+  });
   app.get('/api/system/control-api/dashboard-data', (req, res) => {
     if (!withAdmin(req, res)) return;
     res.json({ success: true, snapshot: buildServiceStatusDashboardSnapshot(deps.manager) });
