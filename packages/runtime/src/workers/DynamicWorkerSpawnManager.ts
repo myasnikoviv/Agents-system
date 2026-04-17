@@ -1495,7 +1495,7 @@ export class DynamicWorkerSpawnManager {
     const updates: Promise<any>[] = [];
     for (const [key, value] of Object.entries(allWorkers)) {
       try {
-        const worker = JSON.parse(value) as RuntimeWorkerRecord;
+        const worker = JSON.parse(String(value)) as RuntimeWorkerRecord;
         if (worker.assignedTask?.runId === runId) {
           // 2. Release the specific lock for this worker
           const lockKey = `${SHARED_WORKER_LOCK_PREFIX}:${key}`;
