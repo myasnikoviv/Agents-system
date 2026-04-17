@@ -15,7 +15,6 @@ import GovernanceRuleEditor from './GovernanceRuleEditor';
 import ProjectPolicyManager from './ProjectPolicyManager';
 import { ManualOverrideManager } from './ManualOverrideManager';
 import { GovernanceAuditTrail } from './GovernanceAuditTrail';
-import { PageShell } from '../ui/page-shell';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
 import { Button } from '../ui/button';
@@ -69,7 +68,7 @@ export const GovernanceCenterPage: FC = () => {
   ];
 
   return (
-    <PageShell title='Governance Center'>
+    <>
       <div className="mx-auto max-w-[1400px] px-6 py-6 h-full flex flex-col">
         {/* Header Section */}
         <div className="flex items-center justify-between mb-8">
@@ -167,6 +166,6 @@ export const GovernanceCenterPage: FC = () => {
           }}
         />
       )}
-    </PageShell>
+    </>
   );
 };
