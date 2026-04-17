@@ -4,7 +4,6 @@ import * as React from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import {
   Activity,
-  LayoutDashboard,
   ShieldCheck,
   Settings,
   Terminal,
@@ -35,36 +34,36 @@ import { Button } from './button'
 
 const NAV_ITEMS = [
   {
-    title: 'Cockpit',
-    url: '/cockpit',
-    icon: LayoutDashboard,
-  },
-  {
     title: 'Governance',
-    url: '/cockpit/governance',
+    url: '/admin/governance',
     icon: ShieldCheck,
   },
   {
+    title: 'Policies',
+    url: '/admin/policies',
+    icon: Settings,
+  },
+  {
     title: 'Observability',
-    url: '/cockpit/observability',
+    url: '/admin/monitoring',
     icon: Activity,
   },
   {
-    title: 'Settings',
-    url: '/cockpit/settings',
+    title: 'Audit',
+    url: '/admin/audit',
     icon: Settings,
   },
 ]
 
 const SECONDARY_NAV = [
   {
-    title: 'Terminal',
-    url: '/cockpit/terminal',
+    title: 'Overrides',
+    url: '/admin/overrides',
     icon: Terminal,
   },
   {
-    title: 'Brain',
-    url: '/cockpit/brain',
+    title: 'Client',
+    url: '/cockpit',
     icon: BrainCircuit,
   },
 ]

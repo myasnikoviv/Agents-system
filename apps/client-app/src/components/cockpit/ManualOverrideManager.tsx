@@ -14,7 +14,7 @@ import {
 } from 'lucide-react';
 import { fetchJsonStrict } from '../../lib/http';
 import type { GovernanceManualOverride } from './governanceTypes';
-import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
+import { Card, CardContent } from '../ui/card';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
 import { Input } from '../ui/input';

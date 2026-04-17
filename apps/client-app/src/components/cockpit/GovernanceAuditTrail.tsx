@@ -17,7 +17,7 @@ import {
 } from 'lucide-react';
 import { fetchJsonStrict } from '../../lib/http';
 import type { GovernanceLogEntry } from './governanceTypes';
-import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
+import { Card, CardContent } from '../ui/card';
 import { Badge } from '../ui/badge';
 import { Input } from '../ui/input';
 import { Button } from '../ui/button';
@@ -69,7 +69,7 @@ export const GovernanceAuditTrail: FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [statusFilter] = useState<string>('all');
   const [groupByRun, setGroupByRun] = useState(true);
 
   const fetchLogs = async () => {

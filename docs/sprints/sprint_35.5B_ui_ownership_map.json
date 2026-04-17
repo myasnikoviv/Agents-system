@@ -1,0 +1,20 @@
+{
+  "client": [
+    "CockpitPage",
+    "CockpitSettingsPage",
+    "ProjectSidebar",
+    "CommandInterface",
+    "Execution stream/logs",
+    "ArtifactRenderer"
+  ],
+  "admin": [
+    "GovernanceCenterPage",
+    "GovernanceRuleCatalog",
+    "GovernanceRuleEditor",
+    "ProjectPolicyManager",
+    "ManualOverrideManager",
+    "EvidenceOverrideManager",
+    "GovernanceAuditTrail",
+    "ObservabilityPanels"
+  ]
+}
