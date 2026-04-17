@@ -3,6 +3,8 @@ import type { ServiceExecutionAdapterRegistry } from './adapters/ServiceExecutio
 import type { LocalProcessServiceSpec } from './LocalProcessAdapter';
 import type { DockerServiceSpec } from './DockerAdapter';
 import type { ServiceLifecycleEventBus } from './ServiceLifecycleEvents';
+import { RestartPolicyEngine } from './RestartPolicyEngine';
+import { CrashForensicsStore } from './CrashForensicsStore';
 
 export interface ControlApiServiceRuntimeView {
   serviceId: string;
@@ -12,11 +14,20 @@ export interface ControlApiServiceRuntimeView {
 }
 
 export class ControlApiRuntimeManager {
+  private readonly restartPolicyEngine: RestartPolicyEngine;
+  private readonly forensics: CrashForensicsStore;
+  private readonly restartCounters = new Map<string, number>();
+  private readonly pendingRestarts = new Map<string, NodeJS.Timeout>();
+
   constructor(
     private readonly registry: ServiceRegistryDefinition,
     private readonly adapters: ServiceExecutionAdapterRegistry,
     private readonly events?: ServiceLifecycleEventBus,
-  ) {}
+    options?: { restartPolicyEngine?: RestartPolicyEngine; forensics?: CrashForensicsStore },
+  ) {
+    this.restartPolicyEngine = options?.restartPolicyEngine || new RestartPolicyEngine();
+    this.forensics = options?.forensics || new CrashForensicsStore();
+  }
 
   listServices(): string[] {
     return Object.keys(this.registry.services);
@@ -24,6 +35,14 @@ export class ControlApiRuntimeManager {
 
   listLifecycleEvents(): Array<{ kind: string; serviceId: string; reason: string | null; timestamp: string; source: string; actorId: string | null }> {
     return this.events ? this.events.list() : [];
+  }
+
+  listIncidents(filter?: { serviceId?: string; limit?: number }) {
+    return this.forensics.listIncidents(filter);
+  }
+
+  getIncident(incidentId: string) {
+    return this.forensics.getIncident(incidentId);
   }
 
   getDescriptor(serviceId: string): ServiceRegistryDefinition['services'][string] {
@@ -37,8 +56,10 @@ export class ControlApiRuntimeManager {
     const state = adapter.getRuntime(serviceId);
     if (state.status === 'failed' || state.status === 'crashed') {
       this.events?.emit('service.failed', serviceId, String((state as any).crashReason || (state as any).errorReason || 'failed'));
+      this.enforceRestartPolicy(serviceId, descriptor, state);
     } else if (state.status === 'degraded') {
       this.events?.emit('service.degraded', serviceId, String((state as any).errorReason || 'degraded'));
+      this.enforceRestartPolicy(serviceId, descriptor, state);
     }
     return {
       serviceId,
@@ -87,8 +108,57 @@ export class ControlApiRuntimeManager {
     const descriptor = this.requireService(serviceId);
     const adapter = this.resolveAdapter(descriptor.runtime);
     await adapter.restart(serviceId);
+    this.restartCounters.set(serviceId, Number(this.restartCounters.get(serviceId) || 0) + 1);
     this.events?.emit('service.restarted', serviceId, null, metadata);
     return this.getStatus(serviceId);
+  }
+
+  private enforceRestartPolicy(
+    serviceId: string,
+    descriptor: ServiceRegistryDefinition['services'][string],
+    state: Record<string, unknown>,
+  ): void {
+    if (this.pendingRestarts.has(serviceId)) return;
+    const runtimeStatus = String(state.status || 'unknown');
+    const reason = String((state as any).crashReason || (state as any).errorReason || '').trim() || null;
+    const runtimeLike = {
+      serviceId,
+      desired: descriptor.desired.state,
+      status: runtimeStatus === 'crashed' ? 'failed' : (runtimeStatus as any),
+      restartCount: Number(this.restartCounters.get(serviceId) || 0),
+      lastCheckAt: new Date().toISOString(),
+      errorReason: reason,
+    };
+    const decision = this.restartPolicyEngine.decide(serviceId, descriptor, runtimeLike);
+    const incident = this.forensics.recordFailure({
+      serviceId,
+      runtimeStatus,
+      reason,
+      restartCount: runtimeLike.restartCount,
+      decision,
+      runtimeSnapshot: { ...state },
+    });
+    if (!decision.allowed) {
+      return;
+    }
+    const timer = setTimeout(() => {
+      void this.restart(serviceId, { source: 'self-healing-supervisor', actorId: null })
+        .then(() => {
+          this.restartPolicyEngine.recordRestart(serviceId);
+          this.forensics.markRestartOutcome(incident.incidentId, 'restarted');
+        })
+        .catch((error: any) => {
+          this.events?.emit('service.failed', serviceId, String(error?.message || 'restart_failed'), {
+            source: 'self-healing-supervisor',
+            actorId: null,
+          });
+          this.forensics.markRestartOutcome(incident.incidentId, 'restart_failed', String(error?.message || 'restart_failed'));
+        })
+        .finally(() => {
+          this.pendingRestarts.delete(serviceId);
+        });
+    }, decision.delayMs);
+    this.pendingRestarts.set(serviceId, timer);
   }
 
   private requireService(serviceId: string) {

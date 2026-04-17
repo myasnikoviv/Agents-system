@@ -45,6 +45,7 @@ export * from './control-api/LocalProcessAdapter';
 export * from './control-api/DockerAdapter';
 export * from './control-api/ServiceLifecycleEvents';
 export * from './control-api/ControlApiRuntimeManager';
+export * from './control-api/CrashForensicsStore';
 export * from './policy/AbacPolicyEngine';
 export * from './policy/ProjectSwitchRuntimePolicy';
 export * from './redisClient';
