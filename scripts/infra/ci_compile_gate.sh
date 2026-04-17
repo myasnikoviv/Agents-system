@@ -35,14 +35,6 @@ fi
 
 echo "[compile-gate] strict project-references build"
 # Force rebuild to avoid stale tsbuildinfo/dist coupling in CI cache scenarios.
-npx tsc -b --force \
-  packages/shared \
-  packages/events \
-  packages/memory \
-  packages/governance \
-  packages/billing \
-  packages/runtime \
-  apps/control-api \
-  apps/runtime-engine
+npx tsc -b --force tsconfig.build.json
 
 echo "[compile-gate] PASS"

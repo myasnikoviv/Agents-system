@@ -1,0 +1,13 @@
+{
+  "files": [],
+  "references": [
+    { "path": "./packages/shared" },
+    { "path": "./packages/events" },
+    { "path": "./packages/memory" },
+    { "path": "./packages/governance" },
+    { "path": "./packages/billing" },
+    { "path": "./packages/runtime" },
+    { "path": "./apps/control-api" },
+    { "path": "./apps/runtime-engine" }
+  ]
+}
