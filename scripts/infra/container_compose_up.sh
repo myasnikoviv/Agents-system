@@ -28,12 +28,18 @@ if [[ ! -x "${DISTRIBUTED_GUARDRAIL_SCRIPT}" ]]; then
   echo "Distributed profile guardrail script not executable: ${DISTRIBUTED_GUARDRAIL_SCRIPT}" >&2
   exit 1
 fi
+ENV_CONTRACT_SCRIPT="${ROOT_DIR}/scripts/infra/validate_env_contract_matrix.sh"
+if [[ ! -x "${ENV_CONTRACT_SCRIPT}" ]]; then
+  echo "Env contract validation script not executable: ${ENV_CONTRACT_SCRIPT}" >&2
+  exit 1
+fi
 
 set -a
 source "${PROFILE_FILE}"
 set +a
 export RUNTIME_PROFILE="${RUNTIME_PROFILE:-$PROFILE}"
 
+${ENV_CONTRACT_SCRIPT} "${PROFILE}"
 ${CONTRACT_CHECK_SCRIPT} "${PROFILE}"
 ${DISTRIBUTED_GUARDRAIL_SCRIPT} "${PROFILE}"
 
