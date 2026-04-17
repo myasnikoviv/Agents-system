@@ -1,4 +1,5 @@
 node_modules
+**/*.tsbuildinfo
 dist
 .env
 .DS_Store
@@ -15,6 +16,7 @@ dist
 .agent-system/
 docs/process/runs/ledger/
 cockpit_config.json
+docs/runtime/**/logs/*.jsonl
 
 # Local OpenHands runtime PID
 .openhands_server.pid
