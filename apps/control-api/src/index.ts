@@ -322,12 +322,17 @@ const appendStructuredLog = (entry: {
   message: string;
   meta?: Record<string, any>;
 }) => {
+  const rawMeta = entry.meta && typeof entry.meta === 'object' ? entry.meta : {};
+  const correlationId = String((rawMeta as any).correlationId || (rawMeta as any).traceId || 'system');
   const row = {
     timestamp: new Date().toISOString(),
     level: entry.level,
     source: entry.source,
     message: entry.message,
-    meta: entry.meta || {},
+    meta: {
+      ...rawMeta,
+      correlationId,
+    },
   };
   structuredLogBuffer.push(row);
   if (structuredLogBuffer.length > 5000) {
@@ -594,6 +599,25 @@ const getMetricsOverview = async (input: { projectId?: string; limit?: number })
   const billingUsage = usageAggregationService.aggregate(usageRecords, {});
   const billingSubscriptions = billingPaymentService.listSubscriptions();
   const requestsTotal = apiMetricsState.requestsTotal || 0;
+  const controlPlaneStatuses = controlApiRuntimeManager
+    .listServices()
+    .map((serviceId) => {
+      try {
+        return {
+          serviceId,
+          status: String((controlApiRuntimeManager.getStatus(serviceId).state as any)?.status || 'unknown'),
+        };
+      } catch {
+        return { serviceId, status: 'unknown' };
+      }
+    });
+  const controlPlaneTotal = controlPlaneStatuses.length;
+  const controlPlaneHealthy = controlPlaneStatuses.filter((x) => x.status === 'running').length;
+  const controlPlaneAvailabilityPct =
+    controlPlaneTotal > 0 ? Number(((controlPlaneHealthy / controlPlaneTotal) * 100).toFixed(2)) : 0;
+  const crashLoopSignals = controlApiRuntimeManager
+    .listIncidents({ limit: 200 })
+    .filter((x: any) => String(x.remediationReason || '').includes('restart_loop_detected')).length;
   return {
     runtime: {
       recentEvents: projectFiltered.length,
@@ -612,6 +636,19 @@ const getMetricsOverview = async (input: { projectId?: string; limit?: number })
         .sort((a, b) => b[1] - a[1])
         .slice(0, 10)
         .map(([route, hits]) => ({ route, hits })),
+      baseline: {
+        availabilityPct: controlPlaneAvailabilityPct,
+        latencyMs: requestsTotal > 0 ? Math.round(apiMetricsState.totalLatencyMs / requestsTotal) : 0,
+        errorRatePct: requestsTotal > 0 ? Number(((apiMetricsState.errorsTotal / requestsTotal) * 100).toFixed(2)) : 0,
+      },
+    },
+    services: {
+      total: controlPlaneTotal,
+      healthy: controlPlaneHealthy,
+      degradedOrDown: Math.max(0, controlPlaneTotal - controlPlaneHealthy),
+      availabilityPct: controlPlaneAvailabilityPct,
+      crashLoopSignals,
+      statuses: controlPlaneStatuses,
     },
     billing: {
       usageRecords: usageRecords.length,
@@ -709,6 +746,21 @@ const getAlertsSnapshot = async () => {
   const maxQuota = snapshot.quotas.reduce((acc, q) => Math.max(acc, Number(q.limit || 0)), 0);
   const quotaUsagePct = maxQuota > 0 ? (usageAgg.totalQuantity / maxQuota) * 100 : 0;
   const infraHealth = await postgresStore.health();
+  const controlPlaneStatuses = controlApiRuntimeManager
+    .listServices()
+    .map((serviceId) => {
+      try {
+        return {
+          serviceId,
+          status: String((controlApiRuntimeManager.getStatus(serviceId).state as any)?.status || 'unknown'),
+        };
+      } catch {
+        return { serviceId, status: 'unknown' };
+      }
+    });
+  const readinessFailures = controlPlaneStatuses.filter((x) => x.status !== 'running');
+  const incidentRows = controlApiRuntimeManager.listIncidents({ limit: 200 }) as Array<Record<string, any>>;
+  const crashLoopRows = incidentRows.filter((row) => String(row?.remediationReason || '').includes('restart_loop_detected'));
   const alerts: Array<Record<string, any>> = [];
 
   if (errors5xx > 0 || successRatePct < 99) {
@@ -735,6 +787,24 @@ const getAlertsSnapshot = async () => {
       message: `Infra health degraded: ${String(infraHealth.error || 'unknown')}`,
     });
   }
+  if (readinessFailures.length > 0) {
+    alerts.push({
+      code: 'readiness_failures_alert',
+      severity: readinessFailures.length > 2 ? 'high' : 'medium',
+      status: 'firing',
+      message: `Readiness failures detected: ${readinessFailures.map((x) => x.serviceId).join(', ')}`,
+      services: readinessFailures,
+    });
+  }
+  if (crashLoopRows.length > 0) {
+    alerts.push({
+      code: 'crash_loop_alert',
+      severity: 'high',
+      status: 'firing',
+      message: `Crash loop signals detected: ${crashLoopRows.length}`,
+      incidents: crashLoopRows.slice(0, 20),
+    });
+  }
 
   return {
     alerts,
@@ -746,6 +816,8 @@ const getAlertsSnapshot = async () => {
       successRatePct: Number(successRatePct.toFixed(2)),
       quotaUsagePct: Number(quotaUsagePct.toFixed(2)),
       infraOk: infraHealth.ok,
+      readinessFailures: readinessFailures.length,
+      crashLoopSignals: crashLoopRows.length,
     },
     generatedAt: new Date().toISOString(),
   };
