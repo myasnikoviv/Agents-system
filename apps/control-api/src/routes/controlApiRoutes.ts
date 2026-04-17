@@ -104,12 +104,21 @@ export function registerControlApiRoutes(app: express.Express, deps: ControlApiR
       return;
     }
     try {
+      const restartGuard = deps.manager.canManualRestart(serviceId);
+      if (!restartGuard.allowed) {
+        res.status(403).json({
+          success: false,
+          error: 'service_restart_forbidden_by_policy',
+          reason: restartGuard.reason,
+        });
+        return;
+      }
       const item = await deps.manager.restart(serviceId, { actorId: auth.userId || null, source: 'api' });
       deps.appendControlActionAudit?.({
         action: 'control_api_service_restart',
         projectId: 'control-api',
         actorId: String(auth.userId || 'unknown'),
-        result: { serviceId, ok: true },
+        result: { serviceId, ok: true, policy: restartGuard.reason },
       });
       res.json({ success: true, action: 'restart', item });
     } catch (error: any) {
