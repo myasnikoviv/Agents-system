@@ -23,17 +23,19 @@ if [[ ! -x "${CONTRACT_CHECK_SCRIPT}" ]]; then
   exit 1
 fi
 
+DISTRIBUTED_GUARDRAIL_SCRIPT="${ROOT_DIR}/scripts/infra/validate_distributed_profile_guardrail.sh"
+if [[ ! -x "${DISTRIBUTED_GUARDRAIL_SCRIPT}" ]]; then
+  echo "Distributed profile guardrail script not executable: ${DISTRIBUTED_GUARDRAIL_SCRIPT}" >&2
+  exit 1
+fi
+
 set -a
 source "${PROFILE_FILE}"
 set +a
 export RUNTIME_PROFILE="${RUNTIME_PROFILE:-$PROFILE}"
 
 ${CONTRACT_CHECK_SCRIPT} "${PROFILE}"
-
-if [[ "${COCKPIT_SECRETS_BACKEND:-}" == "sqlite" || "${COCKPIT_OBJECT_STORAGE_BACKEND:-}" == "sqlite" || "${RUNTIME_SHARED_DISPATCH_QUEUE_BACKEND:-}" == "sqlite" || "${RUNTIME_SHARED_WORKER_STATE_BACKEND:-}" == "sqlite" ]]; then
-  echo "Invalid profile '${PROFILE}': sqlite backends are not allowed." >&2
-  exit 1
-fi
+${DISTRIBUTED_GUARDRAIL_SCRIPT} "${PROFILE}"
 
 CMD=(docker compose -f "${COMPOSE_FILE}" up -d --build)
 if [[ "${DRY_RUN}" == "--dry-run" ]]; then
