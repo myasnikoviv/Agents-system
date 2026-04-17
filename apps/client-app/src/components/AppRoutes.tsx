@@ -1,12 +1,19 @@
 import { BrowserRouter as Router, Navigate, useRoutes } from 'react-router-dom';
 import { LoginPage } from './auth/LoginPage';
-import { adminRouteGroup, clientRouteGroup } from '../routing/route-groups';
+import { clientRouteGroup } from '../routing/route-groups';
+
+const ADMIN_APP_URL = import.meta.env.VITE_ADMIN_URL || 'http://127.0.0.1:3001';
+
+function AdminRedirect() {
+  window.location.href = ADMIN_APP_URL;
+  return null;
+}
 
 function AppRouteTree() {
   return useRoutes([
     { path: '/login', element: <LoginPage /> },
     clientRouteGroup,
-    adminRouteGroup,
+    { path: '/admin/*', element: <AdminRedirect /> },
     { path: '/', element: <Navigate to="/cockpit" replace /> },
   ]);
 }
