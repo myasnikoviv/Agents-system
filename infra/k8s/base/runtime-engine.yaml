@@ -1,0 +1,80 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: runtime-engine
+  labels:
+    app.kubernetes.io/name: runtime-engine
+    app.kubernetes.io/part-of: agent-system
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: runtime-engine
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: runtime-engine
+        app.kubernetes.io/part-of: agent-system
+    spec:
+      containers:
+        - name: runtime-engine
+          image: ghcr.io/myasnikoviv/agents-system/runtime-engine:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 3002
+              name: http
+          env:
+            - name: RUNTIME_PLANE_HOST
+              value: 0.0.0.0
+            - name: RUNTIME_PLANE_PORT
+              value: "3002"
+          envFrom:
+            - configMapRef:
+                name: agent-system-config
+            - secretRef:
+                name: agent-system-secrets
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+            failureThreshold: 30
+            periodSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 2
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 20
+            timeoutSeconds: 2
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 150m
+              memory: 256Mi
+            limits:
+              cpu: 1000m
+              memory: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: runtime-engine
+  labels:
+    app.kubernetes.io/name: runtime-engine
+    app.kubernetes.io/part-of: agent-system
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: runtime-engine
+  ports:
+    - name: http
+      port: 3002
+      targetPort: http
