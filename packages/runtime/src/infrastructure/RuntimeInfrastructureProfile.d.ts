@@ -1,4 +1,4 @@
-export type InfraBackend = 'sqlite' | 'postgres' | 'redis' | 'memory';
+export type InfraBackend = 'postgres' | 'redis' | 'memory';
 export interface RuntimeInfrastructureProfile {
     secretsBackend: InfraBackend;
     objectStorageBackend: InfraBackend;
