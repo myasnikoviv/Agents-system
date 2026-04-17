@@ -25,3 +25,4 @@
 - Root cause
 - Permanent fix
 - Preventive action tickets
+- Template: `docs/process/ops/postmortem-template-agsys-3868.md`
