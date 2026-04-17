@@ -53,16 +53,34 @@ docker run -d \
   -v "${TMP_NGINX_CONF}:/etc/nginx/nginx.conf:ro" \
   nginx:1.27-alpine >/tmp/agsys_proxy_nginx_start.log
 
-sleep 2
+wait_for_proxy_json() {
+  local url="$1"
+  local out_file="$2"
+  local expected_service="$3"
+  local max_attempts="${4:-40}"
+  local delay_seconds="${5:-1}"
+  local attempt=1
+
+  while (( attempt <= max_attempts )); do
+    if curl -fsS "${url}" > "${out_file}" 2>/dev/null; then
+      if jq -e --arg svc "${expected_service}" '.service == $svc and .ok == true' "${out_file}" >/dev/null 2>&1; then
+        return 0
+      fi
+    fi
+    sleep "${delay_seconds}"
+    attempt=$((attempt + 1))
+  done
+
+  echo "[proxy-smoke] FAIL: timeout waiting for ${url}" >&2
+  echo "[proxy-smoke] nginx logs:" >&2
+  docker logs "${PROXY_CONTAINER_NAME}" 2>&1 | tail -n 120 >&2 || true
+  return 1
+}
 
 echo "[proxy-smoke] validating proxied paths"
-curl -fsS "http://127.0.0.1:${PROXY_PORT}/" | tee /tmp/agsys_proxy_root.json >/dev/null
-curl -fsS "http://127.0.0.1:${PROXY_PORT}/api/health" | tee /tmp/agsys_proxy_api.json >/dev/null
-curl -fsS "http://127.0.0.1:${PROXY_PORT}/runtime/health" | tee /tmp/agsys_proxy_runtime.json >/dev/null
-
-jq -e '.service == "client-app" and .ok == true' /tmp/agsys_proxy_root.json >/dev/null
-jq -e '.service == "control-api" and .ok == true' /tmp/agsys_proxy_api.json >/dev/null
-jq -e '.service == "runtime-engine" and .ok == true' /tmp/agsys_proxy_runtime.json >/dev/null
+wait_for_proxy_json "http://127.0.0.1:${PROXY_PORT}/" /tmp/agsys_proxy_root.json "client-app"
+wait_for_proxy_json "http://127.0.0.1:${PROXY_PORT}/api/health" /tmp/agsys_proxy_api.json "control-api"
+wait_for_proxy_json "http://127.0.0.1:${PROXY_PORT}/runtime/health" /tmp/agsys_proxy_runtime.json "runtime-engine"
 
 echo "[proxy-smoke] PASS"
 echo "[proxy-smoke] / => $(cat /tmp/agsys_proxy_root.json)"
