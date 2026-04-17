@@ -1,4 +1,4 @@
-import { evaluateLearningTrendKpi } from '../src/runtime/improvement/ImprovementEngine';
+import { evaluateLearningTrendKpi } from '@system/runtime';
 
 function main() {
   const workspacePath = process.cwd();

@@ -1,9 +1,9 @@
-import { enforcePreflightGate, checkPreflightGate } from '../src/runtime/governance/PreflightEnforcer';
-import { enforcePostflightGate, checkPostflightEvidence, writeTestReportStub } from '../src/runtime/governance/PostflightEnforcer';
-import { logImprovementLoopGate } from '../src/runtime/governance/ImprovementLoopEnforcer';
-import { logParticipationGate } from '../src/runtime/governance/AgentParticipationEnforcer';
-import { logPipelineUsageGate } from '../src/runtime/governance/PipelineUsageEnforcer';
-import { logCostTrackerGate } from '../src/runtime/governance/CostTrackerEnforcer';
+import { enforcePreflightGate, checkPreflightGate } from '@system/governance';
+import { enforcePostflightGate, checkPostflightEvidence, writeTestReportStub } from '@system/governance';
+import { logImprovementLoopGate } from '@system/governance';
+import { logParticipationGate } from '@system/governance';
+import { logPipelineUsageGate } from '@system/governance';
+import { logCostTrackerGate } from '@system/governance';
 import fs from 'fs';
 import path from 'path';
 

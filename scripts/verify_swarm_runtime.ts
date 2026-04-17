@@ -1,9 +1,9 @@
-import { RunContextAssembler } from '../src/runtime/context/RunContext';
-import { AgentExecutor } from '../src/runtime/AgentExecutor';
-import { AgentRegistry } from '../src/runtime/registries/AgentRegistry';
-import { PipelineRegistry } from '../src/runtime/registries/PipelineRegistry';
-import { BlackboardService } from '../src/runtime/BlackboardService';
-import { DynamicDiscoveryService } from '../src/runtime/DynamicDiscoveryService';
+import { RunContextAssembler } from '@system/runtime';
+import { AgentExecutor } from '@system/runtime';
+import { AgentRegistry } from '@system/runtime';
+import { PipelineRegistry } from '@system/runtime';
+import { BlackboardService } from '@system/runtime';
+import { DynamicDiscoveryService } from '@system/runtime';
 
 async function verify() {
   console.log('--- STARTING RUNTIME VERIFICATION ---');
@@ -38,7 +38,7 @@ async function verify() {
 
   // 2. Blackboard Test
   console.log('\n2. Testing Blackboard Persistence...');
-  await BlackboardService.saveArtifact(context.runId, {
+  await BlackboardService.saveArtifact(context, {
     runId: context.runId,
     stageId: stage.id,
     roleSlug: agent.slug,
@@ -47,7 +47,7 @@ async function verify() {
     findings: ['Memory is working']
   });
   
-  const artifacts = await BlackboardService.getArtifacts(context.runId);
+  const artifacts = await BlackboardService.getArtifacts(context);
   console.log(`Retrieved ${artifacts.length} artifacts from Redis.`);
 
   // 3. Executor Loop Test (Dry Run)

@@ -1,0 +1,15 @@
+{
+  "name": "@system/events",
+  "version": "1.0.0",
+  "private": true,
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -b",
+    "dev": "tsc -b --watch"
+  },
+  "dependencies": {
+    "@system/shared": "*",
+    "uuid": "^13.0.0"
+  }
+}

@@ -1,0 +1,74 @@
+.feed-container {
+    flex: 0 0 auto;
+    min-height: 0;
+    overflow: visible;
+    display: flex;
+    flex-direction: column;
+    gap: 0.45rem;
+}
+
+.cockpit-panel-tabs {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 0.35rem;
+}
+
+.cockpit-panel-tabs button {
+    background: rgba(15, 23, 42, 0.7);
+    color: #cbd5e1;
+    border: 1px solid rgba(148, 163, 184, 0.35);
+    border-radius: 0.62rem;
+    padding: 0.45rem 0.5rem;
+    font-size: 0.75rem;
+    font-weight: 700;
+}
+
+.cockpit-panel-tabs button.active {
+    background: #2563eb;
+    color: #f8fafc;
+    border-color: #60a5fa;
+}
+
+.agent-status-card {
+    background: #151b24;
+    border: 1px solid #2b3343;
+    border-radius: 0.5rem;
+    padding: 0.52rem;
+    margin-bottom: 0.5rem;
+    display: flex;
+    align-items: center;
+    gap: 0.52rem;
+}
+
+.agent-dot {
+    width: 9px;
+    height: 9px;
+    border-radius: 999px;
+}
+
+.agent-dot.active { background: #22c55e; }
+.agent-dot.standby { background: #eab308; }
+.agent-dot.unavailable { background: #ef4444; }
+
+.feed-item {
+    background: rgba(30, 41, 59, 0.6);
+    border-left: 3px solid #6366f1;
+    padding: 0.75rem;
+    border-radius: 0.25rem 0.5rem 0.5rem 0.25rem;
+    animation: slideIn 0.3s ease-out;
+}
+
+@keyframes slideIn {
+    from { opacity: 0; transform: translateX(20px); }
+    to { opacity: 1; transform: translateX(0); }
+}
+
+.health-grid {
+    display: grid;
+    grid-template-columns: 90px 1fr;
+    gap: 0.25rem 0.5rem;
+    font-size: 0.78rem;
+}
+
+.health-ok { color: #86efac; }
+.health-fail { color: #fda4af; }

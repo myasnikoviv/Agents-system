@@ -1,11 +1,11 @@
-import { RunContextAssembler, RunContext } from '../src/runtime/context/RunContext';
-import { AgentExecutor } from '../src/runtime/AgentExecutor';
-import { AgentRegistry } from '../src/runtime/registries/AgentRegistry';
-import { PipelineRegistry } from '../src/runtime/registries/PipelineRegistry';
-import { DynamicDiscoveryService } from '../src/runtime/DynamicDiscoveryService';
-import { BlackboardService } from '../src/runtime/BlackboardService';
-import { ExecutionAdapter, ExecutionResult } from '../src/runtime/adapters/ExecutionAdapter';
-import { closeRedisClient } from '../src/runtime/redisClient';
+import { RunContextAssembler, RunContext } from '@system/runtime';
+import { AgentExecutor } from '@system/runtime';
+import { AgentRegistry } from '@system/runtime';
+import { PipelineRegistry } from '@system/runtime';
+import { DynamicDiscoveryService } from '@system/runtime';
+import { BlackboardService } from '@system/runtime';
+import { ExecutionAdapter, ExecutionResult } from '@system/runtime';
+import { closeRedisClient } from '@system/runtime';
 import * as dotenv from 'dotenv';
 import * as path from 'path';
 

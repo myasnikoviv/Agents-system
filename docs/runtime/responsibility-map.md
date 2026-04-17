@@ -16,7 +16,7 @@ Define clear component ownership boundaries to remove gray zones in runtime beha
 | External Execution Adapter (`src/runtime/ExternalExecutionAdapter.ts`) | Provider CLI/API invocation abstraction | Prompt, model, cwd, timeout | stdout/stderr/exit code/result envelope |
 | Event Bus (`src/runtime/events/EventBus.ts`) | Emit authoritative runtime events, sync lifecycle hooks | Stage/execution events | Redis stream records, run ledger append |
 | Redis Stream (`events:runtime_hub`) | Runtime event transport and replay source | EventBus `xadd` | Ordered event records for cockpit |
-| SQLite Runtime DB (`.agent-system/cockpit-runtime.db`) | Persistent cockpit projects/threads/messages/settings/state | Backend writes | Restored runtime/cockpit state |
+| Postgres Control/Runtime Store | Persistent cockpit projects/threads/messages/settings/state | Backend writes | Restored runtime/cockpit state |
 | Memory Manager (`src/runtime/MemoryManager.ts`) | Short/long-term memory namespacing and access helpers | Role/task/topic keys | Redis-backed memory records |
 | Plane Lifecycle Sync (`src/runtime/PlaneLifecycleOrchestrator.ts`) | Best-effort mirror of runtime lifecycle into Plane artifacts/comments | Runtime events | Plane lifecycle updates/comments |
 
@@ -26,7 +26,7 @@ Define clear component ownership boundaries to remove gray zones in runtime beha
 2. Runtime router is the only execution mode gateway.
 3. EventBus is the only authoritative event emission boundary.
 4. Provider-specific logic is isolated inside adapter layer.
-5. Persistent state responsibilities are split: SQLite for cockpit state, Redis for runtime event/memory streams.
+5. Persistent state responsibilities are split: Postgres for control/runtime state, Redis for runtime event/memory streams.
 
 ## Source Files
 
