@@ -41,7 +41,8 @@
     "infra:smoke:health": "bash scripts/infra/smoke_health_endpoints.sh",
     "infra:smoke:proxy": "bash scripts/infra/smoke_proxy_paths.sh",
     "infra:smoke:suite": "bash scripts/infra/smoke/run_suite.sh",
-    "infra:smoke:suite:mocks": "bash scripts/infra/smoke/run_suite_with_mocks.sh"
+    "infra:smoke:suite:mocks": "bash scripts/infra/smoke/run_suite_with_mocks.sh",
+    "infra:smoke:topology": "bash scripts/infra/smoke_topology_endpoint.sh"
   },
   "repository": {
     "type": "git",
@@ -56,30 +57,8 @@
   },
   "homepage": "https://github.com/myasnikoviv/Agents-system#readme",
   "dependencies": {
-    "@langchain/anthropic": "^1.3.25",
-    "@langchain/core": "^1.1.36",
-    "@langchain/langgraph": "^1.2.5",
-    "@langchain/openai": "^1.3.1",
-    "@types/better-sqlite3": "^7.6.13",
-    "@types/cors": "^2.8.19",
-    "@types/express": "^5.0.6",
-    "@types/js-yaml": "^4.0.9",
-    "@types/node": "^25.5.0",
-    "@types/uuid": "^10.0.0",
-    "ajv": "^8.18.0",
-    "ajv-formats": "^3.0.1",
-    "axios": "^1.13.6",
-    "better-sqlite3": "^12.8.0",
-    "cors": "^2.8.6",
-    "dotenv": "^17.3.1",
-    "express": "^5.2.1",
-    "ioredis": "^5.10.1",
-    "js-yaml": "^4.1.1",
-    "openai": "^6.32.0",
-    "pg": "^8.13.3",
-    "tsx": "^4.21.0",
-    "typescript": "^5.9.3",
-    "uuid": "^13.0.0"
+    "ajv": "^8.12.0",
+    "ajv-formats": "^2.1.1"
   },
   "devDependencies": {
     "@langchain/langgraph-cli": "^1.1.16",
@@ -89,9 +68,5 @@
     "jest": "^30.3.0",
     "supertest": "^7.2.2",
     "ts-jest": "^29.4.6"
-  },
-  "dependencies": {
-    "ajv": "^8.12.0",
-    "ajv-formats": "^2.1.1"
   }
 }

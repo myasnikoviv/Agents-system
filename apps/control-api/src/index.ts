@@ -22,6 +22,7 @@ import { registerAttachmentStorageRoutes } from './routes/attachmentStorageRoute
 import { registerBillingRoutes } from './routes/billingRoutes';
 import { registerGovernanceRoutes } from './routes/governanceRoutes';
 import { registerControlApiRoutes } from './routes/controlApiRoutes';
+import { registerServiceTopologyRoutes } from './routes/serviceTopologyRoutes';
 import { usageMeteringPipeline } from '@system/billing';
 import { 
   DEFAULT_ABAC_POLICIES, 
@@ -2872,6 +2873,14 @@ registerControlApiRoutes(app, {
   requireRole,
   manager: controlApiRuntimeManager,
   appendControlActionAudit,
+});
+
+registerServiceTopologyRoutes(app, {
+  requireRole,
+  getPort: () => Number(PORT),
+  getRuntimeProfile: () => String(process.env.RUNTIME_PROFILE || 'local-self-hosted'),
+  getInfrastructureProfile: () => infrastructureProfile,
+  getPostgresHealth: async () => await postgresStore.health(),
 });
 
 registerBillingRoutes(app, {
