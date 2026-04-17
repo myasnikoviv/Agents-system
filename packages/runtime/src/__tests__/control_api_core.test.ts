@@ -1,8 +1,5 @@
-import fs from 'fs';
-import os from 'os';
-import path from 'path';
 import { ControlApiCore } from '../control-api/ControlApiCore';
-import { SqliteServiceStateStore } from '../control-api/ServiceStateStore';
+import { InMemoryServiceStateStore } from '../control-api/ServiceStateStore';
 
 describe('ControlApiCore (AGSYS-2703)', () => {
   it('initializes service state model from registry', () => {
@@ -41,6 +38,9 @@ describe('ControlApiCore (AGSYS-2703)', () => {
   });
 
   it('loads registry from file through loader integration', () => {
+    const fs = require('fs');
+    const os = require('os');
+    const path = require('path');
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'control-api-core-'));
     const file = path.join(tmpDir, 'registry.yaml');
     fs.writeFileSync(
@@ -65,9 +65,7 @@ describe('ControlApiCore (AGSYS-2703)', () => {
   });
 
   it('restores persisted service state from external store', () => {
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'control-api-core-store-'));
-    const dbPath = path.join(tmpDir, 'state.db');
-    const store = new SqliteServiceStateStore(dbPath);
+    const store = new InMemoryServiceStateStore();
 
     const coreA = new ControlApiCore(
       {
@@ -92,14 +90,12 @@ describe('ControlApiCore (AGSYS-2703)', () => {
           backend: { type: 'api', runtime: 'node', desired: { state: 'running' } },
         },
       },
-      { stateStore: new SqliteServiceStateStore(dbPath) },
+      { stateStore: store },
     );
 
     const restored = coreB.getState('backend');
     expect(restored.status).toBe('failed');
     expect(restored.restartCount).toBe(1);
     expect(restored.errorReason).toBe('crash');
-
-    fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 });

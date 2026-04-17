@@ -30,12 +30,12 @@ flowchart TD
   EV --> RL[Run Ledger\nsrc/runtime/RunLedger.ts]
   EV --> PL[Plane Lifecycle Sync\nsrc/runtime/PlaneLifecycleOrchestrator.ts]
 
-  B --> SQLITE[(SQLite\n.agent-system/cockpit-runtime.db)]
+  B --> PG[(Postgres\ncontrol/runtime state)]
   E --> MM[Memory Manager\nsrc/runtime/MemoryManager.ts]
   MM --> REDIS
 
   REDIS --> B
-  SQLITE --> B
+  PG --> B
   B --> F
 ```
 
@@ -46,7 +46,7 @@ flowchart TD
 3. `RuntimeExecutionRouter` is the single mode dispatcher (`mock`, `linear`, `multiple_agents`).
 4. `AgentExecutor` is the provider abstraction boundary.
 5. Event stream is authoritative for runtime progression (`EventBus` + Redis stream).
-6. Persistent cockpit state is stored in SQLite (`cockpit-runtime.db`).
+6. Persistent cockpit/runtime state is Postgres-first; Redis is the runtime stream/memory backbone.
 
 ## Primary Source Files
 
