@@ -124,6 +124,29 @@ describe('ControlApiRuntimeManager (AGSYS-2713)', () => {
     expect(lifecycle.some((e) => e.actorId === 'admin-1')).toBe(true);
   });
 
+  it('blocks manual restart when restart policy is never (AGSYS-3865)', () => {
+    const adapters = new ServiceExecutionAdapterRegistry();
+    adapters.register(createStubAdapter('local-process'));
+    const manager = new ControlApiRuntimeManager(
+      {
+        schemaVersion: 'service-registry.v1',
+        services: {
+          backend: {
+            type: 'api',
+            runtime: 'node',
+            desired: { state: 'running', restartPolicy: { mode: 'never' } },
+            entrypoint: process.execPath,
+          },
+        },
+      },
+      adapters,
+    );
+
+    const guard = manager.canManualRestart('backend');
+    expect(guard.allowed).toBe(false);
+    expect(guard.reason).toContain('restart_policy_never');
+  });
+
   it('records incident timeline and auto-restarts failed service (AGSYS-3862)', async () => {
     const adapters = new ServiceExecutionAdapterRegistry();
     const events = new ServiceLifecycleEventBus(path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'manager-events-')), 'events.jsonl'));

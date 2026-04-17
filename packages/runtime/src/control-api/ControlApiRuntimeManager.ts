@@ -49,6 +49,15 @@ export class ControlApiRuntimeManager {
     return this.requireService(serviceId);
   }
 
+  canManualRestart(serviceId: string): { allowed: boolean; reason: string } {
+    const descriptor = this.requireService(serviceId);
+    const mode = String(descriptor.desired?.restartPolicy?.mode || 'on-failure');
+    if (mode === 'never') {
+      return { allowed: false, reason: 'restart_policy_never_manual_restart_forbidden' };
+    }
+    return { allowed: true, reason: `manual_restart_allowed_mode_${mode}` };
+  }
+
   getStatus(serviceId: string): ControlApiServiceRuntimeView {
     const descriptor = this.registry.services[serviceId];
     if (!descriptor) throw new Error(`control_plane_service_not_found:${serviceId}`);
