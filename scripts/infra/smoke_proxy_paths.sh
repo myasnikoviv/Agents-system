@@ -35,7 +35,7 @@ sed \
 start_mock_server() {
   local port="$1"
   local payload="$2"
-  node -e "require('http').createServer((req,res)=>{res.writeHead(200,{'Content-Type':'application/json'});res.end('${payload}');}).listen(${port},'127.0.0.1'); setInterval(()=>{}, 1000);" >/tmp/agsys_proxy_mock_${port}.log 2>&1 &
+  node -e "require('http').createServer((req,res)=>{res.writeHead(200,{'Content-Type':'application/json'});res.end('${payload}');}).listen(${port},'0.0.0.0'); setInterval(()=>{}, 1000);" >/tmp/agsys_proxy_mock_${port}.log 2>&1 &
   echo $!
 }
 
