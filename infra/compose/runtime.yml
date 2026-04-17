@@ -59,6 +59,8 @@ services:
       DATABASE_URL: ${DATABASE_URL:-postgres://agent_system:agent_system_dev@postgres:5432/agent_system}
       POSTGRES_URL: ${POSTGRES_URL:-postgres://agent_system:agent_system_dev@postgres:5432/agent_system}
       REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      RUNTIME_PLANE_HOST: 0.0.0.0
+      RUNTIME_PLANE_PORT: 3002
       AGENT_SYSTEM_BACKEND_PORT: 3002
     ports:
       - "3002:3002"

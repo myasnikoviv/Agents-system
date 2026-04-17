@@ -25,7 +25,7 @@ The system is logically architected into two primary contours that operate withi
 
 - **Legacy Port 8081**: Removed. The separate Admin UI process has been deprecated in favor of a unified frontend experience to reduce infrastructure overhead and ensure consistent state.
 - **Control Plane Isolation**: Achieved via backend namespace isolation and mandatory RBAC (Role-Based Access Control) on all system-level endpoints.
-- **Service Orchestration**: Managed by `scripts/infra/start_all.sh`, which now explicitly reports on both contours.
+- **Service Orchestration**: Managed by compose-first infra scripts (`scripts/infra/container_compose_up.sh`, `scripts/infra/start_with_profile.sh`, `scripts/infra/start_all.sh`) with profile guardrails.
 
 ## Network Mapping
 

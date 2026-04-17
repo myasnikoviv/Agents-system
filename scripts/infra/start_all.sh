@@ -1,121 +1,41 @@
-#!/bin/bash
+#!/usr/bin/env bash
+set -euo pipefail
 
-# start_all.sh — Agent System Full Infrastructure Orchestrator
-# Starts Redis, Plane, LangGraph, and verifies readiness.
-
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-NC='\033[0m'
-
-echo -e "${YELLOW}--- Starting Agent System Infrastructure ---${NC}"
-
-# Parse arguments
-PROJECT_NAME="default"
-STANDALONE_MODE="false"
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+PROFILE="local-self-hosted"
 RESTART_MODE="false"
+
 while [[ "$#" -gt 0 ]]; do
-    case $1 in
-        --project) PROJECT_NAME="$2"; shift ;;
-        --standalone) STANDALONE_MODE="true" ;;
-        --restart|--force-restart) RESTART_MODE="true" ;;
-        *) echo "Unknown parameter passed: $1"; exit 1 ;;
-    esac
-    shift
+  case "$1" in
+    --profile)
+      PROFILE="${2:-}"
+      shift
+      ;;
+    --restart|--force-restart)
+      RESTART_MODE="true"
+      ;;
+    --standalone)
+      # Legacy flag kept for backward compatibility. Compose is now the default path.
+      ;;
+    *)
+      echo "Unknown parameter passed: $1" >&2
+      exit 1
+      ;;
+  esac
+  shift
 done
 
-echo -e "${YELLOW}Project context: ${PROJECT_NAME}${NC}"
-echo -e "${YELLOW}Standalone mode: ${STANDALONE_MODE}${NC}"
-echo -e "${YELLOW}Restart mode: ${RESTART_MODE}${NC}"
-
-kill_port_processes() {
-    local port="$1"
-    local pids
-    pids="$(lsof -ti tcp:${port} || true)"
-    if [[ -n "${pids}" ]]; then
-        echo "Stopping process(es) on port ${port}: ${pids}"
-        kill ${pids} >/dev/null 2>&1 || true
-        sleep 1
-    fi
-}
-
-# Full infra bootstrap (skipped in standalone mode)
-if [[ "$STANDALONE_MODE" != "true" ]]; then
-    # 1. Start Docker if needed
-    if ! docker info > /dev/null 2>&1; then
-        echo "Starting Docker Desktop..."
-        open -a Docker
-        while ! docker info > /dev/null 2>&1; do sleep 1; done
-    fi
-
-    # 2. Start Plane
-    echo "Starting Plane (Docker Compose)..."
-    cd .plane-runtime/plane/ && docker compose up -d && cd ../..
-
-    # 3. Start Local Redis
-    if ! lsof -i :6379 > /dev/null; then
-        echo "Starting local Redis..."
-        brew services start redis || redis-server --daemonize yes
-    fi
-
-    # 4. Start LangGraph Server (Port 2024) via launchd service
-    if ! lsof -i :2024 > /dev/null; then
-        echo "Starting LangGraph Dev Server (launchd service)..."
-        ./scripts/infra/langgraph_ctl.sh start
-    fi
-
-    # 5. Start OpenHands Sidecar (Port 8000)
-    if ! lsof -i :8000 > /dev/null; then
-        echo "Starting OpenHands Sidecar Server..."
-        ./scripts/openhands/server_ctl.sh start || echo -e "${YELLOW}OpenHands start failed; continuing bootstrap.${NC}"
-    fi
-else
-    echo "Standalone mode active: skipping Docker/Plane/Redis/LangGraph/OpenHands startup."
+if [[ "${RESTART_MODE}" == "true" ]]; then
+  echo "[infra:start] restart requested, recreating compose stack"
+  docker compose -f "${ROOT_DIR}/infra/compose/runtime.yml" down --remove-orphans || true
 fi
 
-# 6. Start Agent System Backend API (Port 3001)
-if [[ "$RESTART_MODE" == "true" ]]; then
-    echo "Restarting Agent System Backend API (3001)..."
-    ./scripts/infra/backend_ctl.sh restart
-elif ! lsof -i :3001 > /dev/null; then
-    echo "Starting Agent System Backend API (3001)..."
-    ./scripts/infra/backend_ctl.sh start
-else
-    echo "Backend API is already running on port 3001."
-fi
+echo "[infra:start] starting compose stack with profile=${PROFILE}"
+bash "${ROOT_DIR}/scripts/infra/container_compose_up.sh" "${PROFILE}"
 
-# 7. Start Cockpit UI (Port 5174)
-if [[ "$RESTART_MODE" == "true" ]]; then
-    echo "Restarting Cockpit UI (5174)..."
-    kill_port_processes 5174
-    (cd frontend && nohup npm run dev -- --host 0.0.0.0 --port 5174 > cockpit_ui.log 2>&1 &)
-    echo "Cockpit UI restart requested (log: frontend/cockpit_ui.log)"
-elif ! lsof -i :5174 > /dev/null; then
-    echo "Starting Cockpit UI (5174)..."
-    (cd frontend && nohup npm run dev -- --host 0.0.0.0 --port 5174 > cockpit_ui.log 2>&1 &)
-    echo "Cockpit UI starting in background (log: frontend/cockpit_ui.log)"
-else
-    echo "Cockpit UI is already running on port 5174."
-fi
+echo "[infra:start] running startup checks"
+bash "${ROOT_DIR}/scripts/infra/startup_check.sh" --compose
 
-
-# 9. Verify Health
-sleep 5
-if [[ "$STANDALONE_MODE" == "true" ]]; then
-    ./scripts/infra/startup_check.sh --standalone
-else
-    ./scripts/infra/startup_check.sh
-fi
-
-echo -e "${GREEN}Agent System is ready.${NC}"
-echo -e "${COLOR_CYAN}  System Interface Layout (Two Contours):${NC}"
-echo -e "  --------------------------------------------------"
-echo -e "  ${COLOR_GREEN}1. Cockpit Interface (User Context):${NC}"
-echo -e "     URL:     http://localhost:5174"
-echo -e "     Project: Asset Foundation Workbench"
-echo -e ""
-echo -e "  ${COLOR_YELLOW}2. Control Plane Axis (Admin Context):${NC}"
-echo -e "     API:     http://localhost:3001/api/system/*"
-echo -e "     Console: http://localhost:5174/billing (Admin Role Required)"
-echo -e "  --------------------------------------------------"
-
+echo "[infra:start] Agent System is ready"
+echo "[infra:start] control-api: http://127.0.0.1:3001/api/health"
+echo "[infra:start] runtime-engine: http://127.0.0.1:3002/health"

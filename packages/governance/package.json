@@ -9,10 +9,11 @@
     "dev": "tsc -b --watch"
   },
   "dependencies": {
-    "@system/shared": "*",
+    "@langchain/core": "^0.3.0",
+    "@langchain/openai": "^0.3.0",
     "@system/events": "*",
     "@system/memory": "*",
-    "@langchain/core": "^0.1.48",
-    "@langchain/openai": "^0.0.21"
+    "@system/shared": "*",
+    "js-yaml": "^4.1.1"
   }
 }

@@ -27,4 +27,5 @@ export RUNTIME_PROFILE="${RUNTIME_PROFILE:-$PROFILE}"
 bash "$ENV_CONTRACT_SCRIPT" "$PROFILE"
 bash "$GUARDRAIL_SCRIPT" "$PROFILE"
 
-exec bash scripts/infra/start_all.sh --standalone
+bash scripts/infra/container_compose_up.sh "$PROFILE"
+exec bash scripts/infra/startup_check.sh --compose
