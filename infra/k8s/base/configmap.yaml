@@ -1,0 +1,19 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: agent-system-config
+  labels:
+    app.kubernetes.io/part-of: agent-system
+data:
+  RUNTIME_PROFILE: local-self-hosted
+  AUTH_MODE: optional
+  COCKPIT_SECRETS_BACKEND: postgres
+  COCKPIT_OBJECT_STORAGE_BACKEND: postgres
+  RUNTIME_SHARED_DISPATCH_QUEUE_BACKEND: redis
+  RUNTIME_SHARED_WORKER_STATE_BACKEND: redis
+  CONTROL_API_URL: http://control-api:3001
+  RUNTIME_PLANE_HOST: 0.0.0.0
+  RUNTIME_PLANE_PORT: "3002"
+  RUNTIME_PLANE_ID: runtime-engine-1
+  RUNTIME_WORKER_CONCURRENCY: "5"
+  RUNTIME_DOCKER_ENABLED: "false"

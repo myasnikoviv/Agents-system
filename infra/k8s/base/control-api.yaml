@@ -1,0 +1,80 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: control-api
+  labels:
+    app.kubernetes.io/name: control-api
+    app.kubernetes.io/part-of: agent-system
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: control-api
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: control-api
+        app.kubernetes.io/part-of: agent-system
+    spec:
+      containers:
+        - name: control-api
+          image: ghcr.io/myasnikoviv/agents-system/control-api:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 3001
+              name: http
+          env:
+            - name: HOST
+              value: 0.0.0.0
+            - name: PORT
+              value: "3001"
+          envFrom:
+            - configMapRef:
+                name: agent-system-config
+            - secretRef:
+                name: agent-system-secrets
+          startupProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            failureThreshold: 30
+            periodSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /api/health/readiness/dispatch
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 2
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 20
+            timeoutSeconds: 2
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 150m
+              memory: 256Mi
+            limits:
+              cpu: 1000m
+              memory: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: control-api
+  labels:
+    app.kubernetes.io/name: control-api
+    app.kubernetes.io/part-of: agent-system
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: control-api
+  ports:
+    - name: http
+      port: 3001
+      targetPort: http
