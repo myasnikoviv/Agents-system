@@ -1,6 +1,6 @@
 import fs from 'fs/promises';
 import path from 'path';
-import { RuntimeEvent } from './types';
+import { RuntimeEvent } from '@system/shared';
 
 const LEDGER_DIR = path.resolve(process.cwd(), 'docs/process/runs/ledger');
 
