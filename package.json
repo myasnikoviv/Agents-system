@@ -38,7 +38,8 @@
     "infra:ci:gates": "bash scripts/infra/ci_hardening_gates.sh",
     "infra:validate:control-runtime-contract": "bash scripts/infra/validate_control_runtime_contract.sh",
     "infra:validate:distributed-profile": "bash scripts/infra/validate_distributed_profile_guardrail.sh",
-    "infra:smoke:health": "bash scripts/infra/smoke_health_endpoints.sh"
+    "infra:smoke:health": "bash scripts/infra/smoke_health_endpoints.sh",
+    "infra:smoke:proxy": "bash scripts/infra/smoke_proxy_paths.sh"
   },
   "repository": {
     "type": "git",
