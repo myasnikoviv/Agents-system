@@ -19,13 +19,11 @@ RUN npm ci
 # 2. Build stage
 FROM base AS builder
 COPY --from=deps /app/node_modules ./node_modules
-# Capture the necessary workspace context
-COPY packages ./packages
-COPY apps/runtime-engine ./apps/runtime-engine
-COPY tsconfig.json package.json package-lock.json ./
+# Capture the workspace context needed by project references.
+COPY . .
 
-# Build internal packages followed by the app
-RUN npm run build --workspaces
+# Build runtime-engine dependency graph only.
+RUN npx tsc -b --force apps/runtime-engine/tsconfig.json
 
 # 3. Production stage
 FROM base AS runner
@@ -33,6 +31,7 @@ ENV NODE_ENV=production
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/packages ./packages
 COPY --from=builder /app/apps/runtime-engine ./apps/runtime-engine
+COPY --from=builder /app/docs ./apps/runtime-engine/docs
 COPY --from=builder /app/package.json ./package.json
 
 EXPOSE 3002

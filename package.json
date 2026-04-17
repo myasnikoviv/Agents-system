@@ -66,6 +66,7 @@
   "devDependencies": {
     "@langchain/langgraph-cli": "^1.1.16",
     "@types/jest": "^30.0.0",
+    "@types/js-yaml": "^4.0.9",
     "@types/pg": "^8.11.11",
     "@types/supertest": "^7.2.0",
     "jest": "^30.3.0",

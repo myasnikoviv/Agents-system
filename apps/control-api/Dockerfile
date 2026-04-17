@@ -20,8 +20,8 @@ RUN npm ci
 FROM base AS builder
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
-# Build internal packages followed by the app
-RUN npm run build --workspaces
+# Build only control-api dependency graph (avoid unrelated workspace builds like client-app)
+RUN npx tsc -b --force apps/control-api/tsconfig.json
 
 # 3. Production stage
 FROM base AS runner
@@ -29,6 +29,7 @@ ENV NODE_ENV=production
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/packages ./packages
 COPY --from=builder /app/apps/control-api ./apps/control-api
+COPY --from=builder /app/docs ./apps/control-api/docs
 COPY --from=builder /app/package.json ./package.json
 
 EXPOSE 3001

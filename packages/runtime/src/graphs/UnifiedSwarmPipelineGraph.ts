@@ -1,6 +1,6 @@
 import * as path from 'path';
 import { StateGraph, START, END, MemorySaver, Annotation, interrupt, Command } from '@langchain/langgraph';
-import { classifyRequest } from '../IntakeClassifier';
+import { classifyRequest } from '@system/governance';
 import { DynamicDiscoveryService } from '../DynamicDiscoveryService';
 import { AgentRegistry } from '../registries/AgentRegistry';
 import { PipelineRegistry } from '../registries/PipelineRegistry';
