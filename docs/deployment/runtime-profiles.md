@@ -1,8 +1,8 @@
 # Runtime Profiles (Sprint 26)
 
 ## Profiles
-- `local-self-hosted`: sqlite-based local profile
-- `cloud-ready`: postgres+redis profile (same runtime logic, different providers)
+- `local-self-hosted`: postgres+redis local profile
+- `cloud-ready`: postgres+redis distributed profile
 
 Profile files:
 - `config/runtime-profiles/local-self-hosted.env`

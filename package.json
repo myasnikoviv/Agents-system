@@ -44,7 +44,8 @@
     "infra:smoke:proxy": "bash scripts/infra/smoke_proxy_paths.sh",
     "infra:smoke:suite": "bash scripts/infra/smoke/run_suite.sh",
     "infra:smoke:suite:mocks": "bash scripts/infra/smoke/run_suite_with_mocks.sh",
-    "infra:smoke:topology": "bash scripts/infra/smoke_topology_endpoint.sh"
+    "infra:smoke:topology": "bash scripts/infra/smoke_topology_endpoint.sh",
+    "infra:k8s:validate": "bash scripts/infra/k8s_validate.sh"
   },
   "repository": {
     "type": "git",
