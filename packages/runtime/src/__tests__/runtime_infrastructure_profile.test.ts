@@ -14,15 +14,15 @@ describe('RuntimeInfrastructureProfile', () => {
     expect(profile.sharedWorkerStateBackend).toBe('redis');
   });
 
-  it('falls back to sqlite for unknown values', () => {
+  it('falls back to postgres/redis for unknown values', () => {
     const profile = resolveRuntimeInfrastructureProfile({
       COCKPIT_SECRETS_BACKEND: 'nope',
       COCKPIT_OBJECT_STORAGE_BACKEND: '',
       RUNTIME_SHARED_DISPATCH_QUEUE_BACKEND: 'x',
       RUNTIME_SHARED_WORKER_STATE_BACKEND: 'y',
     } as any);
-    expect(profile.secretsBackend).toBe('sqlite');
-    expect(profile.objectStorageBackend).toBe('sqlite');
+    expect(profile.secretsBackend).toBe('postgres');
+    expect(profile.objectStorageBackend).toBe('postgres');
     expect(profile.dispatchQueueBackend).toBe('redis');
     expect(profile.sharedWorkerStateBackend).toBe('redis');
     expect(profile.localOnlyMode).toBe(false);
@@ -35,12 +35,12 @@ describe('RuntimeInfrastructureProfile', () => {
     expect(profile.localOnlyMode).toBe(false);
   });
 
-  it('supports explicit local-only mode fallback', () => {
+  it('keeps distributed defaults in local-only mode for shared backends', () => {
     const profile = resolveRuntimeInfrastructureProfile({
       RUNTIME_LOCAL_ONLY_MODE: 'true',
     } as any);
-    expect(profile.dispatchQueueBackend).toBe('sqlite');
-    expect(profile.sharedWorkerStateBackend).toBe('sqlite');
+    expect(profile.dispatchQueueBackend).toBe('redis');
+    expect(profile.sharedWorkerStateBackend).toBe('redis');
     expect(profile.localOnlyMode).toBe(true);
   });
 });

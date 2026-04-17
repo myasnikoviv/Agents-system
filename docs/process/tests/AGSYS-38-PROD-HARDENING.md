@@ -13,7 +13,7 @@ Scope: Sprint 38 remediation hardening gates for architecture, infra proxying, s
 - `AGSYS-3812` (health/readiness standardization): PASS
 
 Residual critical stream:
-- `AGSYS-3850` (full SQLite removal): IN_PROGRESS
+- none (as of 2026-04-17, `AGSYS-3850` closed)
 
 ## Executed Commands and Observed Results
 
@@ -81,11 +81,8 @@ Observed result:
   - `scripts/infra/smoke/run_suite_with_mocks.sh`
 
 ## PM Closure Note (Gate Decision)
-Decision: **CONDITIONAL GO** for moving into next sprint execution (`35.5B`) under remediation governance.
+Decision: **GO** for moving into next sprint execution (`35.5B`) under remediation governance.
 
 Rationale:
 - Hardening gate stack for routing, proxying, profile guardrails, CI checks, and smoke coverage is in place and passing.
-- One critical architecture stream remains open: `AGSYS-3850` (full SQLite removal from control-api code path).
-
-Mandatory condition before final production declaration:
-- Close `AGSYS-3850` to DONE with reproducible Postgres-only runtime evidence (auth/session/project/thread/state provisioning path).
+- `AGSYS-3850` is closed with reproducible Postgres-only runtime evidence (auth/session/project/thread/state provisioning path).

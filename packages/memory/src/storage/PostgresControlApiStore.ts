@@ -151,6 +151,14 @@ export class PostgresControlApiStore {
     return Boolean(this.enabled && this.client);
   }
 
+  private normalizeTimestampForPg(value: string | undefined): string {
+    const raw = String(value || '').trim();
+    if (!raw) return new Date().toISOString();
+    const parsed = new Date(raw);
+    if (Number.isNaN(parsed.getTime())) return new Date().toISOString();
+    return parsed.toISOString();
+  }
+
   async health(): Promise<{ enabled: boolean; ok: boolean; error?: string }> {
     const ready = await this.ensureReady();
     if (!ready) {
@@ -258,13 +266,35 @@ export class PostgresControlApiStore {
     messages: Array<{ id: string; threadId: string; role: 'user' | 'agent'; content: string; timestamp: string; sortOrder: number }>;
   }): Promise<boolean> {
     if (!(await this.ensureReady())) return false;
+    const dedupProjects = Array.from(
+      new Map(
+        (input.projects || [])
+          .filter((row) => row && String(row.id || '').trim())
+          .map((row) => [String(row.id), row]),
+      ).values(),
+    );
+    const dedupThreads = Array.from(
+      new Map(
+        (input.threads || [])
+          .filter((row) => row && String(row.id || '').trim())
+          .map((row) => [String(row.id), row]),
+      ).values(),
+    );
+    const dedupMessages = Array.from(
+      new Map(
+        (input.messages || [])
+          .filter((row) => row && String(row.id || '').trim())
+          .map((row) => [String(row.id), row]),
+      ).values(),
+    );
+
     await this.client!.query('BEGIN');
     try {
       await this.client!.query('DELETE FROM cockpit_projects_pg');
       await this.client!.query('DELETE FROM cockpit_threads_pg');
       await this.client!.query('DELETE FROM cockpit_messages_pg');
 
-      for (const project of input.projects) {
+      for (const project of dedupProjects) {
         await this.client!.query(
           `INSERT INTO cockpit_projects_pg(
              id, label, worktree_path, agent_context_path, repository_url, onboarding_mode, onboarding_auth_mode, onboarding_bootstrap_mode, onboarding_read_only
@@ -282,18 +312,25 @@ export class PostgresControlApiStore {
           ],
         );
       }
-      for (const thread of input.threads) {
+      for (const thread of dedupThreads) {
         await this.client!.query(
           `INSERT INTO cockpit_threads_pg(id, project_id, label, updated_at)
            VALUES ($1,$2,$3,$4::timestamptz)`,
-          [thread.id, thread.projectId, thread.label, thread.updatedAt],
+          [thread.id, thread.projectId, thread.label, this.normalizeTimestampForPg(thread.updatedAt)],
         );
       }
-      for (const message of input.messages) {
+      for (const message of dedupMessages) {
         await this.client!.query(
           `INSERT INTO cockpit_messages_pg(id, thread_id, role, content, timestamp, sort_order)
            VALUES ($1,$2,$3,$4,$5::timestamptz,$6)`,
-          [message.id, message.threadId, message.role, message.content, message.timestamp, message.sortOrder],
+          [
+            message.id,
+            message.threadId,
+            message.role,
+            message.content,
+            this.normalizeTimestampForPg(message.timestamp),
+            message.sortOrder,
+          ],
         );
       }
       await this.client!.query('COMMIT');
