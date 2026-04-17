@@ -7,7 +7,6 @@ import { Input } from '../ui/input';
 import { Card, CardContent } from '../ui/card';
 import { Tabs, TabsList, TabsTrigger } from '../ui/tabs';
 import { PageShell } from '../ui/page-shell';
-import { cn } from '../../lib/utils';
 
 const SECTIONS = ['general', 'appearance', 'executor', 'usage'] as const;
 type SectionId = (typeof SECTIONS)[number];

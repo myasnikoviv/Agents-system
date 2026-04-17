@@ -4,7 +4,7 @@ import { Button } from '../../ui/button';
 import { Badge } from '../../ui/badge';
 import { Input } from '../../ui/input';
 import { Modal } from '../../ui/modal';
-import { PencilLine, FolderOpen, Globe, GitBranch, Terminal, Settings2, ShieldAlert } from 'lucide-react';
+import { PencilLine, FolderOpen, Globe, GitBranch, Settings2, ShieldAlert } from 'lucide-react';
 import { isAbsolutePath, getFolderNameFromPath, slugifyProjectId, getUniqueProjectId } from '../utils/cockpit-utils';
 import './CockpitModals.css';
 

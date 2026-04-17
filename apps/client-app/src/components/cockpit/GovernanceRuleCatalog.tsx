@@ -1,8 +1,8 @@
 import { useState, useEffect, type FC } from 'react';
-import { Search, Shield, AlertTriangle, Cpu, CheckCircle, Info, Settings, Activity, FileLock } from 'lucide-react';
+import { Search, Shield, AlertTriangle, Cpu, CheckCircle, Info, Settings, Activity } from 'lucide-react';
 import { fetchJsonStrict } from '../../lib/http';
 import type { GovernanceRule } from './governanceTypes';
-import { Card, CardContent, CardHeader, CardTitle, CardFooter } from '../ui/card';
+import { Card, CardContent, CardHeader, CardFooter } from '../ui/card';
 import { Badge } from '../ui/badge';
 import { Input } from '../ui/input';
 import { Button } from '../ui/button';

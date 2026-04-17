@@ -1,5 +1,5 @@
 import { useState, useEffect, type FC } from 'react';
-import { X, Save, AlertTriangle, Shield, Settings, Info, CheckCircle, Trash2, Cpu, Activity, FileLock, History } from 'lucide-react';
+import { Save, AlertTriangle, Shield, Settings, Info, CheckCircle, Trash2, Activity, FileLock, History } from 'lucide-react';
 import { fetchJsonStrict } from '../../lib/http';
 import type { GovernanceRule } from './governanceTypes';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetFooter } from '../ui/sheet';
