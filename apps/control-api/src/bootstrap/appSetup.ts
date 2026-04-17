@@ -27,6 +27,7 @@ export type ApiMetricsState = {
 
 export type ApiTraceSpan = {
   traceId: string;
+  correlationId: string;
   spanId: string;
   parentSpanId?: string;
   runId?: string;
@@ -61,12 +62,15 @@ export const registerApiTelemetryMiddleware = (
 ) => {
   app.use((req, res, next) => {
     const startedAt = Date.now();
-    const traceId = String(req.header('x-trace-id') || req.header('x-request-id') || crypto.randomUUID());
+    const correlationId = String(req.header('x-correlation-id') || req.header('x-request-id') || crypto.randomUUID());
+    const traceId = String(req.header('x-trace-id') || correlationId);
     const spanId = crypto.randomUUID().slice(0, 16);
     const parentSpanId = String(req.header('x-parent-span-id') || '').trim() || undefined;
     const runId = String(req.header('x-run-id') || req.query?.runId || req.body?.runId || '').trim() || undefined;
+    (req as any).correlationId = correlationId;
     res.setHeader('x-trace-id', traceId);
     res.setHeader('x-span-id', spanId);
+    res.setHeader('x-correlation-id', correlationId);
     res.on('finish', () => {
       const routeKey = `${req.method} ${req.path}`;
       const statusClass = `${Math.floor((res.statusCode || 0) / 100)}xx`;
@@ -77,6 +81,7 @@ export const registerApiTelemetryMiddleware = (
       apiMetricsState.byStatusClass.set(statusClass, Number(apiMetricsState.byStatusClass.get(statusClass) || 0) + 1);
       apiTraceSpans.push({
         traceId,
+        correlationId,
         spanId,
         ...(parentSpanId ? { parentSpanId } : {}),
         ...(runId ? { runId } : {}),
@@ -98,6 +103,7 @@ export const registerApiTelemetryMiddleware = (
           statusCode: Number(res.statusCode || 0),
           durationMs: Math.max(0, Date.now() - startedAt),
           traceId,
+          correlationId,
           spanId,
           ...(runId ? { runId } : {}),
         },
