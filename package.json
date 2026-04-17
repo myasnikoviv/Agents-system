@@ -36,6 +36,7 @@
     "infra:start:profile": "bash scripts/infra/start_with_profile.sh",
     "infra:compose:up": "bash scripts/infra/container_compose_up.sh",
     "infra:ci:gates": "bash scripts/infra/ci_hardening_gates.sh",
+    "infra:ci:compile-gate": "bash scripts/infra/ci_compile_gate.sh",
     "infra:validate:control-runtime-contract": "bash scripts/infra/validate_control_runtime_contract.sh",
     "infra:validate:env-contract": "bash scripts/infra/validate_env_contract_matrix.sh",
     "infra:validate:distributed-profile": "bash scripts/infra/validate_distributed_profile_guardrail.sh",
