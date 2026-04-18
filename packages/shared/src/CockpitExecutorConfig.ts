@@ -1,6 +1,3 @@
-import * as fs from 'fs';
-import * as path from 'path';
-
 export type CockpitExecutorBackend = 'claude-cli' | 'codex-cli' | 'openhands-sdk';
 
 export interface CockpitRuntimeCapabilities {
@@ -35,12 +32,8 @@ export interface CockpitExecutorConfig {
 }
 
 export function loadConfig(projectRoot: string): CockpitExecutorConfig {
-  const absProjectRoot = path.resolve(projectRoot);
-  const configPath = path.resolve(absProjectRoot, 'cockpit_config.json');
-  const codexAppBin = '/Applications/Codex.app/Contents/Resources/codex';
-  const resolvedCodexBin =
-    process.env.CODEX_CLI_BIN ||
-    (fs.existsSync(codexAppBin) ? codexAppBin : 'codex');
+  const absProjectRoot = projectRoot;
+  const resolvedCodexBin = process.env.CODEX_CLI_BIN || 'codex';
   
   const defaults: CockpitExecutorConfig = {
     backend: 'claude-cli',
@@ -65,43 +58,15 @@ export function loadConfig(projectRoot: string): CockpitExecutorConfig {
     },
   };
 
-  if (fs.existsSync(configPath)) {
-    try {
-      const stored = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
-      const normalizeBackend = (value: unknown): CockpitExecutorBackend => {
-        const raw = String(value || '').trim();
-        if (raw === 'claude-cli' || raw === 'codex-cli' || raw === 'openhands-sdk') return raw;
-        return defaults.backend;
-      };
-      const openhandsConfigRaw = {
-        ...defaults.openhands,
-        ...(stored.openhands || {}),
-        apiKeys: { ...defaults.openhands.apiKeys, ...(stored.openhands?.apiKeys || {}) },
-      };
-      const { workspacePath: _deprecatedWorkspacePath, ...openhandsConfig } = openhandsConfigRaw as typeof openhandsConfigRaw & { workspacePath?: string };
-      return {
-        ...defaults,
-        ...stored,
-        backend: normalizeBackend(stored.backend),
-        claude: { ...defaults.claude, ...(stored.claude || {}) },
-        codex: { ...defaults.codex, ...(stored.codex || {}) },
-        openhands: openhandsConfig,
-      };
-    } catch (e) {
-      console.error(`Failed to load cockpit_config.json from ${configPath}:`, e);
-    }
-  }
+  // Hard-remediation: file-based cockpit_config.json is removed.
+  // Runtime configuration is sourced from env + secrets-backed API paths.
   return defaults;
 }
 
 export function saveConfig(config: CockpitExecutorConfig) {
-  const configPath = path.resolve(config.projectRoot, 'cockpit_config.json');
-  try {
-    const { projectRoot, ...rest } = config; // Don't save projectRoot to the file
-    fs.writeFileSync(configPath, JSON.stringify(rest, null, 2));
-  } catch (e) {
-    console.error(`Failed to save cockpit_config.json to ${configPath}:`, e);
-  }
+  // Hard-remediation: local file persistence is intentionally removed.
+  // Keep function as no-op for compatibility with existing call sites.
+  void config;
 }
 
 export function getCockpitExecutorConfig(): CockpitExecutorConfig {
@@ -110,7 +75,20 @@ export function getCockpitExecutorConfig(): CockpitExecutorConfig {
 
 export function updateCockpitExecutorConfig(config: Partial<CockpitExecutorConfig>): CockpitExecutorConfig {
   const current = getCockpitExecutorConfig();
-  const updated = { ...current, ...config };
+  const updated = {
+    ...current,
+    ...config,
+    claude: { ...current.claude, ...(config.claude || {}) },
+    codex: { ...current.codex, ...(config.codex || {}) },
+    openhands: {
+      ...current.openhands,
+      ...(config.openhands || {}),
+      apiKeys: {
+        ...current.openhands.apiKeys,
+        ...(config.openhands?.apiKeys || {}),
+      },
+    },
+  };
   saveConfig(updated);
   return updated;
 }

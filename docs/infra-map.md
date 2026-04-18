@@ -19,7 +19,7 @@
 
 ## 3. Configuration & Environment
 - **Global Config**: `agent-system/.env` (OpenAI, LangSmith, Plane, Redis, runtime secrets).
-- **Project Config**: `agent-system/projects/<project-id>/cockpit_config.json` (managed by Agent System).
+- **Workspace Runtime Config**: persisted in Control API settings + Postgres secrets store (`/api/workspace/settings/executor`, `/api/cockpit/secrets/*`), no file-based project config.
 - **Discovery**: `DynamicDiscoveryService` scans `workspacePath/generated/` for pipelines and skills.
 
 ## 4. Isolation Policy

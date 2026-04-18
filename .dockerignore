@@ -38,7 +38,7 @@ docs/runtime/system/logs/
 .npm/
 .cache/
 tmp/
-scratch/
+scripts/scratch/
 
 # Local database
 db/*.sqlite

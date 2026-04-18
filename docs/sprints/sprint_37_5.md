@@ -78,7 +78,7 @@ Sprint 37 зробив правильну річ:
 Перенести:
 	•	docker-compose.runtime.yml → /infra/compose/
 	•	debug_infra.ts → /scripts/debug/
-	•	cockpit_config.json → /config/local/ або /config/dev/
+	•	видалити cockpit_config.json (executor config тільки через DB/secrets API)
 
 Видалити або gitignore:
 	•	всі *.log у root

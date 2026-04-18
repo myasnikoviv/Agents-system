@@ -10,7 +10,6 @@ import { v4 as uuidv4 } from 'uuid';
 import { buildPersistedEnvironmentId, type WarmupCheck } from '@system/memory';
 import { executeRuntimeRun, resumeRuntimeRun } from '@system/runtime';
 import { fetchRecentEvents, fetchEventsByRunId } from '@system/events';
-import { updateCockpitExecutorConfig, getCockpitExecutorConfig } from '@system/runtime';
 import { DynamicDiscoveryService, AgentRegistry, PipelineRegistry, SkillRegistry } from '@system/runtime';
 import { assetRegistryV2 } from '@system/runtime';
 import { runExternalExecutor } from '@system/runtime';
@@ -1500,8 +1499,7 @@ const syncExecutorSettingsToRuntimeConfig = async (
   auth?: { tenantId: string; workspaceId: string; userId?: string },
 ) => {
   try {
-    const current = getCockpitExecutorConfig();
-    const backend = String(executorSettings.backend || current.backend) as 'claude-cli' | 'codex-cli' | 'openhands-sdk';
+    const backend = String(executorSettings.backend || 'codex-cli') as 'claude-cli' | 'codex-cli' | 'openhands-sdk';
     const scopedOpenhandsApiKeys: Record<string, string> = {};
     if (auth?.tenantId && auth?.workspaceId) {
       for (const row of await postgresSecretsStore.listMeta({ tenantId: auth.tenantId, workspaceId: auth.workspaceId, userId: auth.userId })) {
@@ -1517,27 +1515,18 @@ const syncExecutorSettingsToRuntimeConfig = async (
         if (value) scopedOpenhandsApiKeys[provider] = value;
       }
     }
-    updateCockpitExecutorConfig({
-      backend,
-      claude: {
-        ...current.claude,
-        ...(executorSettings.claude || {}),
-      },
-      codex: {
-        ...current.codex,
-        ...(executorSettings.codex || {}),
-      },
-      openhands: {
-        ...current.openhands,
-        ...(executorSettings.openhands || {}),
-        apiKeys: {
-          ...current.openhands.apiKeys,
-          ...scopedOpenhandsApiKeys,
-        },
-      },
-    });
+    // Hard-remediation: no file-based cockpit config persistence.
+    // Runtime settings are applied through process env + secrets.
+    process.env.COCKPIT_EXECUTOR_BACKEND = backend;
+    process.env.CLAUDE_CODE_MODEL = String(executorSettings?.claude?.model || process.env.CLAUDE_CODE_MODEL || 'auto');
+    process.env.CODEX_MODEL = String(executorSettings?.codex?.model || process.env.CODEX_MODEL || 'auto');
+    process.env.OPENHANDS_MODEL = String(executorSettings?.openhands?.model || process.env.OPENHANDS_MODEL || 'anthropic/claude-sonnet-4-6');
+    process.env.OPENHANDS_SERVER_URL = String(executorSettings?.openhands?.serverUrl || process.env.OPENHANDS_SERVER_URL || 'http://localhost:8000');
+    if (scopedOpenhandsApiKeys.openai) process.env.OPENAI_API_KEY = scopedOpenhandsApiKeys.openai;
+    if (scopedOpenhandsApiKeys.anthropic) process.env.ANTHROPIC_API_KEY = scopedOpenhandsApiKeys.anthropic;
+    if (scopedOpenhandsApiKeys.google) process.env.GOOGLE_API_KEY = scopedOpenhandsApiKeys.google;
   } catch (error) {
-    console.error('[agent-system-backend] failed to sync executor settings to cockpit_config.json:', error);
+    console.error('[agent-system-backend] failed to sync executor settings to runtime env:', error);
   }
 };
 
@@ -3737,20 +3726,11 @@ app.post('/api/cockpit/environments/warmup', async (req, res) => {
         });
       }
 
-      try {
-        const cfg = getCockpitExecutorConfig();
-        checks.push({
-          id: 'executor_config',
-          ok: true,
-          detail: `backend=${cfg.backend || 'unknown'}`,
-        });
-      } catch (error: any) {
-        checks.push({
-          id: 'executor_config',
-          ok: false,
-          detail: String(error?.message || 'executor_config_unavailable'),
-        });
-      }
+      checks.push({
+        id: 'executor_config',
+        ok: true,
+        detail: `backend=${String(process.env.COCKPIT_EXECUTOR_BACKEND || 'codex-cli')}`,
+      });
 
       try {
         const [pgSecrets, pgObjects] = await Promise.all([shouldUsePostgresSecrets(), shouldUsePostgresObjects()]);
