@@ -14,6 +14,10 @@
     "build:apps": "npm run build --workspaces --if-present",
     "dev:control": "npm run dev -w apps/control-api",
     "dev:runtime": "npm run dev -w apps/runtime-engine",
+    "dev:client": "npm run dev -w apps/client-app",
+    "dev:admin": "npm run dev -w apps/admin-app",
+    "start:client": "npm run dev:client",
+    "start:admin": "npm run dev:admin",
     "test": "npm run test --workspaces --if-present",
     "verify": "tsx scripts/final_agentic_proof.ts",
     "verify:providers": "tsx scripts/verify_provider_consistency.ts",
@@ -45,7 +49,8 @@
     "infra:smoke:suite": "bash scripts/infra/smoke/run_suite.sh",
     "infra:smoke:suite:mocks": "bash scripts/infra/smoke/run_suite_with_mocks.sh",
     "infra:smoke:topology": "bash scripts/infra/smoke_topology_endpoint.sh",
-    "infra:k8s:validate": "bash scripts/infra/k8s_validate.sh"
+    "infra:k8s:validate": "bash scripts/infra/k8s_validate.sh",
+    "infra:ci:frontend-split-gate": "bash scripts/infra/ci_frontend_split_gate.sh"
   },
   "repository": {
     "type": "git",

@@ -32,7 +32,9 @@ import {
 import { Separator } from './separator'
 import { Button } from './button'
 
-const NAV_ITEMS = [
+type PageShellMode = 'admin' | 'client'
+
+const ADMIN_NAV_ITEMS = [
   {
     title: 'Governance',
     url: '/admin/governance',
@@ -55,7 +57,7 @@ const NAV_ITEMS = [
   },
 ]
 
-const SECONDARY_NAV = [
+const ADMIN_SECONDARY_NAV = [
   {
     title: 'Overrides',
     url: '/admin/overrides',
@@ -68,8 +70,31 @@ const SECONDARY_NAV = [
   },
 ]
 
-export function PageShell({ children, title }: { children: React.ReactNode, title: string }) {
+const CLIENT_NAV_ITEMS = [
+  {
+    title: 'Cockpit',
+    url: '/cockpit',
+    icon: BrainCircuit,
+  },
+  {
+    title: 'Settings',
+    url: '/cockpit/settings/general',
+    icon: Settings,
+  },
+]
+
+const CLIENT_SECONDARY_NAV = [
+  {
+    title: 'Governance',
+    url: '/admin/governance',
+    icon: ShieldCheck,
+  },
+]
+
+export function PageShell({ children, title, mode = 'admin' }: { children: React.ReactNode, title: string, mode?: PageShellMode }) {
   const location = useLocation()
+  const navItems = mode === 'admin' ? ADMIN_NAV_ITEMS : CLIENT_NAV_ITEMS
+  const secondaryNav = mode === 'admin' ? ADMIN_SECONDARY_NAV : CLIENT_SECONDARY_NAV
 
   return (
     <SidebarProvider>
@@ -87,7 +112,7 @@ export function PageShell({ children, title }: { children: React.ReactNode, titl
             <SidebarGroupLabel>Navigation</SidebarGroupLabel>
             <SidebarGroupContent>
               <SidebarMenu>
-                {NAV_ITEMS.map((item) => (
+                {navItems.map((item) => (
                   <SidebarMenuItem key={item.title}>
                     <SidebarMenuButton
                       asChild
@@ -108,7 +133,7 @@ export function PageShell({ children, title }: { children: React.ReactNode, titl
             <SidebarGroupLabel>System</SidebarGroupLabel>
             <SidebarGroupContent>
               <SidebarMenu>
-                {SECONDARY_NAV.map((item) => (
+                {secondaryNav.map((item) => (
                   <SidebarMenuItem key={item.title}>
                     <SidebarMenuButton
                       asChild
@@ -142,7 +167,7 @@ export function PageShell({ children, title }: { children: React.ReactNode, titl
             <SidebarTrigger />
             <Separator orientation="vertical" className="mr-2 h-4" />
             <h1 className="text-sm font-medium">
-              {NAV_ITEMS.find(i => i.url === location.pathname)?.title || 'Control Plane'}
+              {navItems.find(i => i.url === location.pathname)?.title || (mode === 'admin' ? 'Control Plane' : 'Client Workspace')}
             </h1>
           </div>
           <div className="flex items-center gap-2">

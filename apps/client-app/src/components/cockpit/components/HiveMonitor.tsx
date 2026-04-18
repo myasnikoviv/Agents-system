@@ -12,7 +12,6 @@ import { Progress } from '../../ui/progress';
 import { Separator } from '../../ui/separator';
 import { useCockpit } from '../context/CockpitContext';
 import { StreamRenderer } from '../StreamRenderer';
-import { ObservabilityPanels } from '../ObservabilityPanels';
 import './HiveMonitor.css';
 
 export const HiveMonitor: FC = () => {
@@ -34,8 +33,7 @@ export const HiveMonitor: FC = () => {
         replaySpeedMs,
         setReplaySpeedMs,
         replayVisibleEvents,
-        activeEvents,
-        selectedProject
+        activeEvents
     } = useCockpit();
 
     return (
@@ -304,7 +302,6 @@ export const HiveMonitor: FC = () => {
                             </div>
                             <div className="space-y-4">
                                 <StreamRenderer events={replayVisibleEvents} />
-                                <ObservabilityPanels events={replayVisibleEvents} selectedProject={selectedProject} />
                             </div>
                         </div>
                     </div>

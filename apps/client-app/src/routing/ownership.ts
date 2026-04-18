@@ -8,12 +8,9 @@ export interface OwnedSurface {
 export const UI_OWNERSHIP_MAP: OwnedSurface[] = [
   { id: 'CockpitPage', ownership: 'client' },
   { id: 'CockpitSettingsPage', ownership: 'client' },
-  { id: 'GovernanceCenterPage', ownership: 'admin' },
-  { id: 'GovernanceRuleCatalog', ownership: 'admin' },
-  { id: 'GovernanceRuleEditor', ownership: 'admin' },
-  { id: 'ProjectPolicyManager', ownership: 'admin' },
-  { id: 'ManualOverrideManager', ownership: 'admin' },
-  { id: 'EvidenceOverrideManager', ownership: 'admin' },
-  { id: 'GovernanceAuditTrail', ownership: 'admin' },
-  { id: 'ObservabilityPanels', ownership: 'admin' },
+  { id: 'AdminApp/GovernancePage', ownership: 'admin' },
+  { id: 'AdminApp/PoliciesPage', ownership: 'admin' },
+  { id: 'AdminApp/OverridesPage', ownership: 'admin' },
+  { id: 'AdminApp/AuditPage', ownership: 'admin' },
+  { id: 'AdminApp/MonitoringPage', ownership: 'admin' },
 ];
