@@ -67,6 +67,16 @@ body {
   color: #b8c7d6;
 }
 
+.banner {
+  margin: 16px 24px 0;
+  padding: 8px 12px;
+  border: 1px solid #2d3845;
+  border-radius: 8px;
+  background: #121c27;
+  color: #b8c7d6;
+  font-size: 12px;
+}
+
 .tableWrap {
   overflow: auto;
   margin-top: 12px;
