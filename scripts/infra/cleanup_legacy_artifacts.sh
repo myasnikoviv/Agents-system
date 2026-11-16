@@ -14,7 +14,7 @@ while IFS= read -r file; do
   fi
   git rm -f --quiet -- "${file}" || true
   removed=$((removed + 1))
-done < <(git ls-files 'packages/*/src/**/*.d.ts' 'packages/*/src/**/*.d.ts.map' 'packages/*/src/**/*.js.map' 'apps/*/src/**/*.d.ts' 'apps/*/src/**/*.d.ts.map' 'apps/*/src/**/*.js.map')
+done < <(git ls-files ':(glob)packages/*/src/**/*.d.ts' ':(glob)packages/*/src/**/*.d.ts.map' ':(glob)packages/*/src/**/*.js.map' ':(glob)apps/*/src/**/*.d.ts' ':(glob)apps/*/src/**/*.d.ts.map' ':(glob)apps/*/src/**/*.js.map')
 
 # Remove tracked js files only when a twin ts file exists (generated js in src).
 while IFS= read -r file; do
@@ -24,6 +24,6 @@ while IFS= read -r file; do
     git rm -f --quiet -- "${file}" || true
     removed=$((removed + 1))
   fi
-done < <(git ls-files 'packages/*/src/**/*.js' 'apps/*/src/**/*.js')
+done < <(git ls-files ':(glob)packages/*/src/**/*.js' ':(glob)apps/*/src/**/*.js' ':(glob)scripts/**/*.js')
 
 echo "[cleanup-legacy] removed tracked legacy artifacts: ${removed}"

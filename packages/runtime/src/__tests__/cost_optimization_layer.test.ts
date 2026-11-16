@@ -1,7 +1,7 @@
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { collectRunCostMetrics, decideAdaptiveOptimization } from '../cost/CostOptimizationEngine';
+import { collectRunCostMetrics, decideAdaptiveOptimization } from '@system/billing';
 
 function mkTmpWorkspace(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'cost-layer-'));
